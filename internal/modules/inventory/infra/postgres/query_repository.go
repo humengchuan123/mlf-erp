@@ -141,24 +141,37 @@ func appendInventoryFilters(
 		where += fmt.Sprintf(" AND (w.name ILIKE $%d OR m.name ILIKE $%d OR w.code ILIKE $%d OR m.code ILIKE $%d)", len(args), len(args), len(args), len(args))
 	}
 
-	if filter.DataScope == "all" {
+	switch filter.DataScope {
+	case "all":
 		return where, args
-	}
-	if filter.DataScope == "" {
-		filter.DataScope = "self"
-	}
-
-	path := filter.OrgPath
-	if filter.DataScope == "company" {
-		path = filter.CompanyPath
-	}
-	if path == "" {
+	case "self":
+		if filter.OrgID == "" {
+			return where + " AND 1 = 0", args
+		}
+		args = append(args, filter.OrgID)
+		where += fmt.Sprintf(" AND %s.org_id = $%d", alias, len(args))
+		return where, args
+	case "dept":
+		if filter.OrgPath == "" {
+			return where + " AND 1 = 0", args
+		}
+		args = append(args, filter.OrgPath)
+		where += fmt.Sprintf(
+			" AND EXISTS (SELECT 1 FROM erp.organizations o WHERE o.tenant_id = %s.tenant_id AND o.id = %s.org_id AND (o.path = $%d OR o.path LIKE $%d || '/%%'))",
+			alias, alias, len(args), len(args),
+		)
+		return where, args
+	case "company":
+		if filter.CompanyPath == "" {
+			return where + " AND 1 = 0", args
+		}
+		args = append(args, filter.CompanyPath)
+		where += fmt.Sprintf(
+			" AND EXISTS (SELECT 1 FROM erp.organizations o WHERE o.tenant_id = %s.tenant_id AND o.id = %s.org_id AND (o.path = $%d OR o.path LIKE $%d || '/%%'))",
+			alias, alias, len(args), len(args),
+		)
+		return where, args
+	default:
 		return where + " AND 1 = 0", args
 	}
-	args = append(args, path)
-	where += fmt.Sprintf(
-		" AND EXISTS (SELECT 1 FROM erp.organizations o WHERE o.tenant_id = %s.tenant_id AND o.id = %s.org_id AND (o.path = $%d OR o.path LIKE $%d || '/%%'))",
-		alias, alias, len(args), len(args),
-	)
-	return where, args
 }

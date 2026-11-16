@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -208,10 +209,15 @@ func (r *Repository) Receive(ctx context.Context, filter scope.Filter, receipt *
 	for _, line := range lines {
 		newReceived[line.ID] = line.ReceivedQty
 	}
+	seenLines := make(map[string]struct{}, len(receipt.Lines))
 	for _, line := range receipt.Lines {
 		if !line.Quantity.IsPositive() {
 			return domain.ErrInvalidInput
 		}
+		if _, exists := seenLines[line.OrderLineID]; exists {
+			return domain.ErrInvalidInput
+		}
+		seenLines[line.OrderLineID] = struct{}{}
 		orderLine, ok := lineByID[line.OrderLineID]
 		if !ok {
 			return domain.ErrInvalidInput
@@ -221,6 +227,15 @@ func (r *Repository) Receive(ctx context.Context, filter scope.Filter, receipt *
 		}
 		newReceived[orderLine.ID] = newReceived[orderLine.ID].Add(line.Quantity)
 	}
+
+	// Process inventory rows in a stable order to reduce deadlock risk for
+	// multi-material concurrent receipts.
+	sort.Slice(receipt.Lines, func(i, j int) bool {
+		if receipt.Lines[i].MaterialID == receipt.Lines[j].MaterialID {
+			return receipt.Lines[i].OrderLineID < receipt.Lines[j].OrderLineID
+		}
+		return receipt.Lines[i].MaterialID < receipt.Lines[j].MaterialID
+	})
 
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO erp.purchase_receipts (
@@ -242,13 +257,18 @@ func (r *Repository) Receive(ctx context.Context, filter scope.Filter, receipt *
 		); err != nil {
 			return fmt.Errorf("insert receipt line: %w", mapDBError(err))
 		}
-		if _, err := tx.Exec(ctx, `
+		tag, updateErr := tx.Exec(ctx, `
 			UPDATE erp.purchase_order_lines
 			SET received_qty = received_qty + $3
-			WHERE tenant_id = $1 AND id = $2`,
+			WHERE tenant_id = $1 AND id = $2
+			  AND received_qty + $3 <= quantity`,
 			receipt.TenantID, line.OrderLineID, line.Quantity.String(),
-		); err != nil {
-			return fmt.Errorf("update received quantity: %w", err)
+		)
+		if updateErr != nil {
+			return fmt.Errorf("update received quantity: %w", updateErr)
+		}
+		if tag.RowsAffected() != 1 {
+			return domain.ErrOverReceive
 		}
 
 		if _, err := tx.Exec(ctx, `

@@ -304,7 +304,9 @@ const suppliers = computed(() =>
 )
 
 function today() {
-  return new Date().toISOString().slice(0, 10)
+  const now = new Date()
+  const local = new Date(now.getTime() - now.getTimezoneOffset() * 60_000)
+  return local.toISOString().slice(0, 10)
 }
 
 function statusLabel(status: string) {
@@ -534,6 +536,16 @@ async function openReceive(order: PurchaseOrder) {
 async function saveReceive() {
   if (!receiveOrder.value) {
     return
+  }
+  for (const line of receiveForm.lines) {
+    if (line.quantity === '') {
+      continue
+    }
+    const quantity = Number(line.quantity)
+    if (!Number.isFinite(quantity) || quantity < 0) {
+      ElMessage.warning('收货数量必须是非负数字')
+      return
+    }
   }
   const lines = receiveForm.lines
     .filter((line) => Number(line.quantity) > 0)

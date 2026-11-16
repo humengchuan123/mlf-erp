@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"sort"
 	"strings"
 	"time"
 
@@ -32,7 +33,7 @@ type ReceiveInput struct {
 }
 
 func (s *ReceiptService) Receive(ctx context.Context, orderID string, input ReceiveInput) (*domain.Receipt, error) {
-	tenantID, orgID, userID := tenantActor(ctx)
+	tenantID, _, userID := tenantActor(ctx)
 	filter := scope.FromActor(ctx, tenantID)
 	order, err := s.orders.Get(ctx, filter, tenantID, orderID)
 	if err != nil {
@@ -50,25 +51,41 @@ func (s *ReceiptService) Receive(ctx context.Context, orderID string, input Rece
 		lineByID[line.ID] = line
 	}
 
-	receiptID := uuid.NewString()
-	receiptLines := make([]*domain.ReceiptLine, 0, len(input.Lines))
+	requested := make(map[string]decimal.Decimal, len(input.Lines))
 	for _, inputLine := range input.Lines {
-		orderLine, ok := lineByID[inputLine.OrderLineID]
-		if !ok || !inputLine.Quantity.IsPositive() {
+		if !inputLine.Quantity.IsPositive() {
 			return nil, domain.ErrInvalidInput
 		}
-		if inputLine.Quantity.GreaterThan(orderLine.Remaining()) {
+		if _, ok := lineByID[inputLine.OrderLineID]; !ok {
+			return nil, domain.ErrInvalidInput
+		}
+		requested[inputLine.OrderLineID] = requested[inputLine.OrderLineID].Add(inputLine.Quantity)
+	}
+
+	lineIDs := make([]string, 0, len(requested))
+	for lineID := range requested {
+		lineIDs = append(lineIDs, lineID)
+	}
+	sort.Strings(lineIDs)
+
+	receiptID := uuid.NewString()
+	receiptLines := make([]*domain.ReceiptLine, 0, len(lineIDs))
+	for _, lineID := range lineIDs {
+		orderLine := lineByID[lineID]
+		quantity := requested[lineID]
+		if quantity.GreaterThan(orderLine.Remaining()) {
 			return nil, domain.ErrOverReceive
 		}
 		receiptLines = append(receiptLines, &domain.ReceiptLine{
-			ID:          uuid.NewString(),
-			TenantID:    tenantID,
-			ReceiptID:   receiptID,
-			OrderLineID: orderLine.ID,
-			MaterialID:  orderLine.MaterialID,
-			Quantity:    inputLine.Quantity,
-			UnitPrice:   orderLine.UnitPrice,
-			Amount:      inputLine.Quantity.Mul(orderLine.UnitPrice).Round(4),
+			ID:           uuid.NewString(),
+			TenantID:     tenantID,
+			ReceiptID:    receiptID,
+			OrderLineID:  orderLine.ID,
+			MaterialID:   orderLine.MaterialID,
+			MaterialName: orderLine.MaterialName,
+			Quantity:     quantity,
+			UnitPrice:    orderLine.UnitPrice,
+			Amount:       quantity.Mul(orderLine.UnitPrice).Round(4),
 		})
 	}
 
@@ -84,7 +101,7 @@ func (s *ReceiptService) Receive(ctx context.Context, orderID string, input Rece
 	receipt := &domain.Receipt{
 		ID:            receiptID,
 		TenantID:      tenantID,
-		OrgID:         orgID,
+		OrgID:         order.OrgID,
 		Code:          code,
 		OrderID:       order.ID,
 		OrderCode:     order.Code,

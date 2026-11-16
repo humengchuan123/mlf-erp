@@ -142,6 +142,7 @@ var demoViewerPermissions = []string{
 	"masterdata.currency.read",
 	"masterdata.tax.read",
 	"purchase.order.read",
+	"purchase.receipt.read",
 	"purchase.read",
 	"inventory.balance.read",
 	"inventory.transaction.read",

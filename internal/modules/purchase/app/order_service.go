@@ -59,7 +59,7 @@ func (s *OrderService) Get(ctx context.Context, id string) (*domain.Order, error
 }
 
 func (s *OrderService) Create(ctx context.Context, input OrderInput) (*domain.Order, error) {
-	tenantID, orgID, userID := tenantActor(ctx)
+	tenantID, _, userID := tenantActor(ctx)
 	partner, warehouse, materials, err := s.validate(ctx, tenantID, input)
 	if err != nil {
 		return nil, err
@@ -82,7 +82,7 @@ func (s *OrderService) Create(ctx context.Context, input OrderInput) (*domain.Or
 	order := &domain.Order{
 		ID:            uuid.NewString(),
 		TenantID:      tenantID,
-		OrgID:         orgID,
+		OrgID:         warehouse.OrgID,
 		Code:          code,
 		SupplierID:    partner.ID,
 		SupplierName:  partner.Name,
@@ -128,6 +128,7 @@ func (s *OrderService) UpdateDraft(ctx context.Context, id string, input OrderIn
 		currency = order.Currency
 	}
 
+	order.OrgID = warehouse.OrgID
 	order.SupplierID = partner.ID
 	order.SupplierName = partner.Name
 	order.WarehouseID = warehouse.ID

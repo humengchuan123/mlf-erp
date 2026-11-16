@@ -14,3 +14,5 @@ DELETE FROM erp.permissions WHERE code IN (
     'purchase.order.read', 'purchase.order.write', 'purchase.order.approve',
     'purchase.receipt.read', 'inventory.balance.read', 'inventory.transaction.read'
 );
+
+DELETE FROM erp.code_rules WHERE entity = 'purchase_receipt';

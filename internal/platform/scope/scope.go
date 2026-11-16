@@ -8,6 +8,7 @@ import (
 
 type Filter struct {
 	TenantID    string
+	OrgID       string
 	DataScope   string
 	UserID      string
 	OrgPath     string
@@ -23,6 +24,7 @@ func FromActor(ctx context.Context, tenantID string) Filter {
 
 	return Filter{
 		TenantID:    tenantID,
+		OrgID:       actor.OrgID,
 		DataScope:   dataScope,
 		UserID:      actor.UserID,
 		OrgPath:     actor.OrgPath,
