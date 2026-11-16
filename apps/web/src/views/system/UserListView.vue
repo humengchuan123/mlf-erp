@@ -39,10 +39,24 @@
         </el-table-column>
         <el-table-column v-if="canWrite" label="操作" width="240" fixed="right">
           <template #default="{ row }">
-            <el-button link type="primary" @click="openEdit(row)">编辑</el-button>
-            <el-button link type="primary" @click="openAssignRoles(row)">分配角色</el-button>
             <el-button
-              v-if="row.status === 'active' && row.username !== 'admin'"
+              v-if="!row.is_super_admin || authStore.isSuperAdmin"
+              link
+              type="primary"
+              @click="openEdit(row)"
+            >
+              编辑
+            </el-button>
+            <el-button
+              v-if="canReadRoles && (!row.is_super_admin || authStore.isSuperAdmin)"
+              link
+              type="primary"
+              @click="openAssignRoles(row)"
+            >
+              分配角色
+            </el-button>
+            <el-button
+              v-if="row.status === 'active' && row.username !== 'admin' && (!row.is_super_admin || authStore.isSuperAdmin)"
               link
               type="danger"
               @click="disableUser(row)"
@@ -76,7 +90,7 @@
         <el-form-item label="邮箱">
           <el-input v-model="form.email" placeholder="name@example.com" />
         </el-form-item>
-        <el-form-item label="组织">
+        <el-form-item v-if="canReadOrgs" label="组织">
           <el-tree-select
             v-model="form.orgId"
             :data="orgTree"
@@ -99,10 +113,10 @@
             <el-option label="禁用" value="disabled" />
           </el-select>
         </el-form-item>
-        <el-form-item label="超级管理员">
+        <el-form-item v-if="authStore.isSuperAdmin" label="超级管理员">
           <el-switch v-model="form.isSuperAdmin" />
         </el-form-item>
-        <el-form-item v-if="!editingUser" label="角色">
+        <el-form-item v-if="!editingUser && canReadRoles" label="角色">
           <el-select v-model="form.roleIds" multiple style="width: 100%" placeholder="选择角色">
             <el-option v-for="role in roles" :key="role.id" :label="role.name" :value="role.id" />
           </el-select>
@@ -141,6 +155,8 @@ import { useAuthStore } from '@/stores/auth'
 
 const authStore = useAuthStore()
 const canWrite = computed(() => authStore.hasPermission('system.user.write'))
+const canReadRoles = computed(() => authStore.hasPermission('system.role.read'))
+const canReadOrgs = computed(() => authStore.hasPermission('system.org.read'))
 
 const users = ref<SystemUser[]>([])
 const roles = ref<SystemRole[]>([])
@@ -187,13 +203,35 @@ async function loadUsers() {
 }
 
 async function loadOptions() {
-  try {
-    const [roleList, orgList] = await Promise.all([systemApi.roles.list(), systemApi.orgs.list()])
-    roles.value = roleList
-    orgTree.value = orgList
-  } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : '加载角色或组织失败')
+  const tasks: Promise<void>[] = []
+
+  if (canReadRoles.value) {
+    tasks.push(
+      systemApi.roles
+        .list()
+        .then((roleList) => {
+          roles.value = roleList
+        })
+        .catch((error) => {
+          ElMessage.error(error instanceof Error ? error.message : '加载角色失败')
+        })
+    )
   }
+
+  if (canReadOrgs.value) {
+    tasks.push(
+      systemApi.orgs
+        .list()
+        .then((orgList) => {
+          orgTree.value = orgList
+        })
+        .catch((error) => {
+          ElMessage.error(error instanceof Error ? error.message : '加载组织失败')
+        })
+    )
+  }
+
+  await Promise.all(tasks)
 }
 
 function search() {

@@ -16,6 +16,7 @@ func Auth(
 	tokenService *security.TokenService,
 	users domain.UserRepository,
 	roles domain.RoleRepository,
+	orgs domain.OrgRepository,
 ) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		header := c.GetHeader("Authorization")
@@ -53,6 +54,24 @@ func Auth(
 			return
 		}
 
+		dataScope, err := users.DataScopeByUserID(c.Request.Context(), user.TenantID, user.ID, user.OrgID)
+		if err != nil {
+			dataScope = "self"
+		}
+		if user.IsSuperAdmin {
+			dataScope = "all"
+		}
+
+		var orgPath, companyPath string
+		if user.OrgID != "" {
+			if org, orgErr := orgs.FindByID(c.Request.Context(), user.TenantID, user.OrgID); orgErr == nil {
+				orgPath = org.Path
+			}
+			if company, companyErr := orgs.AncestorByType(c.Request.Context(), user.TenantID, user.OrgID, domain.OrgTypeCompany); companyErr == nil {
+				companyPath = company.Path
+			}
+		}
+
 		ctx := tenant.With(c.Request.Context(), tenant.Info{
 			ID:    user.TenantID,
 			OrgID: user.OrgID,
@@ -62,6 +81,9 @@ func Auth(
 			UserName:     user.DisplayName,
 			TenantID:     user.TenantID,
 			OrgID:        user.OrgID,
+			OrgPath:      orgPath,
+			CompanyPath:  companyPath,
+			DataScope:    dataScope,
 			Roles:        roleCodes,
 			Permissions:  permissions,
 			IsSuperAdmin: user.IsSuperAdmin,

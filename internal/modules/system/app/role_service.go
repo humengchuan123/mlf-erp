@@ -6,6 +6,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/mlf-erp/mlf-erp/internal/modules/system/domain"
+	"github.com/mlf-erp/mlf-erp/internal/platform/auth"
 )
 
 type RoleService struct {
@@ -30,7 +31,7 @@ func (s *RoleService) Create(ctx context.Context, input CreateRoleInput) (*domai
 	code := strings.TrimSpace(input.Code)
 	name := strings.TrimSpace(input.Name)
 	if code == "" || name == "" {
-		return nil, domain.ErrConflict
+		return nil, domain.ErrInvalidInput
 	}
 
 	role := &domain.Role{
@@ -51,10 +52,18 @@ func (s *RoleService) Update(ctx context.Context, tenantID, id, code, name strin
 		return nil, err
 	}
 
+	actor, _ := auth.ActorFrom(ctx)
+	if role.IsSystem && !actor.IsSuperAdmin {
+		return nil, domain.ErrForbidden
+	}
+
 	code = strings.TrimSpace(code)
 	name = strings.TrimSpace(name)
 	if code == "" || name == "" {
-		return nil, domain.ErrConflict
+		return nil, domain.ErrInvalidInput
+	}
+	if role.IsSystem && code != role.Code {
+		return nil, domain.ErrForbidden
 	}
 	role.Code = code
 	role.Name = name
@@ -77,9 +86,28 @@ func (s *RoleService) Delete(ctx context.Context, tenantID, id string) error {
 }
 
 func (s *RoleService) SetPermissions(ctx context.Context, tenantID, id string, permissionCodes []string) error {
-	if _, err := s.roles.FindByID(ctx, tenantID, id); err != nil {
+	role, err := s.roles.FindByID(ctx, tenantID, id)
+	if err != nil {
 		return err
 	}
+
+	actor, _ := auth.ActorFrom(ctx)
+	if role.IsSystem && !actor.IsSuperAdmin {
+		return domain.ErrForbidden
+	}
+	if !actor.IsSuperAdmin {
+		for _, existing := range role.Permissions {
+			if !actor.HasPermission(existing) {
+				return domain.ErrForbidden
+			}
+		}
+		for _, requested := range permissionCodes {
+			if !actor.HasPermission(requested) {
+				return domain.ErrForbidden
+			}
+		}
+	}
+
 	return s.roles.SetPermissions(ctx, tenantID, id, permissionCodes)
 }
 

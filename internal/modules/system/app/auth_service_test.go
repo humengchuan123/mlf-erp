@@ -85,8 +85,8 @@ func TestAuthServiceLoginFailure(t *testing.T) {
 	}
 }
 
-func TestAuthServiceDisabledUser(t *testing.T) {
-	service, users, _, _, _ := newTestAuthService(t, "Admin@123456")
+func TestAuthServiceDisabledUserUsesGenericFailure(t *testing.T) {
+	service, users, _, _, logs := newTestAuthService(t, "Admin@123456")
 	users.users[testKey("t1", "u1")].Status = domain.UserStatusDisabled
 
 	_, err := service.Login(context.Background(), LoginInput{
@@ -94,8 +94,27 @@ func TestAuthServiceDisabledUser(t *testing.T) {
 		Username: "admin",
 		Password: "Admin@123456",
 	})
-	if !errors.Is(err, domain.ErrUserDisabled) {
-		t.Fatalf("Login() error = %v, want ErrUserDisabled", err)
+	if !errors.Is(err, domain.ErrInvalidCredentials) {
+		t.Fatalf("Login() error = %v, want ErrInvalidCredentials", err)
+	}
+	if len(logs.logs) != 1 || logs.logs[0].FailureReason != "user disabled" {
+		t.Fatalf("login logs = %+v, want disabled reason", logs.logs)
+	}
+}
+
+func TestAuthServiceUnknownUserUsesGenericFailure(t *testing.T) {
+	service, _, _, _, logs := newTestAuthService(t, "Admin@123456")
+
+	_, err := service.Login(context.Background(), LoginInput{
+		TenantID: "t1",
+		Username: "missing-user",
+		Password: "whatever",
+	})
+	if !errors.Is(err, domain.ErrInvalidCredentials) {
+		t.Fatalf("Login() error = %v, want ErrInvalidCredentials", err)
+	}
+	if len(logs.logs) != 1 || logs.logs[0].FailureReason != "user not found" {
+		t.Fatalf("login logs = %+v, want not-found reason", logs.logs)
 	}
 }
 
@@ -119,11 +138,17 @@ func TestAuthServiceRefreshRotation(t *testing.T) {
 		t.Fatal("Refresh() did not rotate refresh token")
 	}
 
+	again, err := service.Refresh(context.Background(), refreshed.RefreshToken, "", "")
+	if err != nil {
+		t.Fatalf("Refresh() with rotated token error = %v", err)
+	}
+
+	// Reuse of an already rotated token must invalidate the whole token family.
 	if _, err := service.Refresh(context.Background(), result.RefreshToken, "", ""); !errors.Is(err, domain.ErrInvalidToken) {
 		t.Fatalf("Refresh() with old token error = %v, want ErrInvalidToken", err)
 	}
-	if _, err := service.Refresh(context.Background(), refreshed.RefreshToken, "", ""); err != nil {
-		t.Fatalf("Refresh() with rotated token error = %v", err)
+	if _, err := service.Refresh(context.Background(), again.RefreshToken, "", ""); !errors.Is(err, domain.ErrInvalidToken) {
+		t.Fatalf("Refresh() after reuse detection error = %v, want ErrInvalidToken", err)
 	}
 }
 

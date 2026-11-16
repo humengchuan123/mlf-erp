@@ -20,11 +20,16 @@ func New(cfg *config.Config, log *slog.Logger, db *pgxpool.Pool) *gin.Engine {
 	}
 
 	router := gin.New()
+	if len(cfg.HTTP.TrustedProxies) == 0 {
+		_ = router.SetTrustedProxies(nil)
+	} else if err := router.SetTrustedProxies(cfg.HTTP.TrustedProxies); err != nil {
+		log.Warn("invalid trusted proxies, disabling proxy trust", "error", err)
+		_ = router.SetTrustedProxies(nil)
+	}
 	router.Use(gin.Recovery())
 	router.Use(httpmw.RequestID())
 	router.Use(httpmw.Logger(log))
 	router.Use(httpmw.CORS(cfg.HTTP.CORSAllowedOrigins))
-	router.Use(httpmw.RequestContext(cfg.App.DefaultTenantID))
 
 	provider := entitlement.NewStatic(entitlement.DefaultCapabilities...)
 

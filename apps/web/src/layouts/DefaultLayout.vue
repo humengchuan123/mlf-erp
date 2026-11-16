@@ -30,6 +30,27 @@
           </el-menu-item>
         </el-menu-item-group>
 
+        <el-menu-item-group v-if="canMasterData" title="主数据">
+          <el-menu-item v-if="authStore.hasPermission('masterdata.partner.read')" index="/masterdata/partners">
+            <span>客商管理</span>
+          </el-menu-item>
+          <el-menu-item v-if="authStore.hasPermission('masterdata.material.read')" index="/masterdata/materials">
+            <span>物料管理</span>
+          </el-menu-item>
+          <el-menu-item v-if="authStore.hasPermission('masterdata.warehouse.read')" index="/masterdata/warehouses">
+            <span>仓库管理</span>
+          </el-menu-item>
+          <el-menu-item v-if="authStore.hasPermission('masterdata.unit.read')" index="/masterdata/units">
+            <span>计量单位</span>
+          </el-menu-item>
+          <el-menu-item v-if="authStore.hasPermission('masterdata.currency.read')" index="/masterdata/currencies">
+            <span>币种管理</span>
+          </el-menu-item>
+          <el-menu-item v-if="authStore.hasPermission('masterdata.tax.read')" index="/masterdata/tax-rates">
+            <span>税率管理</span>
+          </el-menu-item>
+        </el-menu-item-group>
+
         <el-menu-item-group v-if="canFinance" title="财务">
           <el-menu-item v-if="authStore.hasPermission('finance.read')" index="/finance/gl">
             <el-icon><Money /></el-icon>
@@ -53,6 +74,10 @@
           <el-menu-item v-if="authStore.hasPermission('system.audit.read')" index="/system/audit-logs">
             <el-icon><Document /></el-icon>
             <span>审计日志</span>
+          </el-menu-item>
+          <el-menu-item v-if="authStore.hasPermission('system.code_rule.read')" index="/system/code-rules">
+            <el-icon><Document /></el-icon>
+            <span>编码规则</span>
           </el-menu-item>
         </el-menu-item-group>
       </el-menu>
@@ -116,6 +141,15 @@ const canSupplyChain = computed(
     authStore.hasPermission('purchase.read') ||
     authStore.hasPermission('sales.read') ||
     authStore.hasPermission('inventory.read')
+)
+const canMasterData = computed(
+  () =>
+    authStore.hasPermission('masterdata.partner.read') ||
+    authStore.hasPermission('masterdata.material.read') ||
+    authStore.hasPermission('masterdata.warehouse.read') ||
+    authStore.hasPermission('masterdata.unit.read') ||
+    authStore.hasPermission('masterdata.currency.read') ||
+    authStore.hasPermission('masterdata.tax.read')
 )
 const canFinance = computed(() => authStore.hasPermission('finance.read'))
 const canSystem = computed(

@@ -212,6 +212,8 @@ func handleError(c *gin.Context, log *slog.Logger, err error) {
 		httpx.Error(c, http.StatusConflict, "SYSTEM_ROLE", "system role cannot be deleted")
 	case errors.Is(err, domain.ErrWeakPassword):
 		httpx.Error(c, http.StatusBadRequest, httpx.CodeBadRequest, "password must be at least 8 characters")
+	case errors.Is(err, domain.ErrInvalidInput):
+		httpx.Error(c, http.StatusBadRequest, httpx.CodeBadRequest, "invalid input")
 	default:
 		log.Error("system request failed",
 			"error", err,

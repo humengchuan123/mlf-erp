@@ -10,6 +10,9 @@
       </div>
 
       <el-form :model="form" label-position="top">
+        <el-form-item label="租户 ID">
+          <el-input v-model="form.tenantId" placeholder="留空使用默认租户" size="large" />
+        </el-form-item>
         <el-form-item label="用户名">
           <el-input v-model="form.username" placeholder="请输入用户名" size="large" />
         </el-form-item>
@@ -34,7 +37,7 @@
         </el-button>
       </el-form>
 
-      <p class="login__hint">默认账号：admin / Admin@123456</p>
+      <p class="login__hint">首次登录请使用 seed 账号，并尽快修改默认密码。</p>
     </el-card>
   </div>
 </template>
@@ -49,7 +52,7 @@ const router = useRouter()
 const route = useRoute()
 const authStore = useAuthStore()
 const loading = ref(false)
-const form = reactive({ username: 'admin', password: 'Admin@123456' })
+const form = reactive({ tenantId: '', username: 'admin', password: '' })
 
 async function submit() {
   if (!form.username.trim() || !form.password) {
@@ -59,7 +62,7 @@ async function submit() {
 
   loading.value = true
   try {
-    await authStore.login(form.username.trim(), form.password)
+    await authStore.login(form.username.trim(), form.password, form.tenantId.trim() || undefined)
     const redirect = typeof route.query.redirect === 'string' ? route.query.redirect : '/'
     await router.push(redirect)
   } catch (error) {

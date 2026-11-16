@@ -28,6 +28,7 @@ type HTTPConfig struct {
 	Addr               string
 	ShutdownTimeout    time.Duration
 	CORSAllowedOrigins []string
+	TrustedProxies     []string
 }
 
 type DBConfig struct {
@@ -69,6 +70,7 @@ func Load() (*Config, error) {
 			Addr:               getString("HTTP_ADDR", ":8080"),
 			ShutdownTimeout:    getDuration("HTTP_SHUTDOWN_TIMEOUT", 10*time.Second),
 			CORSAllowedOrigins: getCSV("CORS_ALLOWED_ORIGINS", []string{"http://localhost:5173"}),
+			TrustedProxies:     getCSV("HTTP_TRUSTED_PROXIES", nil),
 		},
 		DB: DBConfig{
 			Enabled:        getBool("DB_ENABLED", true),
@@ -108,8 +110,13 @@ func Load() (*Config, error) {
 	if cfg.Auth.JWTSecret == "" {
 		return nil, fmt.Errorf("JWT_SECRET must not be empty")
 	}
-	if env == "prod" && cfg.Auth.JWTSecret == "dev-only-change-me" {
-		return nil, fmt.Errorf("JWT_SECRET must be changed in production")
+	if env != "dev" && env != "test" {
+		if cfg.Auth.JWTSecret == "dev-only-change-me" {
+			return nil, fmt.Errorf("JWT_SECRET must be changed outside development")
+		}
+		if len(cfg.Auth.JWTSecret) < 32 {
+			return nil, fmt.Errorf("JWT_SECRET must be at least 32 characters outside development")
+		}
 	}
 	if cfg.Auth.AccessTokenTTL <= 0 {
 		return nil, fmt.Errorf("ACCESS_TOKEN_TTL must be greater than zero")

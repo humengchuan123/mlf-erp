@@ -11,6 +11,10 @@ import (
 	"time"
 
 	"github.com/joho/godotenv"
+	masterapp "github.com/mlf-erp/mlf-erp/internal/modules/masterdata/app"
+	masterdomain "github.com/mlf-erp/mlf-erp/internal/modules/masterdata/domain"
+	masterhttp "github.com/mlf-erp/mlf-erp/internal/modules/masterdata/http"
+	masterpostgres "github.com/mlf-erp/mlf-erp/internal/modules/masterdata/infra/postgres"
 	"github.com/mlf-erp/mlf-erp/internal/modules/purchase/app"
 	purchasehttp "github.com/mlf-erp/mlf-erp/internal/modules/purchase/http"
 	"github.com/mlf-erp/mlf-erp/internal/modules/purchase/infra"
@@ -67,6 +71,7 @@ func main() {
 	refreshTokenRepository := systempostgres.NewRefreshTokenRepository(db)
 	auditRepository := systempostgres.NewAuditRepository(db)
 	loginLogRepository := systempostgres.NewLoginLogRepository(db)
+	codeRuleRepository := systempostgres.NewCodeRuleRepository(db)
 
 	tokenService := security.NewTokenService(cfg.Auth.JWTSecret, cfg.Auth.JWTIssuer, cfg.Auth.AccessTokenTTL)
 	authService := systemapp.NewAuthService(
@@ -77,27 +82,57 @@ func main() {
 		tokenService,
 		cfg.Auth.RefreshTokenTTL,
 	)
-	userService := systemapp.NewUserService(userRepository, roleRepository)
+	userService := systemapp.NewUserService(userRepository, roleRepository, refreshTokenRepository)
 	roleService := systemapp.NewRoleService(roleRepository)
 	permissionService := systemapp.NewPermissionService(permissionRepository)
 	orgService := systemapp.NewOrgService(orgRepository)
 	auditService := systemapp.NewAuditService(auditRepository)
+	codeRuleService := systemapp.NewCodeRuleService(codeRuleRepository)
 
 	authHandler := systemhttp.NewAuthHandler(authService, cfg.App.DefaultTenantID, log)
 	userHandler := systemhttp.NewUserHandler(userService, auditService, log)
 	roleHandler := systemhttp.NewRoleHandler(roleService, permissionService, auditService, log)
 	orgHandler := systemhttp.NewOrgHandler(orgService, auditService, log)
 	auditHandler := systemhttp.NewAuditHandler(auditService, log)
+	codeRuleHandler := systemhttp.NewCodeRuleHandler(codeRuleService, auditService, log)
+
+	partnerRepository := masterpostgres.NewRepository[masterdomain.Partner](db)
+	materialRepository := masterpostgres.NewRepository[masterdomain.Material](db)
+	warehouseRepository := masterpostgres.NewRepository[masterdomain.Warehouse](db)
+	unitRepository := masterpostgres.NewRepository[masterdomain.Unit](db)
+	currencyRepository := masterpostgres.NewRepository[masterdomain.Currency](db)
+	taxRateRepository := masterpostgres.NewRepository[masterdomain.TaxRate](db)
+
+	partnerService := masterapp.NewPartnerService(partnerRepository, codeRuleService)
+	materialService := masterapp.NewMaterialService(materialRepository, unitRepository, taxRateRepository, codeRuleService)
+	warehouseService := masterapp.NewWarehouseService(warehouseRepository, codeRuleService)
+	unitService := masterapp.NewUnitService(unitRepository)
+	currencyService := masterapp.NewCurrencyService(currencyRepository)
+	taxRateService := masterapp.NewTaxRateService(taxRateRepository)
+
+	partnerHandler := masterhttp.NewPartnerHandler(partnerService, auditService, log)
+	materialHandler := masterhttp.NewMaterialHandler(materialService, auditService, log)
+	warehouseHandler := masterhttp.NewWarehouseHandler(warehouseService, auditService, log)
+	unitHandler := masterhttp.NewUnitHandler(unitService, auditService, log)
+	currencyHandler := masterhttp.NewCurrencyHandler(currencyService, auditService, log)
+	taxRateHandler := masterhttp.NewTaxRateHandler(taxRateService, auditService, log)
 
 	api := engine.Group("/api/v1")
 	authHandler.RegisterPublic(api)
 
-	protected := api.Group("", authmw.Auth(tokenService, userRepository, roleRepository))
+	protected := api.Group("", authmw.Auth(tokenService, userRepository, roleRepository, orgRepository))
 	authHandler.RegisterProtected(protected)
 	userHandler.Register(protected)
 	roleHandler.Register(protected)
 	orgHandler.Register(protected)
 	auditHandler.Register(protected)
+	codeRuleHandler.Register(protected)
+	partnerHandler.Register(protected)
+	materialHandler.Register(protected)
+	warehouseHandler.Register(protected)
+	unitHandler.Register(protected)
+	currencyHandler.Register(protected)
+	taxRateHandler.Register(protected)
 
 	purchaseRepository := infra.NewMemoryRepository()
 	purchaseService := app.NewService(purchaseRepository)
@@ -107,6 +142,9 @@ func main() {
 		Addr:              cfg.HTTP.Addr,
 		Handler:           engine,
 		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      60 * time.Second,
+		IdleTimeout:       120 * time.Second,
 	}
 
 	go func() {

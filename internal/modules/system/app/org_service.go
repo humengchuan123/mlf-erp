@@ -114,6 +114,10 @@ func (s *OrgService) Update(ctx context.Context, tenantID, id string, input Upda
 	}
 
 	if input.ParentID != org.ParentID {
+		if input.ParentID == org.ID {
+			return nil, domain.ErrInvalidInput
+		}
+
 		orgs, listErr := s.orgs.List(ctx, tenantID)
 		if listErr != nil {
 			return nil, listErr
@@ -130,6 +134,9 @@ func (s *OrgService) Update(ctx context.Context, tenantID, id string, input Upda
 			parent, parentErr := s.orgs.FindByID(ctx, tenantID, input.ParentID)
 			if parentErr != nil {
 				return nil, parentErr
+			}
+			if parent.Path == org.Path || strings.HasPrefix(parent.Path, org.Path+"/") {
+				return nil, domain.ErrInvalidInput
 			}
 			org.Path = strings.TrimRight(parent.Path, "/") + "/" + org.ID
 		}

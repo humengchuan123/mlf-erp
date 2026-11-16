@@ -10,6 +10,14 @@ import (
 	"github.com/mlf-erp/mlf-erp/internal/platform/security"
 )
 
+var dummyPasswordHash = func() string {
+	hash, err := security.HashPassword("mlf-erp-dummy-password")
+	if err != nil {
+		return ""
+	}
+	return hash
+}()
+
 type AuthService struct {
 	users        domain.UserRepository
 	roles        domain.RoleRepository
@@ -64,6 +72,9 @@ func (s *AuthService) Login(ctx context.Context, input LoginInput) (*LoginResult
 	user, err := s.users.FindByUsername(ctx, input.TenantID, input.Username)
 	if err != nil {
 		if errors.Is(err, domain.ErrNotFound) {
+			if dummyPasswordHash != "" {
+				security.CheckPassword(dummyPasswordHash, input.Password)
+			}
 			s.writeLoginLog(ctx, input, "", domain.LoginStatusFailure, "user not found")
 			return nil, domain.ErrInvalidCredentials
 		}
@@ -71,17 +82,16 @@ func (s *AuthService) Login(ctx context.Context, input LoginInput) (*LoginResult
 	}
 
 	if !user.IsActive() {
+		security.CheckPassword(user.PasswordHash, input.Password)
 		s.writeLoginLog(ctx, input, user.ID, domain.LoginStatusFailure, "user disabled")
-		return nil, domain.ErrUserDisabled
+		return nil, domain.ErrInvalidCredentials
 	}
 	if !security.CheckPassword(user.PasswordHash, input.Password) {
 		s.writeLoginLog(ctx, input, user.ID, domain.LoginStatusFailure, "invalid password")
 		return nil, domain.ErrInvalidCredentials
 	}
 
-	now := time.Now()
-	user.LastLoginAt = &now
-	if err := s.users.Update(ctx, user); err != nil {
+	if err := s.users.TouchLastLogin(ctx, input.TenantID, user.ID); err != nil {
 		return nil, err
 	}
 
@@ -102,7 +112,20 @@ func (s *AuthService) Refresh(ctx context.Context, rawToken, ip, userAgent strin
 		}
 		return nil, err
 	}
-	if !token.IsValid(time.Now()) {
+	if token.RevokedAt != nil {
+		_ = s.tokens.RevokeAllForUser(ctx, token.TenantID, token.UserID)
+		return nil, domain.ErrInvalidToken
+	}
+	if !token.ExpiresAt.After(time.Now()) {
+		return nil, domain.ErrInvalidToken
+	}
+
+	consumed, err := s.tokens.ConsumeByHash(ctx, hash)
+	if err != nil {
+		return nil, err
+	}
+	if !consumed {
+		_ = s.tokens.RevokeAllForUser(ctx, token.TenantID, token.UserID)
 		return nil, domain.ErrInvalidToken
 	}
 
@@ -114,12 +137,9 @@ func (s *AuthService) Refresh(ctx context.Context, rawToken, ip, userAgent strin
 		return nil, err
 	}
 	if !user.IsActive() {
-		return nil, domain.ErrUserDisabled
+		return nil, domain.ErrInvalidToken
 	}
 
-	if err := s.tokens.RevokeByHash(ctx, hash); err != nil {
-		return nil, err
-	}
 	return s.issueTokens(ctx, user, ip, userAgent)
 }
 

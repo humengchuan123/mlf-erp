@@ -28,7 +28,7 @@ func (r *OrgRepository) Create(ctx context.Context, org *domain.Org) error {
 		org.ID, org.TenantID, org.ParentID, org.Type, org.Code, org.Name, org.Path, org.Status,
 	)
 	if err != nil {
-		return fmt.Errorf("create org: %w", err)
+		return fmt.Errorf("create org: %w", mapDBError(err))
 	}
 	return nil
 }
@@ -43,7 +43,7 @@ func (r *OrgRepository) Update(ctx context.Context, org *domain.Org) error {
 		org.TenantID, org.ID, org.ParentID, org.Type, org.Code, org.Name, org.Path, org.Status,
 	)
 	if err != nil {
-		return fmt.Errorf("update org: %w", err)
+		return fmt.Errorf("update org: %w", mapDBError(err))
 	}
 	if tag.RowsAffected() == 0 {
 		return domain.ErrNotFound
@@ -62,7 +62,7 @@ func (r *OrgRepository) Delete(ctx context.Context, tenantID, id string) error {
 
 	tag, err := r.db.Exec(ctx, `DELETE FROM erp.organizations WHERE tenant_id = $1 AND id = $2`, tenantID, id)
 	if err != nil {
-		return fmt.Errorf("delete org: %w", err)
+		return fmt.Errorf("delete org: %w", mapDBError(err))
 	}
 	if tag.RowsAffected() == 0 {
 		return domain.ErrNotFound
@@ -76,6 +76,27 @@ func (r *OrgRepository) FindByID(ctx context.Context, tenantID, id string) (*dom
 		       type, code, name, path, status, created_at, updated_at
 		FROM erp.organizations
 		WHERE tenant_id = $1 AND id = $2`, tenantID, id)
+	return scanOrg(row)
+}
+
+func (r *OrgRepository) AncestorByType(ctx context.Context, tenantID, orgID, orgType string) (*domain.Org, error) {
+	row := r.db.QueryRow(ctx, `
+		WITH RECURSIVE ancestors AS (
+			SELECT id, tenant_id, parent_id, type, code, name, path, status, created_at, updated_at
+			FROM erp.organizations
+			WHERE tenant_id = $1 AND id = $2
+
+			UNION ALL
+
+			SELECT o.id, o.tenant_id, o.parent_id, o.type, o.code, o.name, o.path, o.status, o.created_at, o.updated_at
+			FROM erp.organizations o
+			JOIN ancestors a ON o.tenant_id = a.tenant_id AND o.id = a.parent_id
+		)
+		SELECT id::text, tenant_id::text, COALESCE(parent_id::text, ''),
+		       type, code, name, path, status, created_at, updated_at
+		FROM ancestors
+		WHERE type = $3
+		LIMIT 1`, tenantID, orgID, orgType)
 	return scanOrg(row)
 }
 

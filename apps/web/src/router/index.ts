@@ -62,6 +62,48 @@ const routes: RouteRecordRaw[] = [
         }
       },
       {
+        path: 'masterdata/partners',
+        name: 'masterdata-partners',
+        component: () => import('@/views/masterdata/PartnerListView.vue'),
+        meta: { title: '客商管理', permission: 'masterdata.partner.read' }
+      },
+      {
+        path: 'masterdata/materials',
+        name: 'masterdata-materials',
+        component: () => import('@/views/masterdata/MaterialListView.vue'),
+        meta: { title: '物料管理', permission: 'masterdata.material.read' }
+      },
+      {
+        path: 'masterdata/warehouses',
+        name: 'masterdata-warehouses',
+        component: () => import('@/views/masterdata/WarehouseListView.vue'),
+        meta: { title: '仓库管理', permission: 'masterdata.warehouse.read' }
+      },
+      {
+        path: 'masterdata/units',
+        name: 'masterdata-units',
+        component: () => import('@/views/masterdata/UnitListView.vue'),
+        meta: { title: '计量单位', permission: 'masterdata.unit.read' }
+      },
+      {
+        path: 'masterdata/currencies',
+        name: 'masterdata-currencies',
+        component: () => import('@/views/masterdata/CurrencyListView.vue'),
+        meta: { title: '币种管理', permission: 'masterdata.currency.read' }
+      },
+      {
+        path: 'masterdata/tax-rates',
+        name: 'masterdata-tax-rates',
+        component: () => import('@/views/masterdata/TaxRateListView.vue'),
+        meta: { title: '税率管理', permission: 'masterdata.tax.read' }
+      },
+      {
+        path: 'system/code-rules',
+        name: 'system-code-rules',
+        component: () => import('@/views/system/CodeRuleView.vue'),
+        meta: { title: '编码规则', permission: 'system.code_rule.read' }
+      },
+      {
         path: 'system/users',
         name: 'system-users',
         component: () => import('@/views/system/UserListView.vue'),

@@ -2,11 +2,14 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
 	"time"
 
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/joho/godotenv"
 	"github.com/mlf-erp/mlf-erp/internal/platform/config"
 	"github.com/mlf-erp/mlf-erp/internal/platform/database"
@@ -42,6 +45,34 @@ var permissions = []struct {
 	{"inventory.write", "管理库存", "inventory", "api"},
 	{"finance.read", "查看财务", "finance", "api"},
 	{"finance.write", "管理财务", "finance", "api"},
+	{"masterdata.partner.read", "查看客商", "masterdata", "api"},
+	{"masterdata.partner.write", "管理客商", "masterdata", "api"},
+	{"masterdata.material.read", "查看物料", "masterdata", "api"},
+	{"masterdata.material.write", "管理物料", "masterdata", "api"},
+	{"masterdata.warehouse.read", "查看仓库", "masterdata", "api"},
+	{"masterdata.warehouse.write", "管理仓库", "masterdata", "api"},
+	{"masterdata.unit.read", "查看计量单位", "masterdata", "api"},
+	{"masterdata.unit.write", "管理计量单位", "masterdata", "api"},
+	{"masterdata.currency.read", "查看币种", "masterdata", "api"},
+	{"masterdata.currency.write", "管理币种", "masterdata", "api"},
+	{"masterdata.tax.read", "查看税率", "masterdata", "api"},
+	{"masterdata.tax.write", "管理税率", "masterdata", "api"},
+	{"system.code_rule.read", "查看编码规则", "system", "api"},
+	{"system.code_rule.write", "管理编码规则", "system", "api"},
+}
+
+var defaultCodeRules = []struct {
+	Entity         string
+	Prefix         string
+	DatePattern    string
+	Separator      string
+	SequenceLength int
+	ResetPolicy    string
+}{
+	{"partner", "CUS", "yyyyMMdd", "-", 4, "day"},
+	{"material", "MAT", "yyyyMMdd", "-", 4, "day"},
+	{"warehouse", "WH", "yyyyMMdd", "-", 3, "day"},
+	{"purchase_order", "PO", "yyyyMMdd", "-", 4, "day"},
 }
 
 func main() {
@@ -118,7 +149,24 @@ func main() {
 		fail("assign role permissions", err)
 	}
 
-	passwordHash, err := security.HashPassword(defaultPassword)
+	seedPassword := os.Getenv("SEED_ADMIN_PASSWORD")
+	if seedPassword == "" {
+		seedPassword = defaultPassword
+	}
+	if len(seedPassword) < 8 {
+		fail("seed admin password must be at least 8 characters", nil)
+	}
+
+	var existingUserID string
+	lookupErr := tx.QueryRow(ctx, `
+		SELECT id::text FROM erp.users
+		WHERE tenant_id = $1 AND username = 'admin'`, defaultTenantID).Scan(&existingUserID)
+	userCreated := errors.Is(lookupErr, pgx.ErrNoRows)
+	if lookupErr != nil && !userCreated {
+		fail("check admin user", lookupErr)
+	}
+
+	passwordHash, err := security.HashPassword(seedPassword)
 	if err != nil {
 		fail("hash password", err)
 	}
@@ -155,14 +203,43 @@ func main() {
 		fail("assign admin organization", err)
 	}
 
+	for _, rule := range defaultCodeRules {
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO erp.code_rules (
+				id, tenant_id, entity, prefix, date_pattern, separator,
+				sequence_length, reset_policy, status
+			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'active')
+			ON CONFLICT (tenant_id, entity) DO UPDATE
+			SET prefix = EXCLUDED.prefix,
+			    date_pattern = EXCLUDED.date_pattern,
+			    separator = EXCLUDED.separator,
+			    sequence_length = EXCLUDED.sequence_length,
+			    reset_policy = EXCLUDED.reset_policy,
+			    status = 'active'`,
+			uuid.NewString(), defaultTenantID, rule.Entity, rule.Prefix, rule.DatePattern,
+			rule.Separator, rule.SequenceLength, rule.ResetPolicy,
+		); err != nil {
+			fail("seed code rule", err)
+		}
+	}
+
 	if err := tx.Commit(ctx); err != nil {
 		fail("commit seed transaction", err)
 	}
 
-	fmt.Printf("seed completed: tenant=default username=admin password=%s\n", defaultPassword)
+	if userCreated {
+		fmt.Printf("seed completed: tenant=default username=admin password=%s\n", seedPassword)
+		fmt.Println("warning: change the default password before production use")
+	} else {
+		fmt.Println("seed completed: tenant=default username=admin password=unchanged")
+	}
 }
 
 func fail(message string, err error) {
-	slog.Error(message, "error", err)
+	if err != nil {
+		slog.Error(message, "error", err)
+	} else {
+		slog.Error(message)
+	}
 	os.Exit(1)
 }

@@ -12,11 +12,17 @@ func testKey(tenantID, id string) string {
 }
 
 type fakeUserRepo struct {
-	users map[string]*domain.User
+	users     map[string]*domain.User
+	userRoles map[string][]string
+	dataScope string
 }
 
 func newFakeUserRepo() *fakeUserRepo {
-	return &fakeUserRepo{users: make(map[string]*domain.User)}
+	return &fakeUserRepo{
+		users:     make(map[string]*domain.User),
+		userRoles: make(map[string][]string),
+		dataScope: "self",
+	}
 }
 
 func (r *fakeUserRepo) Create(_ context.Context, user *domain.User) error {
@@ -61,12 +67,31 @@ func (r *fakeUserRepo) List(_ context.Context, tenantID, _ string, _, _ int) ([]
 	return result, len(result), nil
 }
 
-func (r *fakeUserRepo) SetRoles(_ context.Context, _, _ string, _ []string) error {
+func (r *fakeUserRepo) SetRoles(_ context.Context, tenantID, userID string, roleIDs []string) error {
+	r.userRoles[testKey(tenantID, userID)] = append([]string(nil), roleIDs...)
 	return nil
 }
 
-func (r *fakeUserRepo) GetRoleIDs(_ context.Context, _, _ string) ([]string, error) {
-	return nil, nil
+func (r *fakeUserRepo) GetRoleIDs(_ context.Context, tenantID, userID string) ([]string, error) {
+	return r.userRoles[testKey(tenantID, userID)], nil
+}
+
+func (r *fakeUserRepo) DataScopeByUserID(_ context.Context, _, _, _ string) (string, error) {
+	return r.dataScope, nil
+}
+
+func (r *fakeUserRepo) TouchLastLogin(_ context.Context, _, _ string) error {
+	return nil
+}
+
+func (r *fakeUserRepo) CountActiveSuperAdmins(_ context.Context, tenantID string) (int, error) {
+	count := 0
+	for _, user := range r.users {
+		if user.TenantID == tenantID && user.IsSuperAdmin && user.Status == domain.UserStatusActive {
+			count++
+		}
+	}
+	return count, nil
 }
 
 type fakeRoleRepo struct {
@@ -106,6 +131,7 @@ func (r *fakeRoleRepo) FindByID(_ context.Context, _, id string) (*domain.Role, 
 		return nil, domain.ErrNotFound
 	}
 	copied := *role
+	copied.Permissions = append([]string(nil), r.rolePermissions[id]...)
 	return &copied, nil
 }
 
@@ -169,6 +195,16 @@ func (r *fakeRefreshTokenRepo) FindByHash(_ context.Context, hash string) (*doma
 	}
 	copied := *token
 	return &copied, nil
+}
+
+func (r *fakeRefreshTokenRepo) ConsumeByHash(_ context.Context, hash string) (bool, error) {
+	token, ok := r.tokens[hash]
+	if !ok || token.RevokedAt != nil || !token.ExpiresAt.After(time.Now()) {
+		return false, nil
+	}
+	now := time.Now()
+	token.RevokedAt = &now
+	return true, nil
 }
 
 func (r *fakeRefreshTokenRepo) RevokeByHash(_ context.Context, hash string) error {

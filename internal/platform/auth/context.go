@@ -7,6 +7,9 @@ type Actor struct {
 	UserName     string
 	TenantID     string
 	OrgID        string
+	OrgPath      string
+	CompanyPath  string
+	DataScope    string
 	Roles        []string
 	Permissions  []string
 	IsSuperAdmin bool

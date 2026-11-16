@@ -12,4 +12,5 @@ var (
 	ErrOrgHasChildren     = errors.New("organization has children")
 	ErrSystemRole         = errors.New("system role cannot be deleted")
 	ErrWeakPassword       = errors.New("password must be at least 8 characters")
+	ErrInvalidInput       = errors.New("invalid input")
 )

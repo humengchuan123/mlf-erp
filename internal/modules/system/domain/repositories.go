@@ -10,6 +10,9 @@ type UserRepository interface {
 	List(ctx context.Context, tenantID, keyword string, offset, limit int) ([]*User, int, error)
 	SetRoles(ctx context.Context, tenantID, userID string, roleIDs []string) error
 	GetRoleIDs(ctx context.Context, tenantID, userID string) ([]string, error)
+	DataScopeByUserID(ctx context.Context, tenantID, userID, orgID string) (string, error)
+	TouchLastLogin(ctx context.Context, tenantID, userID string) error
+	CountActiveSuperAdmins(ctx context.Context, tenantID string) (int, error)
 }
 
 type RoleRepository interface {
@@ -32,12 +35,14 @@ type OrgRepository interface {
 	Update(ctx context.Context, org *Org) error
 	Delete(ctx context.Context, tenantID, id string) error
 	FindByID(ctx context.Context, tenantID, id string) (*Org, error)
+	AncestorByType(ctx context.Context, tenantID, orgID, orgType string) (*Org, error)
 	List(ctx context.Context, tenantID string) ([]*Org, error)
 }
 
 type RefreshTokenRepository interface {
 	Create(ctx context.Context, token *RefreshToken) error
 	FindByHash(ctx context.Context, hash string) (*RefreshToken, error)
+	ConsumeByHash(ctx context.Context, hash string) (bool, error)
 	RevokeByHash(ctx context.Context, hash string) error
 	RevokeAllForUser(ctx context.Context, tenantID, userID string) error
 	DeleteExpired(ctx context.Context) error
@@ -50,4 +55,11 @@ type AuditRepository interface {
 
 type LoginLogRepository interface {
 	Create(ctx context.Context, log *LoginLog) error
+}
+
+type CodeRuleRepository interface {
+	List(ctx context.Context, tenantID string) ([]*CodeRule, error)
+	Create(ctx context.Context, rule *CodeRule) error
+	Update(ctx context.Context, rule *CodeRule) error
+	Next(ctx context.Context, tenantID, entity string) (string, error)
 }

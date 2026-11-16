@@ -25,7 +25,7 @@ func (r *RoleRepository) Create(ctx context.Context, role *domain.Role) error {
 		role.ID, role.TenantID, role.Code, role.Name, role.IsSystem,
 	)
 	if err != nil {
-		return fmt.Errorf("create role: %w", err)
+		return fmt.Errorf("create role: %w", mapDBError(err))
 	}
 	return nil
 }
@@ -38,7 +38,7 @@ func (r *RoleRepository) Update(ctx context.Context, role *domain.Role) error {
 		role.TenantID, role.ID, role.Code, role.Name, role.IsSystem,
 	)
 	if err != nil {
-		return fmt.Errorf("update role: %w", err)
+		return fmt.Errorf("update role: %w", mapDBError(err))
 	}
 	if tag.RowsAffected() == 0 {
 		return domain.ErrNotFound
@@ -49,7 +49,7 @@ func (r *RoleRepository) Update(ctx context.Context, role *domain.Role) error {
 func (r *RoleRepository) Delete(ctx context.Context, tenantID, id string) error {
 	tag, err := r.db.Exec(ctx, `DELETE FROM erp.roles WHERE tenant_id = $1 AND id = $2 AND is_system = false`, tenantID, id)
 	if err != nil {
-		return fmt.Errorf("delete role: %w", err)
+		return fmt.Errorf("delete role: %w", mapDBError(err))
 	}
 	if tag.RowsAffected() == 0 {
 		return domain.ErrNotFound
@@ -117,7 +117,7 @@ func (r *RoleRepository) SetPermissions(ctx context.Context, tenantID, roleID st
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO erp.role_permissions (tenant_id, role_id, permission_code)
 			VALUES ($1, $2, $3)`, tenantID, roleID, code); err != nil {
-			return fmt.Errorf("insert role permission: %w", err)
+			return fmt.Errorf("insert role permission: %w", mapDBError(err))
 		}
 	}
 

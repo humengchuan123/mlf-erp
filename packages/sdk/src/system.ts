@@ -51,6 +51,32 @@ export interface Organization {
   children?: Organization[]
 }
 
+export interface CodeRule {
+  id: string
+  tenant_id: string
+  entity: string
+  prefix: string
+  date_pattern: string
+  separator: string
+  sequence_length: number
+  current_value: number
+  reset_policy: string
+  last_reset_date?: string
+  status: string
+  created_at: string
+  updated_at: string
+}
+
+export interface CodeRuleInput {
+  entity: string
+  prefix: string
+  date_pattern: string
+  separator: string
+  sequence_length: number
+  reset_policy: string
+  status: string
+}
+
 export interface AuditLog {
   id: string
   tenant_id: string
@@ -186,6 +212,17 @@ export const systemApi = {
   auditLogs: {
     list(params: { page?: number; page_size?: number } = {}): Promise<Paged<AuditLog>> {
       return api.get<Paged<AuditLog>>(`/system/audit-logs${queryString(params)}`)
+    }
+  },
+  codeRules: {
+    list(): Promise<CodeRule[]> {
+      return api.get<CodeRule[]>('/system/code-rules')
+    },
+    create(input: CodeRuleInput): Promise<CodeRule> {
+      return api.post<CodeRule>('/system/code-rules', input)
+    },
+    update(id: string, input: CodeRuleInput): Promise<CodeRule> {
+      return api.put<CodeRule>(`/system/code-rules/${id}`, input)
     }
   }
 }

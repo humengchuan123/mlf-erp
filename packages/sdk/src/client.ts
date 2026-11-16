@@ -19,7 +19,7 @@ export class ApiError extends Error {
 let accessToken: string | null = null
 let refreshToken: string | null = null
 let unauthorizedHandler: (() => void) | null = null
-let refreshPromise: Promise<string | null> | null = null
+let refreshHandler: (() => Promise<string | null>) | null = null
 
 export function setAuthTokens(access: string | null, refresh: string | null): void {
   accessToken = access || null
@@ -43,43 +43,8 @@ export function setUnauthorizedHandler(handler: (() => void) | null): void {
   unauthorizedHandler = handler
 }
 
-async function refreshAccessToken(): Promise<string | null> {
-  if (!refreshToken) {
-    return null
-  }
-
-  if (!refreshPromise) {
-    const currentRefreshToken = refreshToken
-    refreshPromise = (async () => {
-      try {
-        const response = await fetch('/api/v1/auth/refresh', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ refresh_token: currentRefreshToken })
-        })
-        if (!response.ok) {
-          clearAuthTokens()
-          unauthorizedHandler?.()
-          return null
-        }
-
-        const body = (await response.json()) as ApiResponse<{
-          access_token: string
-          refresh_token: string
-        }>
-        setAuthTokens(body.data.access_token, body.data.refresh_token)
-        return body.data.access_token
-      } catch {
-        clearAuthTokens()
-        unauthorizedHandler?.()
-        return null
-      } finally {
-        refreshPromise = null
-      }
-    })()
-  }
-
-  return refreshPromise
+export function setRefreshHandler(handler: (() => Promise<string | null>) | null): void {
+  refreshHandler = handler
 }
 
 export class ApiClient {
@@ -101,8 +66,8 @@ export class ApiClient {
 
     const isPublicAuthPath = path.startsWith('/auth/login') || path.startsWith('/auth/refresh')
 
-    if (response.status === 401 && !retried && !isPublicAuthPath && refreshToken) {
-      const newAccessToken = await refreshAccessToken()
+    if (response.status === 401 && !retried && !isPublicAuthPath && refreshHandler) {
+      const newAccessToken = await refreshHandler()
       if (newAccessToken) {
         return this.request<T>(path, init, true)
       }

@@ -32,7 +32,7 @@ func (r *UserRepository) Create(ctx context.Context, user *domain.User) error {
 		user.PasswordHash, user.Status, user.IsSuperAdmin,
 	)
 	if err != nil {
-		return fmt.Errorf("create user: %w", err)
+		return fmt.Errorf("create user: %w", mapDBError(err))
 	}
 	return nil
 }
@@ -52,7 +52,7 @@ func (r *UserRepository) Update(ctx context.Context, user *domain.User) error {
 		user.Status, user.IsSuperAdmin, user.PasswordHash,
 	)
 	if err != nil {
-		return fmt.Errorf("update user: %w", err)
+		return fmt.Errorf("update user: %w", mapDBError(err))
 	}
 	if tag.RowsAffected() == 0 {
 		return domain.ErrNotFound
@@ -135,7 +135,7 @@ func (r *UserRepository) SetRoles(ctx context.Context, tenantID, userID string, 
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO erp.user_roles (tenant_id, user_id, role_id)
 			VALUES ($1, $2, $3)`, tenantID, userID, roleID); err != nil {
-			return fmt.Errorf("insert user role: %w", err)
+			return fmt.Errorf("insert user role: %w", mapDBError(err))
 		}
 	}
 
@@ -143,6 +143,53 @@ func (r *UserRepository) SetRoles(ctx context.Context, tenantID, userID string, 
 		return fmt.Errorf("commit user roles: %w", err)
 	}
 	return nil
+}
+
+func (r *UserRepository) TouchLastLogin(ctx context.Context, tenantID, userID string) error {
+	tag, err := r.db.Exec(ctx, `
+		UPDATE erp.users
+		SET last_login_at = now(), updated_at = now()
+		WHERE tenant_id = $1 AND id = $2`, tenantID, userID)
+	if err != nil {
+		return fmt.Errorf("touch last login: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return domain.ErrNotFound
+	}
+	return nil
+}
+
+func (r *UserRepository) CountActiveSuperAdmins(ctx context.Context, tenantID string) (int, error) {
+	var count int
+	err := r.db.QueryRow(ctx, `
+		SELECT count(*)
+		FROM erp.users
+		WHERE tenant_id = $1 AND is_super_admin = true AND status = 'active'`, tenantID).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("count active super admins: %w", err)
+	}
+	return count, nil
+}
+
+func (r *UserRepository) DataScopeByUserID(ctx context.Context, tenantID, userID, orgID string) (string, error) {
+	var dataScope string
+	err := r.db.QueryRow(ctx, `
+		SELECT COALESCE((
+			SELECT data_scope
+			FROM erp.org_memberships
+			WHERE tenant_id = $1
+			  AND user_id = $2
+			  AND (NULLIF($3, '')::uuid IS NULL OR org_id = NULLIF($3, '')::uuid)
+			ORDER BY created_at
+			LIMIT 1
+		), 'self')`, tenantID, userID, orgID).Scan(&dataScope)
+	if err != nil {
+		return "", fmt.Errorf("load user data scope: %w", err)
+	}
+	if dataScope == "" {
+		dataScope = "self"
+	}
+	return dataScope, nil
 }
 
 func (r *UserRepository) GetRoleIDs(ctx context.Context, tenantID, userID string) ([]string, error) {

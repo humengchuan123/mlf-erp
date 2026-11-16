@@ -4,7 +4,7 @@
       title="采购订单"
       description="示例模块：Go API + 内存仓储 + Vue 页面，用于验证 Monorepo 纵向链路。"
     >
-      <el-button type="primary" @click="dialogVisible = true">新建订单</el-button>
+      <el-button v-if="canWrite" type="primary" @click="dialogVisible = true">新建订单</el-button>
     </PageHeader>
 
     <el-card shadow="never">
@@ -55,11 +55,14 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { PageHeader } from '@mlf-erp/ui'
 import { purchaseApi, type PurchaseOrder } from '@mlf-erp/sdk'
+import { useAuthStore } from '@/stores/auth'
 
+const authStore = useAuthStore()
+const canWrite = computed(() => authStore.hasPermission('purchase.write'))
 const orders = ref<PurchaseOrder[]>([])
 const loading = ref(false)
 const submitting = ref(false)

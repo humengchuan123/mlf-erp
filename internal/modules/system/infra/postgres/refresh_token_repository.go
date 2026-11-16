@@ -55,6 +55,17 @@ func (r *RefreshTokenRepository) FindByHash(ctx context.Context, hash string) (*
 	return &token, nil
 }
 
+func (r *RefreshTokenRepository) ConsumeByHash(ctx context.Context, hash string) (bool, error) {
+	tag, err := r.db.Exec(ctx, `
+		UPDATE erp.refresh_tokens
+		SET revoked_at = now()
+		WHERE token_hash = $1 AND revoked_at IS NULL AND expires_at > now()`, hash)
+	if err != nil {
+		return false, fmt.Errorf("consume refresh token: %w", err)
+	}
+	return tag.RowsAffected() > 0, nil
+}
+
 func (r *RefreshTokenRepository) RevokeByHash(ctx context.Context, hash string) error {
 	_, err := r.db.Exec(ctx, `
 		UPDATE erp.refresh_tokens
