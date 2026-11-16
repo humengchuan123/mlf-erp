@@ -114,7 +114,7 @@ func main() {
 
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO erp.organizations (id, tenant_id, parent_id, type, code, name, path)
-		VALUES ($1, $2, NULL, 'company', 'HQ', 'Default Company', '/')
+		VALUES ($1, $2, NULL, 'company', 'HQ', 'Default Company', '/' || ($1::uuid)::text)
 		ON CONFLICT (id) DO NOTHING`, defaultOrgID, defaultTenantID); err != nil {
 		fail("seed organization", err)
 	}
@@ -140,12 +140,10 @@ func main() {
 		fail("seed admin role", err)
 	}
 
-	if _, err := tx.Exec(ctx, `DELETE FROM erp.role_permissions WHERE tenant_id = $1 AND role_id = $2`, defaultTenantID, roleID); err != nil {
-		fail("clear role permissions", err)
-	}
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO erp.role_permissions (tenant_id, role_id, permission_code)
-		SELECT $1, $2, code FROM erp.permissions`, defaultTenantID, roleID); err != nil {
+		SELECT $1, $2, code FROM erp.permissions
+		ON CONFLICT DO NOTHING`, defaultTenantID, roleID); err != nil {
 		fail("assign role permissions", err)
 	}
 
@@ -209,13 +207,7 @@ func main() {
 				id, tenant_id, entity, prefix, date_pattern, separator,
 				sequence_length, reset_policy, status
 			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'active')
-			ON CONFLICT (tenant_id, entity) DO UPDATE
-			SET prefix = EXCLUDED.prefix,
-			    date_pattern = EXCLUDED.date_pattern,
-			    separator = EXCLUDED.separator,
-			    sequence_length = EXCLUDED.sequence_length,
-			    reset_policy = EXCLUDED.reset_policy,
-			    status = 'active'`,
+			ON CONFLICT (tenant_id, entity) DO NOTHING`,
 			uuid.NewString(), defaultTenantID, rule.Entity, rule.Prefix, rule.DatePattern,
 			rule.Separator, rule.SequenceLength, rule.ResetPolicy,
 		); err != nil {

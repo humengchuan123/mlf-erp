@@ -101,7 +101,19 @@ func normalizeCodeRule(input CodeRuleInput, tenantID, id string) (*domain.CodeRu
 		resetPolicy = domain.ResetPolicyNever
 	}
 	switch resetPolicy {
-	case domain.ResetPolicyNever, domain.ResetPolicyYear, domain.ResetPolicyMonth, domain.ResetPolicyDay:
+	case domain.ResetPolicyNever:
+	case domain.ResetPolicyYear:
+		if datePattern == domain.DatePatternNone {
+			return nil, domain.ErrInvalidInput
+		}
+	case domain.ResetPolicyMonth:
+		if datePattern != domain.DatePatternMonth && datePattern != domain.DatePatternDay {
+			return nil, domain.ErrInvalidInput
+		}
+	case domain.ResetPolicyDay:
+		if datePattern != domain.DatePatternDay {
+			return nil, domain.ErrInvalidInput
+		}
 	default:
 		return nil, domain.ErrInvalidInput
 	}

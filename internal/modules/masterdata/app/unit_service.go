@@ -6,15 +6,14 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/mlf-erp/mlf-erp/internal/modules/masterdata/domain"
-	masterpostgres "github.com/mlf-erp/mlf-erp/internal/modules/masterdata/infra/postgres"
 	"github.com/mlf-erp/mlf-erp/internal/platform/scope"
 )
 
 type UnitService struct {
-	repo *masterpostgres.Repository[domain.Unit]
+	repo domain.CrudRepository[domain.Unit]
 }
 
-func NewUnitService(repo *masterpostgres.Repository[domain.Unit]) *UnitService {
+func NewUnitService(repo domain.CrudRepository[domain.Unit]) *UnitService {
 	return &UnitService{repo: repo}
 }
 
@@ -83,4 +82,9 @@ func (s *UnitService) Update(ctx context.Context, id string, input UnitInput) (d
 func (s *UnitService) Disable(ctx context.Context, id string) error {
 	tenantID, _, userID := tenantActor(ctx)
 	return s.repo.Disable(ctx, scope.Filter{DataScope: "all"}, tenantID, id, userID)
+}
+
+func (s *UnitService) Enable(ctx context.Context, id string) error {
+	tenantID, _, userID := tenantActor(ctx)
+	return s.repo.Enable(ctx, scope.Filter{DataScope: "all"}, tenantID, id, userID)
 }

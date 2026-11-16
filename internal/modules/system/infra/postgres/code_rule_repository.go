@@ -145,6 +145,9 @@ func scanCodeRule(row rowScanner) (*domain.CodeRule, error) {
 }
 
 func shouldReset(rule *domain.CodeRule, now time.Time) bool {
+	if rule.ResetPolicy == domain.ResetPolicyNever {
+		return false
+	}
 	if rule.LastResetDate == nil {
 		return true
 	}

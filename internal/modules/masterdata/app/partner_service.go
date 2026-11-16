@@ -6,16 +6,15 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/mlf-erp/mlf-erp/internal/modules/masterdata/domain"
-	masterpostgres "github.com/mlf-erp/mlf-erp/internal/modules/masterdata/infra/postgres"
 	"github.com/mlf-erp/mlf-erp/internal/platform/scope"
 )
 
 type PartnerService struct {
-	repo  *masterpostgres.Repository[domain.Partner]
+	repo  domain.CrudRepository[domain.Partner]
 	codes CodeGenerator
 }
 
-func NewPartnerService(repo *masterpostgres.Repository[domain.Partner], codes CodeGenerator) *PartnerService {
+func NewPartnerService(repo domain.CrudRepository[domain.Partner], codes CodeGenerator) *PartnerService {
 	return &PartnerService{repo: repo, codes: codes}
 }
 
@@ -125,4 +124,9 @@ func (s *PartnerService) Update(ctx context.Context, id string, input PartnerInp
 func (s *PartnerService) Disable(ctx context.Context, id string) error {
 	tenantID, _, userID := tenantActor(ctx)
 	return s.repo.Disable(ctx, scope.FromActor(ctx, tenantID), tenantID, id, userID)
+}
+
+func (s *PartnerService) Enable(ctx context.Context, id string) error {
+	tenantID, _, userID := tenantActor(ctx)
+	return s.repo.Enable(ctx, scope.FromActor(ctx, tenantID), tenantID, id, userID)
 }

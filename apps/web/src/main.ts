@@ -29,8 +29,10 @@ window.addEventListener('storage', (event) => {
     return
   }
   authStore.restoreFromStorage()
-  if (authStore.hasToken && !authStore.user) {
+  if (authStore.hasToken) {
     authStore.loadMe().catch(() => authStore.clear())
+  } else {
+    authStore.clear()
   }
 })
 

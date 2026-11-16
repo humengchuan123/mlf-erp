@@ -22,8 +22,7 @@ const defaultForm = {
   code: '',
   name: '',
   type: 'normal',
-  address: '',
-  status: 'active'
+  address: ''
 }
 
 const columns: ColumnConfig[] = [
@@ -60,15 +59,6 @@ const fields: FieldConfig[] = [
       { label: '其他', value: 'other' }
     ]
   },
-  { key: 'address', label: '地址', type: 'textarea' },
-  {
-    key: 'status',
-    label: '状态',
-    type: 'select',
-    options: [
-      { label: '启用', value: 'active' },
-      { label: '禁用', value: 'disabled' }
-    ]
-  }
+  { key: 'address', label: '地址', type: 'textarea' }
 ]
 </script>

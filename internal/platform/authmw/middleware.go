@@ -63,12 +63,23 @@ func Auth(
 		}
 
 		var orgPath, companyPath string
-		if user.OrgID != "" {
-			if org, orgErr := orgs.FindByID(c.Request.Context(), user.TenantID, user.OrgID); orgErr == nil {
+		if user.OrgID == "" {
+			dataScope = "self"
+		} else {
+			org, orgErr := orgs.FindByID(c.Request.Context(), user.TenantID, user.OrgID)
+			if orgErr != nil {
+				dataScope = "self"
+			} else {
 				orgPath = org.Path
 			}
-			if company, companyErr := orgs.AncestorByType(c.Request.Context(), user.TenantID, user.OrgID, domain.OrgTypeCompany); companyErr == nil {
-				companyPath = company.Path
+
+			if dataScope == "company" {
+				company, companyErr := orgs.AncestorByType(c.Request.Context(), user.TenantID, user.OrgID, domain.OrgTypeCompany)
+				if companyErr != nil {
+					dataScope = "self"
+				} else {
+					companyPath = company.Path
+				}
 			}
 		}
 

@@ -172,6 +172,10 @@ func (r *UserRepository) CountActiveSuperAdmins(ctx context.Context, tenantID st
 }
 
 func (r *UserRepository) DataScopeByUserID(ctx context.Context, tenantID, userID, orgID string) (string, error) {
+	if orgID == "" {
+		return "self", nil
+	}
+
 	var dataScope string
 	err := r.db.QueryRow(ctx, `
 		SELECT COALESCE((

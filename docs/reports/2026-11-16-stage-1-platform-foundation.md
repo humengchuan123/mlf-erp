@@ -128,15 +128,42 @@
 
 ### 4.2 审核结论
 
-> 待补充。
+**Ready to merge: No（初次审核）**
+
+- Critical 3 项：超级管理员提权、角色/权限自我提权、前端 refresh 后令牌状态失步。
+- Important 15 项：登录枚举、refresh 非原子轮换、改密令牌生命周期、登录全行更新、数据库错误 500、组织环、JWT 密钥校验、登录限流、身份头信任、代理 IP 伪造、前端权限依赖、多租户登录、seed 密码提示、测试覆盖、localStorage Token 风险。
+- 其余为输入校验、过期 token 清理、N+1、审计 before 数据、403 页面、采购按钮权限、服务端超时、文档/OpenAPI 等 Minor。
 
 ### 4.3 已修复问题
 
-> 待补充。
+在 Stage 2 分支中已修复并回归验证：
+
+- **C1 超级管理员提权**：普通用户不能设置/清除 `is_super_admin`，不能修改超级管理员，禁止自我降级/自我禁用，保护最后一个超级管理员。
+- **C2 角色/权限自我提权**：禁止自我分配角色、分配系统角色、分配超出自身权限的角色；非超级管理员不能修改系统角色，也不能授予自己未持有的权限。
+- **C3 前端 refresh 状态失步**：SDK 改为 refresh handler 模式，由 auth store 统一更新 Pinia + localStorage，刷新后消费完整用户/角色/权限，支持多标签页同步，logout 不再触发 refresh 轮换。
+- **I1 登录枚举**：未知用户、错误密码、禁用用户统一返回 401；未知用户执行 dummy bcrypt；具体原因仅写入 login_logs。
+- **I2 refresh 重放**：改为原子 `ConsumeByHash`；重放已轮换 token 会撤销该用户整个令牌族。
+- **I3 部分修复**：管理员重置密码后撤销全部 refresh token；access token 在过期前仍可能有效，token version/denylist 留待后续。
+- **I4 登录更新**：新增 `TouchLastLogin`，只更新 `last_login_at`，避免覆盖并发禁用/改密。
+- **I5 数据库错误**：唯一键/外键映射 409，非法 UUID/非空约束映射 400。
+- **I6 组织环**：禁止自父节点和后代父节点；根组织 path 修正为 `/<id>`。
+- **I7 JWT 密钥**：非 dev/test 环境禁止默认密钥，要求至少 32 字符。
+- **I9 身份头**：删除 `X-Tenant-ID` / `X-Org-ID` / `X-User-ID` / `X-User-Name` 上下文注入和 CORS 放行。
+- **I10 代理 IP**：新增 `HTTP_TRUSTED_PROXIES`，默认禁用代理信任。
+- **I11 前端权限依赖**：用户页按权限分别加载角色/组织选项，避免 `system.user.read` 用户页面报 403；超级管理员开关仅超级管理员可见。
+- **I13 seed 密码**：仅新建 admin 时打印初始密码；已存在时输出 `password=unchanged`。
+- **Minor**：增加服务端 Read/Write/Idle 超时、采购新建按钮权限、403 重新登录、系统角色编码不可修改、编码规则/安全回归测试。
 
 ### 4.4 未修复/后续处理
 
-> 待补充。
+- Access token 在改密/登出后仍有效至过期（默认 15 分钟）；建议 Stage 3 增加 `token_version` 或 denylist。
+- 登录速率限制、失败锁定、验证码、MFA/SSO 尚未实现。
+- 多租户登录 UI 已增加可选 `tenant_id`，但租户状态校验（禁用租户）尚未实现。
+- 测试覆盖仍以服务层和真实 API 冒烟为主，缺少完整 PostgreSQL 集成测试矩阵和浏览器 E2E。
+- 前端 token 仍存 localStorage，XSS 风险未彻底解决；建议后续评估 httpOnly Cookie。
+- OpenAPI 尚未覆盖全部 Stage 1/2 接口。
+
+> Stage 1 安全修复已包含在 Stage 2 提交 `1cd7f43` 中，并在 Stage 2 代码审核中复核。
 
 ---
 

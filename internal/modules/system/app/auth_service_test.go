@@ -119,7 +119,7 @@ func TestAuthServiceUnknownUserUsesGenericFailure(t *testing.T) {
 }
 
 func TestAuthServiceRefreshRotation(t *testing.T) {
-	service, _, _, _, _ := newTestAuthService(t, "Admin@123456")
+	service, _, _, tokens, _ := newTestAuthService(t, "Admin@123456")
 
 	result, err := service.Login(context.Background(), LoginInput{
 		TenantID: "t1",
@@ -143,12 +143,24 @@ func TestAuthServiceRefreshRotation(t *testing.T) {
 		t.Fatalf("Refresh() with rotated token error = %v", err)
 	}
 
-	// Reuse of an already rotated token must invalidate the whole token family.
+	// Reuse within the grace window is rejected but does not revoke the family.
 	if _, err := service.Refresh(context.Background(), result.RefreshToken, "", ""); !errors.Is(err, domain.ErrInvalidToken) {
 		t.Fatalf("Refresh() with old token error = %v, want ErrInvalidToken", err)
 	}
-	if _, err := service.Refresh(context.Background(), again.RefreshToken, "", ""); !errors.Is(err, domain.ErrInvalidToken) {
-		t.Fatalf("Refresh() after reuse detection error = %v, want ErrInvalidToken", err)
+	withinGrace, err := service.Refresh(context.Background(), again.RefreshToken, "", "")
+	if err != nil {
+		t.Fatalf("Refresh() within grace window error = %v", err)
+	}
+
+	// Reuse after the grace window revokes the whole token family.
+	oldHash := security.HashRefreshToken(result.RefreshToken)
+	oldTime := time.Now().Add(-time.Minute)
+	tokens.tokens[oldHash].RevokedAt = &oldTime
+	if _, err := service.Refresh(context.Background(), result.RefreshToken, "", ""); !errors.Is(err, domain.ErrInvalidToken) {
+		t.Fatalf("Refresh() with old token after grace error = %v, want ErrInvalidToken", err)
+	}
+	if _, err := service.Refresh(context.Background(), withinGrace.RefreshToken, "", ""); !errors.Is(err, domain.ErrInvalidToken) {
+		t.Fatalf("Refresh() after family revocation error = %v, want ErrInvalidToken", err)
 	}
 }
 

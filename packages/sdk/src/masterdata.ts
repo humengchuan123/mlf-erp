@@ -144,6 +144,7 @@ export interface CrudApi<T, I> {
   create(input: I): Promise<T>
   update(id: string, input: I): Promise<T>
   remove(id: string): Promise<{ id: string; status: string }>
+  enable(id: string): Promise<{ id: string; status: string }>
 }
 
 function queryString(params: Record<string, string | number | undefined>): string {
@@ -173,6 +174,9 @@ function createCrud<T, I>(basePath: string): CrudApi<T, I> {
     },
     remove(id) {
       return api.delete<{ id: string; status: string }>(`${basePath}/${id}`)
+    },
+    enable(id) {
+      return api.post<{ id: string; status: string }>(`${basePath}/${id}/enable`)
     }
   }
 }

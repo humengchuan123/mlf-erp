@@ -161,22 +161,30 @@ func (r *Repository[T]) Update(ctx context.Context, filter scope.Filter, entity 
 }
 
 func (r *Repository[T]) Disable(ctx context.Context, filter scope.Filter, tenantID, id, userID string) error {
+	return r.setStatus(ctx, filter, tenantID, id, userID, domain.StatusDisabled)
+}
+
+func (r *Repository[T]) Enable(ctx context.Context, filter scope.Filter, tenantID, id, userID string) error {
+	return r.setStatus(ctx, filter, tenantID, id, userID, domain.StatusActive)
+}
+
+func (r *Repository[T]) setStatus(ctx context.Context, filter scope.Filter, tenantID, id, userID, status string) error {
 	var zero T
 
 	args := []any{tenantID, id}
-	setClause := "status = 'disabled', updated_at = now()"
+	setClause := fmt.Sprintf("status = '%s', updated_at = now()", status)
 	where := "p.tenant_id = $1 AND p.id = $2"
 
 	if zero.Scoped() {
 		args = append(args, userID)
-		setClause = "status = 'disabled', updated_by = $3, updated_at = now()"
+		setClause = fmt.Sprintf("status = '%s', updated_by = $3, updated_at = now()", status)
 		appendScope(&where, &args, filter)
 	}
 
 	query := fmt.Sprintf("UPDATE %s AS p SET %s WHERE %s", zero.TableName(), setClause, where)
 	tag, err := r.db.Exec(ctx, query, args...)
 	if err != nil {
-		return fmt.Errorf("disable %s: %w", zero.TableName(), err)
+		return fmt.Errorf("set %s status: %w", zero.TableName(), err)
 	}
 	if tag.RowsAffected() == 0 {
 		return domain.ErrNotFound
@@ -195,21 +203,37 @@ func appendScope(where *string, args *[]any, filter scope.Filter) {
 
 	switch filter.DataScope {
 	case "self":
+		if filter.UserID == "" {
+			*where += " AND 1 = 0"
+			return
+		}
 		*args = append(*args, filter.UserID)
 		*where += fmt.Sprintf(" AND p.created_by = $%d", len(*args))
 	case "dept":
+		if filter.OrgPath == "" {
+			*where += " AND 1 = 0"
+			return
+		}
 		*args = append(*args, filter.OrgPath)
 		*where += fmt.Sprintf(
 			" AND EXISTS (SELECT 1 FROM erp.organizations o WHERE o.tenant_id = p.tenant_id AND o.id = p.org_id AND (o.path = $%d OR o.path LIKE $%d || '/%%'))",
 			len(*args), len(*args),
 		)
 	case "company":
+		if filter.CompanyPath == "" {
+			*where += " AND 1 = 0"
+			return
+		}
 		*args = append(*args, filter.CompanyPath)
 		*where += fmt.Sprintf(
 			" AND EXISTS (SELECT 1 FROM erp.organizations o WHERE o.tenant_id = p.tenant_id AND o.id = p.org_id AND (o.path = $%d OR o.path LIKE $%d || '/%%'))",
 			len(*args), len(*args),
 		)
 	default:
+		if filter.UserID == "" {
+			*where += " AND 1 = 0"
+			return
+		}
 		*args = append(*args, filter.UserID)
 		*where += fmt.Sprintf(" AND p.created_by = $%d", len(*args))
 	}

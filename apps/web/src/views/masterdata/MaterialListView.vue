@@ -29,8 +29,7 @@ const defaultForm = {
   category: '',
   unit_id: '',
   tax_rate_id: '',
-  barcode: '',
-  status: 'active'
+  barcode: ''
 }
 
 const columns: ColumnConfig[] = [
@@ -55,16 +54,7 @@ const fields = computed<FieldConfig[]>(() => [
   { key: 'category', label: '分类' },
   { key: 'unit_id', label: '计量单位', type: 'select', options: unitOptions.value },
   { key: 'tax_rate_id', label: '税率', type: 'select', options: taxRateOptions.value },
-  { key: 'barcode', label: '条码' },
-  {
-    key: 'status',
-    label: '状态',
-    type: 'select',
-    options: [
-      { label: '启用', value: 'active' },
-      { label: '禁用', value: 'disabled' }
-    ]
-  }
+  { key: 'barcode', label: '条码' }
 ])
 
 function unitLabel(value: string) {
@@ -81,14 +71,18 @@ onMounted(async () => {
       masterDataApi.units.list({ page_size: 200 }),
       masterDataApi.taxRates.list({ page_size: 200 })
     ])
-    unitOptions.value = units.items.map((unit) => ({
-      label: `${unit.name}（${unit.code}）`,
-      value: unit.id
-    }))
-    taxRateOptions.value = taxRates.items.map((taxRate) => ({
-      label: `${taxRate.name}（${taxRate.rate}）`,
-      value: taxRate.id
-    }))
+    unitOptions.value = units.items
+      .filter((unit) => unit.status === 'active')
+      .map((unit) => ({
+        label: `${unit.name}（${unit.code}）`,
+        value: unit.id
+      }))
+    taxRateOptions.value = taxRates.items
+      .filter((taxRate) => taxRate.status === 'active')
+      .map((taxRate) => ({
+        label: `${taxRate.name}（${taxRate.rate}）`,
+        value: taxRate.id
+      }))
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : '加载单位或税率失败')
   }

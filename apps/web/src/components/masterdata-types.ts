@@ -32,4 +32,5 @@ export interface CrudApi {
   create: (input: Record<string, any>) => Promise<unknown>
   update: (id: string, input: Record<string, any>) => Promise<unknown>
   remove: (id: string) => Promise<unknown>
+  enable: (id: string) => Promise<unknown>
 }

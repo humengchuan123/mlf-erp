@@ -6,15 +6,14 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/mlf-erp/mlf-erp/internal/modules/masterdata/domain"
-	masterpostgres "github.com/mlf-erp/mlf-erp/internal/modules/masterdata/infra/postgres"
 	"github.com/mlf-erp/mlf-erp/internal/platform/scope"
 )
 
 type CurrencyService struct {
-	repo *masterpostgres.Repository[domain.Currency]
+	repo domain.CrudRepository[domain.Currency]
 }
 
-func NewCurrencyService(repo *masterpostgres.Repository[domain.Currency]) *CurrencyService {
+func NewCurrencyService(repo domain.CrudRepository[domain.Currency]) *CurrencyService {
 	return &CurrencyService{repo: repo}
 }
 
@@ -86,4 +85,9 @@ func (s *CurrencyService) Update(ctx context.Context, id string, input CurrencyI
 func (s *CurrencyService) Disable(ctx context.Context, id string) error {
 	tenantID, _, userID := tenantActor(ctx)
 	return s.repo.Disable(ctx, scope.Filter{DataScope: "all"}, tenantID, id, userID)
+}
+
+func (s *CurrencyService) Enable(ctx context.Context, id string) error {
+	tenantID, _, userID := tenantActor(ctx)
+	return s.repo.Enable(ctx, scope.Filter{DataScope: "all"}, tenantID, id, userID)
 }

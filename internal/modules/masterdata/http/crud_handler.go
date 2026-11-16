@@ -21,6 +21,7 @@ type CrudService[T any, I any] interface {
 	Create(ctx context.Context, input I) (T, error)
 	Update(ctx context.Context, id string, input I) (T, error)
 	Disable(ctx context.Context, id string) error
+	Enable(ctx context.Context, id string) error
 }
 
 type CrudHandler[T any, I any] struct {
@@ -61,6 +62,7 @@ func (h *CrudHandler[T, I]) Register(group *gin.RouterGroup) {
 	crud.GET("/:id", authmw.RequirePermission(h.permission+".read"), h.get)
 	crud.PUT("/:id", authmw.RequirePermission(h.permission+".write"), h.update)
 	crud.DELETE("/:id", authmw.RequirePermission(h.permission+".write"), h.disable)
+	crud.POST("/:id/enable", authmw.RequirePermission(h.permission+".write"), h.enable)
 }
 
 func (h *CrudHandler[T, I]) list(c *gin.Context) {
@@ -132,6 +134,16 @@ func (h *CrudHandler[T, I]) disable(c *gin.Context) {
 	}
 	recordAudit(c, h.audit, h.entity+".disable", h.entity, id, nil, nil)
 	httpx.OK(c, gin.H{"id": id, "status": domain.StatusDisabled})
+}
+
+func (h *CrudHandler[T, I]) enable(c *gin.Context) {
+	id := c.Param("id")
+	if err := h.service.Enable(c.Request.Context(), id); err != nil {
+		h.handleError(c, err)
+		return
+	}
+	recordAudit(c, h.audit, h.entity+".enable", h.entity, id, nil, nil)
+	httpx.OK(c, gin.H{"id": id, "status": domain.StatusActive})
 }
 
 func (h *CrudHandler[T, I]) handleError(c *gin.Context, err error) {

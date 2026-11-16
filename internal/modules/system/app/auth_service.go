@@ -113,7 +113,12 @@ func (s *AuthService) Refresh(ctx context.Context, rawToken, ip, userAgent strin
 		return nil, err
 	}
 	if token.RevokedAt != nil {
-		_ = s.tokens.RevokeAllForUser(ctx, token.TenantID, token.UserID)
+		// A short grace window avoids logging out every tab when two tabs
+		// refresh the same token concurrently. Reuse after the window still
+		// revokes the whole token family.
+		if time.Since(*token.RevokedAt) > 30*time.Second {
+			_ = s.tokens.RevokeAllForUser(ctx, token.TenantID, token.UserID)
+		}
 		return nil, domain.ErrInvalidToken
 	}
 	if !token.ExpiresAt.After(time.Now()) {

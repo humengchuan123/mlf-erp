@@ -1,14 +1,19 @@
 openapi: 3.1.0
 info:
   title: MLF ERP API
-  version: 0.1.0
-  description: Monorepo skeleton API contract. Generate packages/sdk from this file in a later iteration.
+  version: 0.2.0
+  description: |
+    MLF ERP Stage 1 + Stage 2 API contract.
+    Master data uses a generic CRUD surface under /masterdata/{entity}.
 servers:
   - url: /api/v1
+security:
+  - bearerAuth: []
 paths:
   /runtime-config:
     get:
       summary: Get runtime configuration and capabilities
+      security: []
       responses:
         '200':
           description: OK
@@ -16,11 +21,179 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/RuntimeConfigResponse'
+  /auth/login:
+    post:
+      summary: Login with username and password
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Login succeeded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+        '401':
+          description: Invalid credentials
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+  /auth/refresh:
+    post:
+      summary: Rotate access and refresh tokens
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [refresh_token]
+              properties:
+                refresh_token:
+                  type: string
+      responses:
+        '200':
+          description: Rotated tokens
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+        '401':
+          description: Invalid or replayed refresh token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+  /auth/me:
+    get:
+      summary: Get current user, roles and permissions
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MeResponse'
+        '401':
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+  /system/code-rules:
+    get:
+      summary: List code rules
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/CodeRule'
+    post:
+      summary: Create a code rule
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CodeRuleInput'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CodeRule'
+  /masterdata/{entity}:
+    parameters:
+      - $ref: '#/components/parameters/Entity'
+    get:
+      summary: List master data records
+      parameters:
+        - $ref: '#/components/parameters/Keyword'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MasterDataListResponse'
+    post:
+      summary: Create a master data record
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MasterDataInput'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MasterDataResponse'
+  /masterdata/{entity}/{id}:
+    parameters:
+      - $ref: '#/components/parameters/Entity'
+      - $ref: '#/components/parameters/ID'
+    get:
+      summary: Get a master data record
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MasterDataResponse'
+        '404':
+          description: Not found or outside data scope
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+    put:
+      summary: Update a master data record
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MasterDataInput'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MasterDataResponse'
+    delete:
+      summary: Disable a master data record
+      responses:
+        '200':
+          description: Disabled
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
   /purchase/orders:
     get:
       summary: List purchase orders for the current tenant
-      parameters:
-        - $ref: '#/components/parameters/TenantHeader'
       responses:
         '200':
           description: OK
@@ -30,8 +203,6 @@ paths:
                 $ref: '#/components/schemas/PurchaseOrderListResponse'
     post:
       summary: Create a purchase order
-      parameters:
-        - $ref: '#/components/parameters/TenantHeader'
       requestBody:
         required: true
         content:
@@ -52,15 +223,49 @@ paths:
               schema:
                 $ref: '#/components/schemas/ApiResponse'
 components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
   parameters:
-    TenantHeader:
-      in: header
-      name: X-Tenant-ID
-      required: false
+    Entity:
+      in: path
+      name: entity
+      required: true
+      schema:
+        type: string
+        enum: [partners, materials, warehouses, units, currencies, tax-rates]
+    ID:
+      in: path
+      name: id
+      required: true
       schema:
         type: string
         format: uuid
-      description: Defaults to the configured development tenant when omitted.
+    Keyword:
+      in: query
+      name: keyword
+      required: false
+      schema:
+        type: string
+    Page:
+      in: query
+      name: page
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        default: 1
+    PageSize:
+      in: query
+      name: page_size
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 200
+        default: 20
   schemas:
     ApiResponse:
       type: object
@@ -69,6 +274,7 @@ components:
           type: string
         message:
           type: string
+        data: {}
         request_id:
           type: string
     RuntimeConfig:
@@ -92,6 +298,191 @@ components:
           properties:
             data:
               $ref: '#/components/schemas/RuntimeConfig'
+    LoginRequest:
+      type: object
+      required: [username, password]
+      properties:
+        tenant_id:
+          type: string
+          format: uuid
+        username:
+          type: string
+        password:
+          type: string
+    LoginResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiResponse'
+        - type: object
+          properties:
+            data:
+              type: object
+              properties:
+                access_token:
+                  type: string
+                refresh_token:
+                  type: string
+                expires_in:
+                  type: integer
+                user:
+                  $ref: '#/components/schemas/User'
+                roles:
+                  type: array
+                  items:
+                    type: string
+                permissions:
+                  type: array
+                  items:
+                    type: string
+    MeResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiResponse'
+        - type: object
+          properties:
+            data:
+              type: object
+              properties:
+                user:
+                  $ref: '#/components/schemas/User'
+                roles:
+                  type: array
+                  items:
+                    type: string
+                permissions:
+                  type: array
+                  items:
+                    type: string
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+        tenant_id:
+          type: string
+        org_id:
+          type: string
+        username:
+          type: string
+        display_name:
+          type: string
+        email:
+          type: string
+        status:
+          type: string
+        is_super_admin:
+          type: boolean
+    CodeRule:
+      type: object
+      properties:
+        id:
+          type: string
+        tenant_id:
+          type: string
+        entity:
+          type: string
+        prefix:
+          type: string
+        date_pattern:
+          type: string
+        separator:
+          type: string
+        sequence_length:
+          type: integer
+        current_value:
+          type: integer
+        reset_policy:
+          type: string
+        last_reset_date:
+          type: string
+          format: date
+        status:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    CodeRuleInput:
+      type: object
+      required: [entity, prefix, sequence_length]
+      properties:
+        entity:
+          type: string
+        prefix:
+          type: string
+        date_pattern:
+          type: string
+          enum: [none, yyyy, yyyyMM, yyyyMMdd]
+        separator:
+          type: string
+        sequence_length:
+          type: integer
+          minimum: 1
+          maximum: 10
+        reset_policy:
+          type: string
+          enum: [never, year, month, day]
+        status:
+          type: string
+          enum: [active, disabled]
+    MasterDataInput:
+      type: object
+      description: Fields depend on entity. Common fields shown here.
+      properties:
+        code:
+          type: string
+          description: Optional when the entity has a code rule.
+        name:
+          type: string
+        type:
+          type: string
+        category:
+          type: string
+        status:
+          type: string
+          enum: [active, disabled]
+    MasterDataItem:
+      type: object
+      properties:
+        id:
+          type: string
+        tenant_id:
+          type: string
+        org_id:
+          type: string
+        code:
+          type: string
+        name:
+          type: string
+        status:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    MasterDataResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiResponse'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/MasterDataItem'
+    MasterDataListResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiResponse'
+        - type: object
+          properties:
+            data:
+              type: object
+              properties:
+                items:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/MasterDataItem'
+                total:
+                  type: integer
     PurchaseOrder:
       type: object
       properties:

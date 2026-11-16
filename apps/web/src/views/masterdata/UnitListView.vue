@@ -18,7 +18,7 @@ import { masterDataApi } from '@mlf-erp/sdk'
 
 const api = masterDataApi.units as unknown as CrudApi
 
-const defaultForm = { code: '', name: '', precision: 0, status: 'active' }
+const defaultForm = { code: '', name: '', precision: 0 }
 
 const columns: ColumnConfig[] = [
   { key: 'code', label: '编码', width: 160 },
@@ -35,15 +35,6 @@ const columns: ColumnConfig[] = [
 const fields: FieldConfig[] = [
   { key: 'code', label: '编码', required: true },
   { key: 'name', label: '名称', required: true },
-  { key: 'precision', label: '小数精度', type: 'number', min: 0, max: 6 },
-  {
-    key: 'status',
-    label: '状态',
-    type: 'select',
-    options: [
-      { label: '启用', value: 'active' },
-      { label: '禁用', value: 'disabled' }
-    ]
-  }
+  { key: 'precision', label: '小数精度', type: 'number', min: 0, max: 6 }
 ]
 </script>

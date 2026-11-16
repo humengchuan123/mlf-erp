@@ -6,16 +6,15 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/mlf-erp/mlf-erp/internal/modules/masterdata/domain"
-	masterpostgres "github.com/mlf-erp/mlf-erp/internal/modules/masterdata/infra/postgres"
 	"github.com/mlf-erp/mlf-erp/internal/platform/scope"
 )
 
 type WarehouseService struct {
-	repo  *masterpostgres.Repository[domain.Warehouse]
+	repo  domain.CrudRepository[domain.Warehouse]
 	codes CodeGenerator
 }
 
-func NewWarehouseService(repo *masterpostgres.Repository[domain.Warehouse], codes CodeGenerator) *WarehouseService {
+func NewWarehouseService(repo domain.CrudRepository[domain.Warehouse], codes CodeGenerator) *WarehouseService {
 	return &WarehouseService{repo: repo, codes: codes}
 }
 
@@ -110,4 +109,9 @@ func (s *WarehouseService) Update(ctx context.Context, id string, input Warehous
 func (s *WarehouseService) Disable(ctx context.Context, id string) error {
 	tenantID, _, userID := tenantActor(ctx)
 	return s.repo.Disable(ctx, scope.FromActor(ctx, tenantID), tenantID, id, userID)
+}
+
+func (s *WarehouseService) Enable(ctx context.Context, id string) error {
+	tenantID, _, userID := tenantActor(ctx)
+	return s.repo.Enable(ctx, scope.FromActor(ctx, tenantID), tenantID, id, userID)
 }

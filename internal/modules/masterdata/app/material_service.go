@@ -6,21 +6,20 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/mlf-erp/mlf-erp/internal/modules/masterdata/domain"
-	masterpostgres "github.com/mlf-erp/mlf-erp/internal/modules/masterdata/infra/postgres"
 	"github.com/mlf-erp/mlf-erp/internal/platform/scope"
 )
 
 type MaterialService struct {
-	repo     *masterpostgres.Repository[domain.Material]
-	units    *masterpostgres.Repository[domain.Unit]
-	taxRates *masterpostgres.Repository[domain.TaxRate]
+	repo     domain.CrudRepository[domain.Material]
+	units    domain.CrudRepository[domain.Unit]
+	taxRates domain.CrudRepository[domain.TaxRate]
 	codes    CodeGenerator
 }
 
 func NewMaterialService(
-	repo *masterpostgres.Repository[domain.Material],
-	units *masterpostgres.Repository[domain.Unit],
-	taxRates *masterpostgres.Repository[domain.TaxRate],
+	repo domain.CrudRepository[domain.Material],
+	units domain.CrudRepository[domain.Unit],
+	taxRates domain.CrudRepository[domain.TaxRate],
 	codes CodeGenerator,
 ) *MaterialService {
 	return &MaterialService{repo: repo, units: units, taxRates: taxRates, codes: codes}
@@ -120,15 +119,22 @@ func (s *MaterialService) Disable(ctx context.Context, id string) error {
 	return s.repo.Disable(ctx, scope.FromActor(ctx, tenantID), tenantID, id, userID)
 }
 
+func (s *MaterialService) Enable(ctx context.Context, id string) error {
+	tenantID, _, userID := tenantActor(ctx)
+	return s.repo.Enable(ctx, scope.FromActor(ctx, tenantID), tenantID, id, userID)
+}
+
 func (s *MaterialService) validateReferences(ctx context.Context, tenantID, unitID, taxRateID string) error {
 	filter := scope.Filter{TenantID: tenantID, DataScope: "all"}
 	if unitID = strings.TrimSpace(unitID); unitID != "" {
-		if _, err := s.units.FindByID(ctx, filter, tenantID, unitID); err != nil {
+		unit, err := s.units.FindByID(ctx, filter, tenantID, unitID)
+		if err != nil || unit.Status != domain.StatusActive {
 			return domain.ErrInvalidInput
 		}
 	}
 	if taxRateID = strings.TrimSpace(taxRateID); taxRateID != "" {
-		if _, err := s.taxRates.FindByID(ctx, filter, tenantID, taxRateID); err != nil {
+		taxRate, err := s.taxRates.FindByID(ctx, filter, tenantID, taxRateID)
+		if err != nil || taxRate.Status != domain.StatusActive {
 			return domain.ErrInvalidInput
 		}
 	}

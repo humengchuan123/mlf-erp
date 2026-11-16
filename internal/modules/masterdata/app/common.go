@@ -2,8 +2,10 @@ package app
 
 import (
 	"context"
+	"errors"
 
 	"github.com/mlf-erp/mlf-erp/internal/modules/masterdata/domain"
+	systemdomain "github.com/mlf-erp/mlf-erp/internal/modules/system/domain"
 	"github.com/mlf-erp/mlf-erp/internal/platform/auth"
 	"github.com/mlf-erp/mlf-erp/internal/platform/tenant"
 )
@@ -45,7 +47,14 @@ func resolveCode(ctx context.Context, generator CodeGenerator, tenantID, entity,
 	if generator == nil {
 		return "", domain.ErrInvalidInput
 	}
-	return generator.Next(ctx, tenantID, entity)
+	code, err := generator.Next(ctx, tenantID, entity)
+	if err != nil {
+		if errors.Is(err, systemdomain.ErrNotFound) {
+			return "", domain.ErrInvalidInput
+		}
+		return "", err
+	}
+	return code, nil
 }
 
 func validStatus(status string) bool {

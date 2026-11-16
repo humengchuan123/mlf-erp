@@ -2,7 +2,7 @@
 
 企业级 ERP Monorepo 骨架，支持 **SaaS 订阅** 与 **私有化安装** 两种交付形态。
 
-> 当前状态：项目骨架 + 采购订单纵向示例链路。
+> 当前状态：Stage 1 平台底座 + Stage 2 主数据、编码规则与数据权限。
 > 设计参考：工作区根目录的《企业ERP应用开发指南》。
 
 ## 技术栈
@@ -33,8 +33,8 @@ mlf-erp/
 ├─ internal/
 │  ├─ platform/               # 配置、日志、租户、认证、HTTP、数据库、Outbox
 │  └─ modules/                # 业务模块
-│     ├─ purchase/            # 已实现纵向示例
-│     ├─ masterdata/
+│     ├─ purchase/            # 采购示例
+│     ├─ masterdata/          # 客商/物料/仓库/单位/币种/税率
 │     ├─ sales/
 │     ├─ inventory/
 │     ├─ finance/
@@ -174,6 +174,15 @@ curl -H "Authorization: Bearer <access_token>" \
   http://localhost:8080/api/v1/system/users
 
 curl -H "Authorization: Bearer <access_token>" \
+  http://localhost:8080/api/v1/system/code-rules
+
+curl -H "Authorization: Bearer <access_token>" \
+  http://localhost:8080/api/v1/masterdata/partners
+
+curl -H "Authorization: Bearer <access_token>" \
+  http://localhost:8080/api/v1/masterdata/materials
+
+curl -H "Authorization: Bearer <access_token>" \
   http://localhost:8080/api/v1/purchase/orders
 
 curl -X POST http://localhost:8080/api/v1/purchase/orders \
@@ -224,21 +233,38 @@ docker build -f deploy/docker/web.Dockerfile -t mlf-erp/web:dev .
 
 ## 当前已完成
 
+### Stage 1 平台底座
+
+- JWT 登录、refresh token 轮换、退出、改密。
+- 用户、角色、权限、组织 CRUD。
+- RBAC 路由权限、登录日志、操作审计。
+- 真实前端登录、401 自动刷新、权限路由/菜单。
+- 用户/角色/组织/审计日志页面。
+
+### Stage 2 主数据与数据权限
+
+- 客商、物料、仓库、计量单位、币种、税率 CRUD。
+- 编码规则：前缀、日期模式、流水号、重置策略、事务内并发生成。
+- 数据权限：`all` / `company` / `dept` / `self`。
+- 主数据前端页面和编码规则页面。
+- 物料联动计量单位/税率。
+
+### 工程与交付
+
 - Monorepo 工作区与共享包。
-- Vue 3 登录页、布局、工作台、采购订单页面。
-- Go API：健康检查、运行时配置、采购订单列表/创建。
-- 租户上下文、请求 ID、统一响应、CORS、结构化日志。
-- PostgreSQL 连接与基础迁移。
-- Docker Compose 本地依赖。
+- PostgreSQL 迁移、seed、Docker Compose。
 - Dockerfile、GitHub Actions CI、SaaS/私有化发布模板。
 - OpenAPI 契约与模块文档。
 
 ## 下一步
 
-- JWT 登录、RBAC、数据权限与审计日志。
-- PostgreSQL 采购订单仓储。
-- RLS 策略迁移。
+- 单据框架：单据头/行、状态机、来源单据。
+- 采购订单 PostgreSQL 仓储。
+- 审批流基础能力。
+- 导入导出、附件。
+- 数据权限在单据查询中复用。
+- 登录限流、token version、httpOnly Cookie 评估。
 - Redis、MinIO、RabbitMQ 适配器。
 - Outbox Worker、MRP/成本/月结计算服务。
-- 审批流、报表引擎、离线 License/安装器。
+- 报表引擎、离线 License/安装器。
 - OpenAPI 生成 SDK、前端 ESLint/Prettier、单元/E2E 测试。

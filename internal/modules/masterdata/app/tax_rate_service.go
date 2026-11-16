@@ -6,16 +6,15 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/mlf-erp/mlf-erp/internal/modules/masterdata/domain"
-	masterpostgres "github.com/mlf-erp/mlf-erp/internal/modules/masterdata/infra/postgres"
 	"github.com/mlf-erp/mlf-erp/internal/platform/scope"
 	"github.com/shopspring/decimal"
 )
 
 type TaxRateService struct {
-	repo *masterpostgres.Repository[domain.TaxRate]
+	repo domain.CrudRepository[domain.TaxRate]
 }
 
-func NewTaxRateService(repo *masterpostgres.Repository[domain.TaxRate]) *TaxRateService {
+func NewTaxRateService(repo domain.CrudRepository[domain.TaxRate]) *TaxRateService {
 	return &TaxRateService{repo: repo}
 }
 
@@ -110,4 +109,9 @@ func (s *TaxRateService) Update(ctx context.Context, id string, input TaxRateInp
 func (s *TaxRateService) Disable(ctx context.Context, id string) error {
 	tenantID, _, userID := tenantActor(ctx)
 	return s.repo.Disable(ctx, scope.Filter{DataScope: "all"}, tenantID, id, userID)
+}
+
+func (s *TaxRateService) Enable(ctx context.Context, id string) error {
+	tenantID, _, userID := tenantActor(ctx)
+	return s.repo.Enable(ctx, scope.Filter{DataScope: "all"}, tenantID, id, userID)
 }

@@ -18,6 +18,7 @@ export const useAuthStore = defineStore('auth', () => {
   const accessToken = ref('')
   const refreshToken = ref('')
   let refreshPromise: Promise<string | null> | null = null
+  let sessionEpoch = 0
 
   const hasToken = computed(() => Boolean(accessToken.value))
   const isAuthenticated = computed(() => Boolean(user.value))
@@ -53,6 +54,7 @@ export const useAuthStore = defineStore('auth', () => {
 
     if (!refreshPromise) {
       const currentRefreshToken = refreshToken.value
+      const epoch = sessionEpoch
       refreshPromise = (async () => {
         try {
           const response = await fetch('/api/v1/auth/refresh', {
@@ -61,14 +63,27 @@ export const useAuthStore = defineStore('auth', () => {
             body: JSON.stringify({ refresh_token: currentRefreshToken })
           })
           if (!response.ok) {
+            if (sessionEpoch !== epoch) {
+              return null
+            }
+            const storedRefreshToken = localStorage.getItem(REFRESH_TOKEN_KEY)
+            if (storedRefreshToken && storedRefreshToken !== currentRefreshToken) {
+              restoreFromStorage()
+              return accessToken.value || null
+            }
             clear()
+            return null
+          }
+          if (sessionEpoch !== epoch) {
             return null
           }
           const body = (await response.json()) as { data: LoginResponse }
           applySession(body.data)
           return body.data.access_token
         } catch {
-          clear()
+          if (sessionEpoch === epoch) {
+            clear()
+          }
           return null
         } finally {
           refreshPromise = null
@@ -120,6 +135,7 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   function clear(): void {
+    sessionEpoch += 1
     user.value = null
     roles.value = []
     permissions.value = []

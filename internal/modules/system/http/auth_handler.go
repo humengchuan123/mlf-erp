@@ -27,10 +27,10 @@ func NewAuthHandler(service *app.AuthService, defaultTenantID string, log *slog.
 func (h *AuthHandler) RegisterPublic(group *gin.RouterGroup) {
 	group.POST("/auth/login", h.login)
 	group.POST("/auth/refresh", h.refresh)
+	group.POST("/auth/logout", h.logout)
 }
 
 func (h *AuthHandler) RegisterProtected(group *gin.RouterGroup) {
-	group.POST("/auth/logout", h.logout)
 	group.GET("/auth/me", h.me)
 	group.POST("/auth/change-password", h.changePassword)
 }

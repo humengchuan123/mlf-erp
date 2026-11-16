@@ -49,7 +49,7 @@ func main() {
 	)
 
 	if !cfg.DB.Enabled {
-		log.Error("database is required for stage 1; set DB_ENABLED=true")
+		log.Error("database is required; set DB_ENABLED=true")
 		os.Exit(1)
 	}
 

@@ -42,6 +42,14 @@
             >
               禁用
             </el-button>
+            <el-button
+              v-else
+              link
+              type="success"
+              @click="enableRow(row)"
+            >
+              启用
+            </el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -246,6 +254,16 @@ async function disableRow(row: Record<string, any>) {
     await load()
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : '禁用失败')
+  }
+}
+
+async function enableRow(row: Record<string, any>) {
+  try {
+    await props.api.enable(String(row.id))
+    ElMessage.success('已启用')
+    await load()
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : '启用失败')
   }
 }
 

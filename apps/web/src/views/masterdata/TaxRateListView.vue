@@ -18,7 +18,7 @@ import { masterDataApi } from '@mlf-erp/sdk'
 
 const api = masterDataApi.taxRates as unknown as CrudApi
 
-const defaultForm = { code: '', name: '', rate: '0.1300', type: 'vat_output', status: 'active' }
+const defaultForm = { code: '', name: '', rate: '0.1300', type: 'vat_output' }
 
 const columns: ColumnConfig[] = [
   { key: 'code', label: '编码', width: 140 },
@@ -53,15 +53,6 @@ const fields: FieldConfig[] = [
       { label: '销项', value: 'vat_output' },
       { label: '进项', value: 'vat_input' },
       { label: '其他', value: 'other' }
-    ]
-  },
-  {
-    key: 'status',
-    label: '状态',
-    type: 'select',
-    options: [
-      { label: '启用', value: 'active' },
-      { label: '禁用', value: 'disabled' }
     ]
   }
 ]

@@ -1,0 +1,1 @@
+-- Organization path repair is not safely reversible; no-op.

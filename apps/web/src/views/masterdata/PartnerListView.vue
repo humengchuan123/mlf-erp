@@ -27,8 +27,7 @@ const defaultForm = {
   phone: '',
   email: '',
   address: '',
-  tax_no: '',
-  status: 'active'
+  tax_no: ''
 }
 
 const columns: ColumnConfig[] = [
@@ -71,15 +70,6 @@ const fields: FieldConfig[] = [
   { key: 'phone', label: '电话' },
   { key: 'email', label: '邮箱' },
   { key: 'address', label: '地址', type: 'textarea' },
-  { key: 'tax_no', label: '税号' },
-  {
-    key: 'status',
-    label: '状态',
-    type: 'select',
-    options: [
-      { label: '启用', value: 'active' },
-      { label: '禁用', value: 'disabled' }
-    ]
-  }
+  { key: 'tax_no', label: '税号' }
 ]
 </script>
