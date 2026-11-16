@@ -1,0 +1,27 @@
+{
+  "name": "mlf-erp",
+  "version": "0.1.0",
+  "private": true,
+  "description": "MLF ERP monorepo: SaaS subscription and private deployment",
+  "packageManager": "pnpm@8.6.12",
+  "scripts": {
+    "dev": "concurrently -k -n api,web -c blue,green \"go run ./cmd/api\" \"pnpm --filter @mlf-erp/web dev\"",
+    "dev:web": "pnpm --filter @mlf-erp/web dev",
+    "build:web": "pnpm --filter @mlf-erp/web build",
+    "typecheck:web": "pnpm --filter @mlf-erp/web typecheck",
+    "dev:api": "go run ./cmd/api",
+    "dev:worker": "go run ./cmd/worker",
+    "build:api": "go build -o dist/api ./cmd/api",
+    "build:worker": "go build -o dist/worker ./cmd/worker",
+    "build:migrate": "go build -o dist/migrate ./cmd/migrate",
+    "test:go": "go test ./...",
+    "vet:go": "go vet ./...",
+    "fmt:go": "gofmt -w ./cmd ./internal ./db",
+    "migrate:up": "go run ./cmd/migrate -direction up",
+    "migrate:down": "go run ./cmd/migrate -direction down -steps 1"
+  },
+  "devDependencies": {
+    "concurrently": "^10.0.7",
+    "turbo": "^2.3.0"
+  }
+}

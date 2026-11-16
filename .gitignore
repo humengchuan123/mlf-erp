@@ -1,0 +1,32 @@
+# Go
+/dist/
+/bin/
+*.exe
+*.test
+*.out
+coverage.out
+
+# Node
+node_modules/
+.pnpm-store/
+apps/*/dist/
+packages/*/dist/
+*.tsbuildinfo
+.vite/
+
+# Env
+.env
+.env.*
+!.env.example
+!deploy/profiles/*.example
+
+# IDE
+.idea/
+.vscode/
+*.swp
+.DS_Store
+
+# Runtime
+logs/
+tmp/
+*.log

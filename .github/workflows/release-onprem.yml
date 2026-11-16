@@ -1,0 +1,86 @@
+name: release-onprem
+
+on:
+  push:
+    tags: ['v*-onprem']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-onprem-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 8.6.12
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Build frontend
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm --filter @mlf-erp/web build
+
+      - name: Build Go binaries
+        run: |
+          mkdir -p release/bin
+          for arch in amd64 arm64; do
+            CGO_ENABLED=0 GOOS=linux GOARCH=$arch go build \
+              -trimpath -ldflags="-s -w -X main.version=${GITHUB_REF_NAME}" \
+              -o release/bin/api-linux-$arch ./cmd/api
+            CGO_ENABLED=0 GOOS=linux GOARCH=$arch go build \
+              -trimpath -ldflags="-s -w -X main.version=${GITHUB_REF_NAME}" \
+              -o release/bin/worker-linux-$arch ./cmd/worker
+            CGO_ENABLED=0 GOOS=linux GOARCH=$arch go build \
+              -trimpath -ldflags="-s -w" \
+              -o release/bin/migrate-linux-$arch ./cmd/migrate
+          done
+
+      - name: Assemble offline package
+        run: |
+          mkdir -p release/web release/db release/deploy release/docs
+          cp -r apps/web/dist/* release/web/
+          cp -r db/migrations release/db/
+          cp -r deploy/offline release/deploy/offline
+          cp -r deploy/compose release/deploy/compose
+          cp -r deploy/docker release/deploy/docker
+          cp -r docs release/docs
+
+          cat > release/manifest.json <<EOF
+          {
+            "name": "mlf-erp",
+            "version": "${GITHUB_REF_NAME}",
+            "commit": "${GITHUB_SHA}",
+            "architectures": ["amd64", "arm64"],
+            "artifacts": ["web", "api", "worker", "migrate", "migrations"]
+          }
+          EOF
+
+          tar -czf mlf-erp-${GITHUB_REF_NAME}-offline.tar.gz -C release .
+          sha256sum mlf-erp-${GITHUB_REF_NAME}-offline.tar.gz > SHA256SUMS
+
+          # TODO: 签名（cosign/minisign/GPG）、SBOM、漏洞扫描报告
+          # TODO: 在干净断网 VM 中执行安装/升级/回滚演练
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mlf-erp-offline
+          path: |
+            mlf-erp-*-offline.tar.gz
+            SHA256SUMS

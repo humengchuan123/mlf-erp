@@ -1,0 +1,143 @@
+openapi: 3.1.0
+info:
+  title: MLF ERP API
+  version: 0.1.0
+  description: Monorepo skeleton API contract. Generate packages/sdk from this file in a later iteration.
+servers:
+  - url: /api/v1
+paths:
+  /runtime-config:
+    get:
+      summary: Get runtime configuration and capabilities
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RuntimeConfigResponse'
+  /purchase/orders:
+    get:
+      summary: List purchase orders for the current tenant
+      parameters:
+        - $ref: '#/components/parameters/TenantHeader'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PurchaseOrderListResponse'
+    post:
+      summary: Create a purchase order
+      parameters:
+        - $ref: '#/components/parameters/TenantHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreatePurchaseOrderRequest'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PurchaseOrderResponse'
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+components:
+  parameters:
+    TenantHeader:
+      in: header
+      name: X-Tenant-ID
+      required: false
+      schema:
+        type: string
+        format: uuid
+      description: Defaults to the configured development tenant when omitted.
+  schemas:
+    ApiResponse:
+      type: object
+      properties:
+        code:
+          type: string
+        message:
+          type: string
+        request_id:
+          type: string
+    RuntimeConfig:
+      type: object
+      properties:
+        app:
+          type: string
+        env:
+          type: string
+        delivery_mode:
+          type: string
+          enum: [saas, onprem]
+        capabilities:
+          type: array
+          items:
+            type: string
+    RuntimeConfigResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiResponse'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/RuntimeConfig'
+    PurchaseOrder:
+      type: object
+      properties:
+        id:
+          type: string
+        code:
+          type: string
+        supplier_id:
+          type: string
+        amount:
+          type: string
+          description: Decimal string, never a floating-point number.
+        currency:
+          type: string
+        status:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+    PurchaseOrderResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiResponse'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/PurchaseOrder'
+    PurchaseOrderListResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiResponse'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/PurchaseOrder'
+    CreatePurchaseOrderRequest:
+      type: object
+      required: [code, amount]
+      properties:
+        code:
+          type: string
+        supplier_id:
+          type: string
+        amount:
+          type: string
+          description: Decimal string, for example "1234.5600".
+        currency:
+          type: string
+          default: CNY

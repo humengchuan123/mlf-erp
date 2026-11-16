@@ -1,0 +1,123 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      web: ${{ steps.filter.outputs.web }}
+      api: ${{ steps.filter.outputs.api }}
+      worker: ${{ steps.filter.outputs.worker }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            web:
+              - 'apps/web/**'
+              - 'packages/**'
+              - 'api/openapi.yaml'
+              - 'pnpm-lock.yaml'
+              - 'pnpm-workspace.yaml'
+              - 'package.json'
+              - 'turbo.json'
+            api:
+              - 'cmd/api/**'
+              - 'cmd/migrate/**'
+              - 'internal/**'
+              - 'api/**'
+              - 'go.mod'
+              - 'go.sum'
+              - 'db/migrations/**'
+            worker:
+              - 'cmd/worker/**'
+              - 'internal/**'
+              - 'go.mod'
+              - 'go.sum'
+              - 'db/migrations/**'
+
+  web:
+    needs: changes
+    if: needs.changes.outputs.web == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 8.6.12
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @mlf-erp/web typecheck
+      - run: pnpm --filter @mlf-erp/web build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: web-dist
+          path: apps/web/dist
+
+  api:
+    needs: changes
+    if: needs.changes.outputs.api == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - run: go vet ./...
+      - run: go test ./...
+      - run: CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X main.version=${{ github.sha }}" -o dist/api ./cmd/api
+      - run: CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o dist/migrate ./cmd/migrate
+      - uses: actions/upload-artifact@v4
+        with:
+          name: api-bin
+          path: |
+            dist/api
+            dist/migrate
+
+  worker:
+    needs: changes
+    if: needs.changes.outputs.worker == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - run: go test ./...
+      - run: CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X main.version=${{ github.sha }}" -o dist/worker ./cmd/worker
+      - uses: actions/upload-artifact@v4
+        with:
+          name: worker-bin
+          path: dist/worker
+
+  gate:
+    if: always()
+    needs: [changes, web, api, worker]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check required jobs
+        run: |
+          [ "${{ needs.changes.result }}" = "success" ] || exit 1
+          for result in "${{ needs.web.result }}" "${{ needs.api.result }}" "${{ needs.worker.result }}"; do
+            case "$result" in
+              success|skipped) ;;
+              *) echo "required job failed: $result"; exit 1 ;;
+            esac
+          done
