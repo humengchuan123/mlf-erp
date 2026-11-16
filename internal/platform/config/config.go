@@ -13,6 +13,7 @@ type Config struct {
 	HTTP  HTTPConfig
 	DB    DBConfig
 	Redis RedisConfig
+	Auth  AuthConfig
 	Log   LogConfig
 }
 
@@ -43,6 +44,13 @@ type RedisConfig struct {
 	DB       int
 }
 
+type AuthConfig struct {
+	JWTSecret       string
+	JWTIssuer       string
+	AccessTokenTTL  time.Duration
+	RefreshTokenTTL time.Duration
+}
+
 type LogConfig struct {
 	Level string
 }
@@ -64,7 +72,7 @@ func Load() (*Config, error) {
 		},
 		DB: DBConfig{
 			Enabled:        getBool("DB_ENABLED", true),
-			Required:       getBool("DB_REQUIRED", env == "prod"),
+			Required:       getBool("DB_REQUIRED", true),
 			DSN:            getString("DATABASE_URL", "postgres://mlf:mlf@localhost:5432/mlf_erp?sslmode=disable"),
 			MaxConns:       int32(getInt("DB_MAX_CONNS", 10)),
 			ConnectTimeout: getDuration("DB_CONNECT_TIMEOUT", 5*time.Second),
@@ -73,6 +81,12 @@ func Load() (*Config, error) {
 			Addr:     getString("REDIS_ADDR", "localhost:6379"),
 			Password: getString("REDIS_PASSWORD", ""),
 			DB:       getInt("REDIS_DB", 0),
+		},
+		Auth: AuthConfig{
+			JWTSecret:       getString("JWT_SECRET", "dev-only-change-me"),
+			JWTIssuer:       getString("JWT_ISSUER", "mlf-erp"),
+			AccessTokenTTL:  getDuration("ACCESS_TOKEN_TTL", 15*time.Minute),
+			RefreshTokenTTL: getDuration("REFRESH_TOKEN_TTL", 168*time.Hour),
 		},
 		Log: LogConfig{
 			Level: getString("LOG_LEVEL", "info"),
@@ -90,6 +104,18 @@ func Load() (*Config, error) {
 	}
 	if cfg.DB.MaxConns <= 0 {
 		return nil, fmt.Errorf("DB_MAX_CONNS must be greater than zero")
+	}
+	if cfg.Auth.JWTSecret == "" {
+		return nil, fmt.Errorf("JWT_SECRET must not be empty")
+	}
+	if env == "prod" && cfg.Auth.JWTSecret == "dev-only-change-me" {
+		return nil, fmt.Errorf("JWT_SECRET must be changed in production")
+	}
+	if cfg.Auth.AccessTokenTTL <= 0 {
+		return nil, fmt.Errorf("ACCESS_TOKEN_TTL must be greater than zero")
+	}
+	if cfg.Auth.RefreshTokenTTL <= 0 {
+		return nil, fmt.Errorf("REFRESH_TOKEN_TTL must be greater than zero")
 	}
 
 	return cfg, nil

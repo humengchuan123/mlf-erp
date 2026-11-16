@@ -36,6 +36,7 @@ jobs:
             api:
               - 'cmd/api/**'
               - 'cmd/migrate/**'
+              - 'cmd/seed/**'
               - 'internal/**'
               - 'api/**'
               - 'go.mod'
@@ -83,12 +84,14 @@ jobs:
       - run: go test ./...
       - run: CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X main.version=${{ github.sha }}" -o dist/api ./cmd/api
       - run: CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o dist/migrate ./cmd/migrate
+      - run: CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o dist/seed ./cmd/seed
       - uses: actions/upload-artifact@v4
         with:
           name: api-bin
           path: |
             dist/api
             dist/migrate
+            dist/seed
 
   worker:
     needs: changes

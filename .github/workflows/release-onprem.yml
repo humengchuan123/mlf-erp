@@ -50,6 +50,9 @@ jobs:
             CGO_ENABLED=0 GOOS=linux GOARCH=$arch go build \
               -trimpath -ldflags="-s -w" \
               -o release/bin/migrate-linux-$arch ./cmd/migrate
+            CGO_ENABLED=0 GOOS=linux GOARCH=$arch go build \
+              -trimpath -ldflags="-s -w" \
+              -o release/bin/seed-linux-$arch ./cmd/seed
           done
 
       - name: Assemble offline package

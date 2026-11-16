@@ -10,15 +10,19 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
 	"github.com/mlf-erp/mlf-erp/internal/modules/purchase/app"
 	purchasehttp "github.com/mlf-erp/mlf-erp/internal/modules/purchase/http"
 	"github.com/mlf-erp/mlf-erp/internal/modules/purchase/infra"
+	systemapp "github.com/mlf-erp/mlf-erp/internal/modules/system/app"
+	systemhttp "github.com/mlf-erp/mlf-erp/internal/modules/system/http"
+	systempostgres "github.com/mlf-erp/mlf-erp/internal/modules/system/infra/postgres"
+	"github.com/mlf-erp/mlf-erp/internal/platform/authmw"
 	"github.com/mlf-erp/mlf-erp/internal/platform/config"
 	"github.com/mlf-erp/mlf-erp/internal/platform/database"
 	"github.com/mlf-erp/mlf-erp/internal/platform/httpserver"
 	"github.com/mlf-erp/mlf-erp/internal/platform/logger"
+	"github.com/mlf-erp/mlf-erp/internal/platform/security"
 )
 
 var version = "dev"
@@ -40,29 +44,64 @@ func main() {
 		"delivery_mode", cfg.App.DeliveryMode,
 	)
 
-	var db *pgxpool.Pool
-	if cfg.DB.Enabled {
-		connectCtx, cancel := context.WithTimeout(context.Background(), cfg.DB.ConnectTimeout)
-		pool, connectErr := database.NewPostgres(connectCtx, cfg.DB)
-		cancel()
-
-		if connectErr != nil {
-			if cfg.DB.Required {
-				log.Error("connect database", "error", connectErr)
-				os.Exit(1)
-			}
-			log.Warn("database unavailable, starting in degraded mode", "error", connectErr)
-		} else {
-			db = pool
-			defer db.Close()
-		}
+	if !cfg.DB.Enabled {
+		log.Error("database is required for stage 1; set DB_ENABLED=true")
+		os.Exit(1)
 	}
+
+	connectCtx, cancelConnect := context.WithTimeout(context.Background(), cfg.DB.ConnectTimeout)
+	db, connectErr := database.NewPostgres(connectCtx, cfg.DB)
+	cancelConnect()
+	if connectErr != nil {
+		log.Error("connect database", "error", connectErr)
+		os.Exit(1)
+	}
+	defer db.Close()
 
 	engine := httpserver.New(cfg, log, db)
 
+	userRepository := systempostgres.NewUserRepository(db)
+	roleRepository := systempostgres.NewRoleRepository(db)
+	permissionRepository := systempostgres.NewPermissionRepository(db)
+	orgRepository := systempostgres.NewOrgRepository(db)
+	refreshTokenRepository := systempostgres.NewRefreshTokenRepository(db)
+	auditRepository := systempostgres.NewAuditRepository(db)
+	loginLogRepository := systempostgres.NewLoginLogRepository(db)
+
+	tokenService := security.NewTokenService(cfg.Auth.JWTSecret, cfg.Auth.JWTIssuer, cfg.Auth.AccessTokenTTL)
+	authService := systemapp.NewAuthService(
+		userRepository,
+		roleRepository,
+		refreshTokenRepository,
+		loginLogRepository,
+		tokenService,
+		cfg.Auth.RefreshTokenTTL,
+	)
+	userService := systemapp.NewUserService(userRepository, roleRepository)
+	roleService := systemapp.NewRoleService(roleRepository)
+	permissionService := systemapp.NewPermissionService(permissionRepository)
+	orgService := systemapp.NewOrgService(orgRepository)
+	auditService := systemapp.NewAuditService(auditRepository)
+
+	authHandler := systemhttp.NewAuthHandler(authService, cfg.App.DefaultTenantID, log)
+	userHandler := systemhttp.NewUserHandler(userService, auditService, log)
+	roleHandler := systemhttp.NewRoleHandler(roleService, permissionService, auditService, log)
+	orgHandler := systemhttp.NewOrgHandler(orgService, auditService, log)
+	auditHandler := systemhttp.NewAuditHandler(auditService, log)
+
+	api := engine.Group("/api/v1")
+	authHandler.RegisterPublic(api)
+
+	protected := api.Group("", authmw.Auth(tokenService, userRepository, roleRepository))
+	authHandler.RegisterProtected(protected)
+	userHandler.Register(protected)
+	roleHandler.Register(protected)
+	orgHandler.Register(protected)
+	auditHandler.Register(protected)
+
 	purchaseRepository := infra.NewMemoryRepository()
 	purchaseService := app.NewService(purchaseRepository)
-	purchasehttp.Register(engine.Group("/api/v1"), purchaseService, log)
+	purchasehttp.Register(protected, purchaseService, log)
 
 	server := &http.Server{
 		Addr:              cfg.HTTP.Addr,

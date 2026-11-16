@@ -15,32 +15,44 @@
           <span>工作台</span>
         </el-menu-item>
 
-        <el-menu-item-group title="供应链">
-          <el-menu-item index="/purchase/orders">
+        <el-menu-item-group v-if="canSupplyChain" title="供应链">
+          <el-menu-item v-if="authStore.hasPermission('purchase.read')" index="/purchase/orders">
             <el-icon><ShoppingCart /></el-icon>
             <span>采购订单</span>
           </el-menu-item>
-          <el-menu-item index="/sales/orders">
+          <el-menu-item v-if="authStore.hasPermission('sales.read')" index="/sales/orders">
             <el-icon><Goods /></el-icon>
             <span>销售订单</span>
           </el-menu-item>
-          <el-menu-item index="/inventory/stock">
+          <el-menu-item v-if="authStore.hasPermission('inventory.read')" index="/inventory/stock">
             <el-icon><Box /></el-icon>
             <span>库存管理</span>
           </el-menu-item>
         </el-menu-item-group>
 
-        <el-menu-item-group title="财务">
-          <el-menu-item index="/finance/gl">
+        <el-menu-item-group v-if="canFinance" title="财务">
+          <el-menu-item v-if="authStore.hasPermission('finance.read')" index="/finance/gl">
             <el-icon><Money /></el-icon>
             <span>总账</span>
           </el-menu-item>
         </el-menu-item-group>
 
-        <el-menu-item-group title="平台">
-          <el-menu-item index="/system/users">
-            <el-icon><Setting /></el-icon>
-            <span>用户与权限</span>
+        <el-menu-item-group v-if="canSystem" title="平台">
+          <el-menu-item v-if="authStore.hasPermission('system.user.read')" index="/system/users">
+            <el-icon><User /></el-icon>
+            <span>用户管理</span>
+          </el-menu-item>
+          <el-menu-item v-if="authStore.hasPermission('system.role.read')" index="/system/roles">
+            <el-icon><Key /></el-icon>
+            <span>角色权限</span>
+          </el-menu-item>
+          <el-menu-item v-if="authStore.hasPermission('system.org.read')" index="/system/orgs">
+            <el-icon><OfficeBuilding /></el-icon>
+            <span>组织管理</span>
+          </el-menu-item>
+          <el-menu-item v-if="authStore.hasPermission('system.audit.read')" index="/system/audit-logs">
+            <el-icon><Document /></el-icon>
+            <span>审计日志</span>
           </el-menu-item>
         </el-menu-item-group>
       </el-menu>
@@ -55,7 +67,7 @@
           <el-tag size="small" effect="plain">{{ appStore.deliveryModeLabel }}</el-tag>
           <el-dropdown @command="handleCommand">
             <span class="layout__user">
-              {{ appStore.userName }}
+              {{ displayName }}
               <el-icon><ArrowDown /></el-icon>
             </span>
             <template #dropdown>
@@ -81,22 +93,42 @@ import {
   ArrowDown,
   Box,
   DataBoard,
+  Document,
   Goods,
+  Key,
   Money,
-  Setting,
-  ShoppingCart
+  OfficeBuilding,
+  ShoppingCart,
+  User
 } from '@element-plus/icons-vue'
 import { useAppStore } from '@/stores/app'
+import { useAuthStore } from '@/stores/auth'
 
 const route = useRoute()
 const router = useRouter()
 const appStore = useAppStore()
+const authStore = useAuthStore()
 
 const currentTitle = computed(() => (route.meta.title as string) ?? '工作台')
+const displayName = computed(() => authStore.user?.display_name || authStore.user?.username || '未登录')
+const canSupplyChain = computed(
+  () =>
+    authStore.hasPermission('purchase.read') ||
+    authStore.hasPermission('sales.read') ||
+    authStore.hasPermission('inventory.read')
+)
+const canFinance = computed(() => authStore.hasPermission('finance.read'))
+const canSystem = computed(
+  () =>
+    authStore.hasPermission('system.user.read') ||
+    authStore.hasPermission('system.role.read') ||
+    authStore.hasPermission('system.org.read') ||
+    authStore.hasPermission('system.audit.read')
+)
 
-function handleCommand(command: string) {
+async function handleCommand(command: string) {
   if (command === 'logout') {
-    appStore.logout()
+    await authStore.logout()
     router.push('/login')
   }
 }

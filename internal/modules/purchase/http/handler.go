@@ -9,6 +9,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/mlf-erp/mlf-erp/internal/modules/purchase/app"
 	"github.com/mlf-erp/mlf-erp/internal/modules/purchase/domain"
+	"github.com/mlf-erp/mlf-erp/internal/platform/authmw"
 	"github.com/mlf-erp/mlf-erp/internal/platform/httpmw"
 	"github.com/mlf-erp/mlf-erp/internal/platform/httpx"
 	"github.com/shopspring/decimal"
@@ -26,8 +27,8 @@ func Register(group *gin.RouterGroup, service *app.Service, log *slog.Logger) {
 	}
 
 	purchase := group.Group("/purchase")
-	purchase.GET("/orders", handler.listOrders)
-	purchase.POST("/orders", handler.createOrder)
+	purchase.GET("/orders", authmw.RequirePermission("purchase.read"), handler.listOrders)
+	purchase.POST("/orders", authmw.RequirePermission("purchase.write"), handler.createOrder)
 }
 
 type createOrderRequest struct {

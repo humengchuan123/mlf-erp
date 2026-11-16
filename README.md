@@ -95,12 +95,22 @@ cp .env.example .env
 docker compose -f deploy/compose/docker-compose.dev.yml up -d
 ```
 
-### 3. 初始化数据库
+### 3. 初始化数据库与管理员
 
 ```bash
 go mod tidy
 go run ./cmd/migrate -direction up
+go run ./cmd/seed
 ```
+
+默认管理员：
+
+```text
+用户名：admin
+密码：Admin@123456
+```
+
+> Stage 1 起 API 要求 PostgreSQL 可用；`DB_REQUIRED=true`。
 
 ### 4. 同时启动前端和后端
 
@@ -136,7 +146,7 @@ pnpm dev:web
 pnpm dev:worker
 ```
 
-开发模式任意用户名/密码均可登录。
+默认登录账号：`admin / Admin@123456`。
 
 ### 6. 启动 Worker（可选）
 
@@ -151,12 +161,24 @@ curl http://localhost:8080/healthz
 curl http://localhost:8080/readyz
 curl http://localhost:8080/api/v1/runtime-config
 
-curl -H "X-Tenant-ID: 00000000-0000-0000-0000-000000000001" \
+# 登录，获取 access_token / refresh_token
+curl -X POST http://localhost:8080/api/v1/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"username":"admin","password":"Admin@123456"}'
+
+# 使用返回的 access_token
+curl -H "Authorization: Bearer <access_token>" \
+  http://localhost:8080/api/v1/auth/me
+
+curl -H "Authorization: Bearer <access_token>" \
+  http://localhost:8080/api/v1/system/users
+
+curl -H "Authorization: Bearer <access_token>" \
   http://localhost:8080/api/v1/purchase/orders
 
 curl -X POST http://localhost:8080/api/v1/purchase/orders \
   -H "Content-Type: application/json" \
-  -H "X-Tenant-ID: 00000000-0000-0000-0000-000000000001" \
+  -H "Authorization: Bearer <access_token>" \
   -d '{"code":"PO-2026-0001","supplier_id":"SUP-001","amount":"1234.5600","currency":"CNY"}'
 ```
 
@@ -171,6 +193,7 @@ go vet ./...
 gofmt -w ./cmd ./internal ./db
 go run ./cmd/migrate -direction up
 go run ./cmd/migrate -direction down -steps 1
+go run ./cmd/seed
 
 # Local development
 pnpm install

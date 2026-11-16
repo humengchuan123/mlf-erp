@@ -17,39 +17,56 @@
           <el-input
             v-model="form.password"
             type="password"
-            placeholder="开发模式任意密码"
+            placeholder="请输入密码"
             size="large"
             show-password
+            @keyup.enter="submit"
           />
         </el-form-item>
-        <el-button type="primary" size="large" class="login__submit" @click="submit">
+        <el-button
+          type="primary"
+          size="large"
+          class="login__submit"
+          :loading="loading"
+          @click="submit"
+        >
           登录
         </el-button>
       </el-form>
 
-      <p class="login__hint">当前为开发骨架，任意用户名和密码均可登录。</p>
+      <p class="login__hint">默认账号：admin / Admin@123456</p>
     </el-card>
   </div>
 </template>
 
 <script setup lang="ts">
-import { reactive } from 'vue'
-import { useRouter } from 'vue-router'
+import { reactive, ref } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { useAppStore } from '@/stores/app'
+import { useAuthStore } from '@/stores/auth'
 
 const router = useRouter()
-const appStore = useAppStore()
-const form = reactive({ username: 'admin', password: 'admin' })
+const route = useRoute()
+const authStore = useAuthStore()
+const loading = ref(false)
+const form = reactive({ username: 'admin', password: 'Admin@123456' })
 
-function submit() {
-  if (!form.username.trim()) {
-    ElMessage.warning('请输入用户名')
+async function submit() {
+  if (!form.username.trim() || !form.password) {
+    ElMessage.warning('请输入用户名和密码')
     return
   }
 
-  appStore.login(form.username.trim())
-  router.push('/')
+  loading.value = true
+  try {
+    await authStore.login(form.username.trim(), form.password)
+    const redirect = typeof route.query.redirect === 'string' ? route.query.redirect : '/'
+    await router.push(redirect)
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : '登录失败')
+  } finally {
+    loading.value = false
+  }
 }
 </script>
 

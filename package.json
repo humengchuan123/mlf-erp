@@ -14,6 +14,8 @@
     "build:api": "go build -o dist/api ./cmd/api",
     "build:worker": "go build -o dist/worker ./cmd/worker",
     "build:migrate": "go build -o dist/migrate ./cmd/migrate",
+    "build:seed": "go build -o dist/seed ./cmd/seed",
+    "seed": "go run ./cmd/seed",
     "test:go": "go test ./...",
     "vet:go": "go vet ./...",
     "fmt:go": "gofmt -w ./cmd ./internal ./db",
