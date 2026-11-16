@@ -12,6 +12,8 @@ import (
 	masterapp "github.com/mlf-erp/mlf-erp/internal/modules/masterdata/app"
 	masterdomain "github.com/mlf-erp/mlf-erp/internal/modules/masterdata/domain"
 	masterpostgres "github.com/mlf-erp/mlf-erp/internal/modules/masterdata/infra/postgres"
+	purchaseapp "github.com/mlf-erp/mlf-erp/internal/modules/purchase/app"
+	purchasepostgres "github.com/mlf-erp/mlf-erp/internal/modules/purchase/infra/postgres"
 	systemapp "github.com/mlf-erp/mlf-erp/internal/modules/system/app"
 	systemdomain "github.com/mlf-erp/mlf-erp/internal/modules/system/domain"
 	systempostgres "github.com/mlf-erp/mlf-erp/internal/modules/system/infra/postgres"
@@ -20,6 +22,7 @@ import (
 	"github.com/mlf-erp/mlf-erp/internal/platform/database"
 	"github.com/mlf-erp/mlf-erp/internal/platform/logger"
 	"github.com/mlf-erp/mlf-erp/internal/platform/tenant"
+	"github.com/shopspring/decimal"
 )
 
 const (
@@ -138,7 +141,10 @@ var demoViewerPermissions = []string{
 	"masterdata.unit.read",
 	"masterdata.currency.read",
 	"masterdata.tax.read",
+	"purchase.order.read",
 	"purchase.read",
+	"inventory.balance.read",
+	"inventory.transaction.read",
 }
 
 func main() {
@@ -191,10 +197,12 @@ func seedDemo(ctx context.Context, cfg *config.Config, db *pgxpool.Pool, log *sl
 	roleRepository := systempostgres.NewRoleRepository(db)
 	orgRepository := systempostgres.NewOrgRepository(db)
 	refreshTokenRepository := systempostgres.NewRefreshTokenRepository(db)
+	codeRuleRepository := systempostgres.NewCodeRuleRepository(db)
 
 	userService := systemapp.NewUserService(userRepository, roleRepository, refreshTokenRepository)
 	roleService := systemapp.NewRoleService(roleRepository)
 	orgService := systemapp.NewOrgService(orgRepository)
+	codeRuleService := systemapp.NewCodeRuleService(codeRuleRepository)
 
 	partnerRepository := masterpostgres.NewRepository[masterdomain.Partner](db)
 	materialRepository := masterpostgres.NewRepository[masterdomain.Material](db)
@@ -203,12 +211,22 @@ func seedDemo(ctx context.Context, cfg *config.Config, db *pgxpool.Pool, log *sl
 	currencyRepository := masterpostgres.NewRepository[masterdomain.Currency](db)
 	taxRateRepository := masterpostgres.NewRepository[masterdomain.TaxRate](db)
 
-	partnerService := masterapp.NewPartnerService(partnerRepository, nil)
-	materialService := masterapp.NewMaterialService(materialRepository, unitRepository, taxRateRepository, nil)
-	warehouseService := masterapp.NewWarehouseService(warehouseRepository, nil)
+	partnerService := masterapp.NewPartnerService(partnerRepository, codeRuleService)
+	materialService := masterapp.NewMaterialService(materialRepository, unitRepository, taxRateRepository, codeRuleService)
+	warehouseService := masterapp.NewWarehouseService(warehouseRepository, codeRuleService)
 	unitService := masterapp.NewUnitService(unitRepository)
 	currencyService := masterapp.NewCurrencyService(currencyRepository)
 	taxRateService := masterapp.NewTaxRateService(taxRateRepository)
+
+	purchaseRepository := purchasepostgres.NewRepository(db)
+	orderService := purchaseapp.NewOrderService(
+		purchaseRepository,
+		codeRuleService,
+		partnerRepository,
+		materialRepository,
+		warehouseRepository,
+	)
+	receiptService := purchaseapp.NewReceiptService(purchaseRepository, codeRuleService)
 
 	orgIDs := map[string]string{"HQ": defaultOrgID}
 
@@ -320,6 +338,10 @@ func seedDemo(ctx context.Context, cfg *config.Config, db *pgxpool.Pool, log *sl
 		); err != nil {
 			return err
 		}
+	}
+
+	if err := ensureDemoPurchases(baseCtx, db, tenantID, orderService, receiptService, partnerService, materialService, warehouseService); err != nil {
+		return err
 	}
 
 	log.Info("demo data ready",
@@ -521,6 +543,136 @@ func findRoleByCode(ctx context.Context, service *systemapp.RoleService, tenantI
 		}
 	}
 	return nil, nil
+}
+
+func ensureDemoPurchases(
+	ctx context.Context,
+	db *pgxpool.Pool,
+	tenantID string,
+	orderService *purchaseapp.OrderService,
+	receiptService *purchaseapp.ReceiptService,
+	partnerService *masterapp.PartnerService,
+	materialService *masterapp.MaterialService,
+	warehouseService *masterapp.WarehouseService,
+) error {
+	supplier, err := findPartnerByCode(ctx, partnerService, "SUP-DEMO-001")
+	if err != nil {
+		return err
+	}
+	warehouse, err := findWarehouseByCode(ctx, warehouseService, "WH-SH")
+	if err != nil {
+		return err
+	}
+	material1, err := findMaterialByCode(ctx, materialService, "MAT-DEMO-001")
+	if err != nil {
+		return err
+	}
+	material2, err := findMaterialByCode(ctx, materialService, "MAT-DEMO-002")
+	if err != nil {
+		return err
+	}
+
+	if err := ensureDemoOrder(ctx, db, tenantID, orderService, receiptService,
+		"demo-seed-order-1", supplier.ID, warehouse.ID, material1.ID,
+		"10", "100.00", "4",
+	); err != nil {
+		return err
+	}
+	return ensureDemoOrder(ctx, db, tenantID, orderService, receiptService,
+		"demo-seed-order-2", supplier.ID, warehouse.ID, material2.ID,
+		"5", "50.00", "5",
+	)
+}
+
+func ensureDemoOrder(
+	ctx context.Context,
+	db *pgxpool.Pool,
+	tenantID string,
+	orderService *purchaseapp.OrderService,
+	receiptService *purchaseapp.ReceiptService,
+	remark, supplierID, warehouseID, materialID, quantity, unitPrice, receiveQuantity string,
+) error {
+	var count int
+	if err := db.QueryRow(ctx, `
+		SELECT count(*) FROM erp.purchase_orders
+		WHERE tenant_id = $1 AND remark = $2`, tenantID, remark).Scan(&count); err != nil {
+		return fmt.Errorf("check demo order: %w", err)
+	}
+	if count > 0 {
+		return nil
+	}
+
+	order, err := orderService.Create(ctx, purchaseapp.OrderInput{
+		SupplierID:  supplierID,
+		WarehouseID: warehouseID,
+		OrderDate:   time.Now(),
+		Currency:    "CNY",
+		Remark:      remark,
+		Lines: []purchaseapp.OrderLineInput{{
+			MaterialID: materialID,
+			Quantity:   decimal.RequireFromString(quantity),
+			UnitPrice:  decimal.RequireFromString(unitPrice),
+		}},
+	})
+	if err != nil {
+		return err
+	}
+	if err := orderService.Submit(ctx, order.ID); err != nil {
+		return err
+	}
+	if err := orderService.Approve(ctx, order.ID); err != nil {
+		return err
+	}
+	if _, err := receiptService.Receive(ctx, order.ID, purchaseapp.ReceiveInput{
+		ReceiptDate: time.Now(),
+		Remark:      remark + "-receipt",
+		Lines: []purchaseapp.ReceiveLineInput{{
+			OrderLineID: order.Lines[0].ID,
+			Quantity:    decimal.RequireFromString(receiveQuantity),
+		}},
+	}); err != nil {
+		return err
+	}
+	return nil
+}
+
+func findPartnerByCode(ctx context.Context, service *masterapp.PartnerService, code string) (*masterdomain.Partner, error) {
+	items, _, err := service.List(ctx, code, 1, 50)
+	if err != nil {
+		return nil, err
+	}
+	for i := range items {
+		if items[i].Code == code {
+			return &items[i], nil
+		}
+	}
+	return nil, fmt.Errorf("demo partner %s not found", code)
+}
+
+func findMaterialByCode(ctx context.Context, service *masterapp.MaterialService, code string) (*masterdomain.Material, error) {
+	items, _, err := service.List(ctx, code, 1, 50)
+	if err != nil {
+		return nil, err
+	}
+	for i := range items {
+		if items[i].Code == code {
+			return &items[i], nil
+		}
+	}
+	return nil, fmt.Errorf("demo material %s not found", code)
+}
+
+func findWarehouseByCode(ctx context.Context, service *masterapp.WarehouseService, code string) (*masterdomain.Warehouse, error) {
+	items, _, err := service.List(ctx, code, 1, 50)
+	if err != nil {
+		return nil, err
+	}
+	for i := range items {
+		if items[i].Code == code {
+			return &items[i], nil
+		}
+	}
+	return nil, fmt.Errorf("demo warehouse %s not found", code)
 }
 
 func ensureDemoUser(

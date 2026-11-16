@@ -29,7 +29,7 @@ const routes: RouteRecordRaw[] = [
         path: 'purchase/orders',
         name: 'purchase-orders',
         component: () => import('@/views/purchase/OrderListView.vue'),
-        meta: { title: '采购订单', permission: 'purchase.read' }
+        meta: { title: '采购订单', permission: 'purchase.order.read' }
       },
       {
         path: 'sales/orders',
@@ -42,14 +42,16 @@ const routes: RouteRecordRaw[] = [
         }
       },
       {
-        path: 'inventory/stock',
-        name: 'inventory-stock',
-        component: () => import('@/views/PlaceholderView.vue'),
-        meta: {
-          title: '库存管理',
-          description: '库存模块骨架，待接入入库、出库、调拨与盘点。',
-          permission: 'inventory.read'
-        }
+        path: 'inventory/balances',
+        name: 'inventory-balances',
+        component: () => import('@/views/inventory/BalanceListView.vue'),
+        meta: { title: '库存余额', permission: 'inventory.balance.read' }
+      },
+      {
+        path: 'inventory/transactions',
+        name: 'inventory-transactions',
+        component: () => import('@/views/inventory/TransactionListView.vue'),
+        meta: { title: '库存流水', permission: 'inventory.transaction.read' }
       },
       {
         path: 'finance/gl',

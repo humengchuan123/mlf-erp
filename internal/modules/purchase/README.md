@@ -1,33 +1,75 @@
 # purchase 模块
 
-采购订单示例模块，用于验证 Monorepo 的纵向链路：
+采购订单与采购收货模块，Stage 3A 第一条业务闭环：
 
-- `domain`：实体、值对象、仓储接口、领域错误。
-- `app`：用例编排，从 context 读取租户，调用领域对象和仓储。
-- `infra`：当前为内存仓储，后续替换为 PostgreSQL 仓储。
-- `http`：Gin Handler，负责请求/响应 DTO、金额字符串转换和错误映射。
+```text
+采购订单 → 提交 → 审批 → 收货 → 库存余额/流水
+```
+
+## 分层
+
+- `domain`：订单头/行、收货单头/行、状态机、金额计算、仓储接口。
+- `app`：创建/编辑/提交/审批/取消/收货用例，校验供应商、仓库、物料、剩余可收数量。
+- `infra/postgres`：PostgreSQL 仓储；收货在一个事务中完成订单行更新、收货单、库存余额 upsert、库存流水。
+- `http`：Gin Handler、金额/数量字符串转换、权限和审计。
 
 ## API
 
-- `GET /api/v1/purchase/orders`
-- `POST /api/v1/purchase/orders`
+| 方法 | 路径 | 权限 |
+|---|---|---|
+| GET/POST | `/api/v1/purchase/orders` | `purchase.order.read/write` |
+| GET/PUT | `/api/v1/purchase/orders/:id` | `purchase.order.read/write` |
+| POST | `/api/v1/purchase/orders/:id/submit` | `purchase.order.write` |
+| POST | `/api/v1/purchase/orders/:id/approve` | `purchase.order.approve` |
+| POST | `/api/v1/purchase/orders/:id/cancel` | `purchase.order.write` |
+| POST | `/api/v1/purchase/orders/:id/receive` | `purchase.order.write` |
+| GET | `/api/v1/purchase/receipts` | `purchase.receipt.read` |
 
-请求示例：
+创建订单示例：
 
 ```json
 {
-  "code": "PO-2026-0001",
-  "supplier_id": "SUP-001",
-  "amount": "1234.5600",
-  "currency": "CNY"
+  "supplier_id": "supplier-uuid",
+  "warehouse_id": "warehouse-uuid",
+  "order_date": "2026-11-16",
+  "currency": "CNY",
+  "remark": "",
+  "lines": [
+    {
+      "material_id": "material-uuid",
+      "quantity": "10",
+      "unit_price": "100.0000"
+    }
+  ]
 }
 ```
 
-金额在 API 中使用字符串传输，领域层使用 `shopspring/decimal`，禁止 float。
+收货示例：
 
-## 下一步
+```json
+{
+  "receipt_date": "2026-11-16",
+  "remark": "",
+  "lines": [
+    {
+      "order_line_id": "order-line-uuid",
+      "quantity": "4"
+    }
+  ]
+}
+```
 
-- 增加 PostgreSQL Repository 和采购订单表迁移。
-- 增加审批状态、供应商、价格、收货等聚合。
-- 通过 Outbox 发布 `purchase.order.created` 事件。
-- 增加权限校验与 capability 检查。
+金额和数量在 API 中使用字符串，领域层使用 `shopspring/decimal`，数据库使用 `numeric`，禁止 float。
+
+## 状态机
+
+```text
+draft → submitted → approved → partially_received → received
+   └──────────────┴──────────────┴──→ cancelled（无收货）
+```
+
+## 后续
+
+- 采购退货、价格协议、供应商绩效。
+- 销售出库、调拨、盘点。
+- 采购订单/收货事件接入 Outbox。

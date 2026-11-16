@@ -11,13 +11,16 @@ import (
 	"time"
 
 	"github.com/joho/godotenv"
+	inventoryapp "github.com/mlf-erp/mlf-erp/internal/modules/inventory/app"
+	inventoryhttp "github.com/mlf-erp/mlf-erp/internal/modules/inventory/http"
+	inventorypostgres "github.com/mlf-erp/mlf-erp/internal/modules/inventory/infra/postgres"
 	masterapp "github.com/mlf-erp/mlf-erp/internal/modules/masterdata/app"
 	masterdomain "github.com/mlf-erp/mlf-erp/internal/modules/masterdata/domain"
 	masterhttp "github.com/mlf-erp/mlf-erp/internal/modules/masterdata/http"
 	masterpostgres "github.com/mlf-erp/mlf-erp/internal/modules/masterdata/infra/postgres"
 	"github.com/mlf-erp/mlf-erp/internal/modules/purchase/app"
 	purchasehttp "github.com/mlf-erp/mlf-erp/internal/modules/purchase/http"
-	"github.com/mlf-erp/mlf-erp/internal/modules/purchase/infra"
+	purchasepostgres "github.com/mlf-erp/mlf-erp/internal/modules/purchase/infra/postgres"
 	systemapp "github.com/mlf-erp/mlf-erp/internal/modules/system/app"
 	systemhttp "github.com/mlf-erp/mlf-erp/internal/modules/system/http"
 	systempostgres "github.com/mlf-erp/mlf-erp/internal/modules/system/infra/postgres"
@@ -134,9 +137,21 @@ func main() {
 	currencyHandler.Register(protected)
 	taxRateHandler.Register(protected)
 
-	purchaseRepository := infra.NewMemoryRepository()
-	purchaseService := app.NewService(purchaseRepository)
-	purchasehttp.Register(protected, purchaseService, log)
+	purchaseRepository := purchasepostgres.NewRepository(db)
+	orderService := app.NewOrderService(
+		purchaseRepository,
+		codeRuleService,
+		partnerRepository,
+		materialRepository,
+		warehouseRepository,
+	)
+	receiptService := app.NewReceiptService(purchaseRepository, codeRuleService)
+	purchasehttp.Register(protected, orderService, receiptService, auditService, log)
+
+	inventoryRepository := inventorypostgres.NewQueryRepository(db)
+	inventoryService := inventoryapp.NewQueryService(inventoryRepository)
+	inventoryHandler := inventoryhttp.NewHandler(inventoryService, log)
+	inventoryHandler.Register(protected)
 
 	server := &http.Server{
 		Addr:              cfg.HTTP.Addr,

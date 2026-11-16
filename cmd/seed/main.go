@@ -59,6 +59,12 @@ var permissions = []struct {
 	{"masterdata.tax.write", "管理税率", "masterdata", "api"},
 	{"system.code_rule.read", "查看编码规则", "system", "api"},
 	{"system.code_rule.write", "管理编码规则", "system", "api"},
+	{"purchase.order.read", "查看采购订单", "purchase", "api"},
+	{"purchase.order.write", "管理采购订单", "purchase", "api"},
+	{"purchase.order.approve", "审批采购订单", "purchase", "api"},
+	{"purchase.receipt.read", "查看采购收货", "purchase", "api"},
+	{"inventory.balance.read", "查看库存余额", "inventory", "api"},
+	{"inventory.transaction.read", "查看库存流水", "inventory", "api"},
 }
 
 var defaultCodeRules = []struct {
@@ -73,6 +79,7 @@ var defaultCodeRules = []struct {
 	{"material", "MAT", "yyyyMMdd", "-", 4, "day"},
 	{"warehouse", "WH", "yyyyMMdd", "-", 3, "day"},
 	{"purchase_order", "PO", "yyyyMMdd", "-", 4, "day"},
+	{"purchase_receipt", "GRN", "yyyyMMdd", "-", 4, "day"},
 }
 
 func main() {

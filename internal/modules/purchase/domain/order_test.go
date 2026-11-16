@@ -1,58 +1,55 @@
 package domain
 
 import (
-	"errors"
 	"testing"
 
 	"github.com/shopspring/decimal"
 )
 
-func TestNewOrder(t *testing.T) {
-	amount := decimal.RequireFromString("1234.5600")
+func TestOrderRecalculate(t *testing.T) {
+	order := &Order{
+		Lines: []*OrderLine{
+			{Quantity: decimal.RequireFromString("2"), UnitPrice: decimal.RequireFromString("10.5")},
+			{Quantity: decimal.RequireFromString("3"), UnitPrice: decimal.RequireFromString("4.2")},
+		},
+	}
+	order.Recalculate()
 
-	order, err := NewOrder("order-1", "tenant-1", "org-1", "PO-001", "SUP-001", amount, "")
-	if err != nil {
-		t.Fatalf("NewOrder() error = %v", err)
+	if !order.Lines[0].Amount.Equal(decimal.RequireFromString("21")) {
+		t.Fatalf("line 1 amount = %s, want 21", order.Lines[0].Amount)
 	}
-
-	if order.Currency != "CNY" {
-		t.Fatalf("Currency = %q, want CNY", order.Currency)
+	if !order.Lines[1].Amount.Equal(decimal.RequireFromString("12.6")) {
+		t.Fatalf("line 2 amount = %s, want 12.6", order.Lines[1].Amount)
 	}
-	if order.Status != OrderStatusDraft {
-		t.Fatalf("Status = %q, want %q", order.Status, OrderStatusDraft)
-	}
-	if !order.Amount.Equal(amount) {
-		t.Fatalf("Amount = %s, want %s", order.Amount, amount)
+	if !order.TotalAmount.Equal(decimal.RequireFromString("33.6")) {
+		t.Fatalf("total = %s, want 33.6", order.TotalAmount)
 	}
 }
 
-func TestNewOrderValidation(t *testing.T) {
-	tests := []struct {
-		name     string
-		tenantID string
-		code     string
-		amount   string
-		wantErr  error
-	}{
-		{name: "missing tenant", tenantID: "", code: "PO-001", amount: "1.00", wantErr: ErrTenantRequired},
-		{name: "missing code", tenantID: "tenant-1", code: "", amount: "1.00", wantErr: ErrCodeRequired},
-		{name: "negative amount", tenantID: "tenant-1", code: "PO-001", amount: "-1.00", wantErr: ErrAmountNegative},
+func TestOrderLineRemaining(t *testing.T) {
+	line := &OrderLine{
+		Quantity:    decimal.RequireFromString("10"),
+		ReceivedQty: decimal.RequireFromString("3.5"),
 	}
+	if !line.Remaining().Equal(decimal.RequireFromString("6.5")) {
+		t.Fatalf("remaining = %s, want 6.5", line.Remaining())
+	}
+}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			_, err := NewOrder(
-				"order-1",
-				tt.tenantID,
-				"org-1",
-				tt.code,
-				"SUP-001",
-				decimal.RequireFromString(tt.amount),
-				"CNY",
-			)
-			if !errors.Is(err, tt.wantErr) {
-				t.Fatalf("NewOrder() error = %v, want %v", err, tt.wantErr)
-			}
-		})
+func TestOrderStatusTransitions(t *testing.T) {
+	if !StatusDraft.CanEdit() || !StatusDraft.CanSubmit() || !StatusDraft.CanCancel() {
+		t.Fatal("draft should be editable/submittable/cancellable")
+	}
+	if !StatusSubmitted.CanApprove() {
+		t.Fatal("submitted should be approvable")
+	}
+	if StatusDraft.CanReceive() || StatusSubmitted.CanReceive() {
+		t.Fatal("draft/submitted must not be receivable")
+	}
+	if !StatusApproved.CanReceive() || !StatusPartiallyReceived.CanReceive() {
+		t.Fatal("approved/partially received should be receivable")
+	}
+	if StatusReceived.CanCancel() {
+		t.Fatal("received order must not be cancellable")
 	}
 }

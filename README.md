@@ -2,7 +2,7 @@
 
 企业级 ERP Monorepo 骨架，支持 **SaaS 订阅** 与 **私有化安装** 两种交付形态。
 
-> 当前状态：Stage 1 平台底座 + Stage 2 主数据、编码规则与数据权限。
+> 当前状态：Stage 1 平台底座 + Stage 2 主数据/编码规则/数据权限 + Stage 3A 采购与库存闭环。
 > 设计参考：工作区根目录的《企业ERP应用开发指南》。
 
 ## 技术栈
@@ -126,7 +126,7 @@ demo_company / Demo@123456   数据范围 company
 demo_dept    / Demo@123456   数据范围 dept
 ```
 
-演示数据包含：4 个计量单位、2 个币种、4 个税率、4 个仓库、12 个客商、20 个物料、2 个部门组织。
+演示数据包含：4 个计量单位、2 个币种、4 个税率、4 个仓库、12 个客商、20 个物料、2 个部门组织、2 张采购订单和对应库存余额/流水。
 
 > Stage 1 起 API 要求 PostgreSQL 可用；`DB_REQUIRED=true`。
 
@@ -268,6 +268,15 @@ docker build -f deploy/docker/web.Dockerfile -t mlf-erp/web:dev .
 - 主数据前端页面和编码规则页面。
 - 物料联动计量单位/税率。
 
+### Stage 3A 采购与库存闭环
+
+- 采购订单头/行、提交、审批、取消。
+- 采购收货、部分收货、超收校验。
+- 收货事务内更新订单行、库存余额和库存流水。
+- 库存余额、库存流水查询。
+- 采购订单、库存余额、库存流水前端页面。
+- Demo 数据包含 2 张采购订单和对应库存。
+
 ### 工程与交付
 
 - Monorepo 工作区与共享包。
@@ -277,11 +286,10 @@ docker build -f deploy/docker/web.Dockerfile -t mlf-erp/web:dev .
 
 ## 下一步
 
-- 单据框架：单据头/行、状态机、来源单据。
-- 采购订单 PostgreSQL 仓储。
-- 审批流基础能力。
-- 导入导出、附件。
-- 数据权限在单据查询中复用。
+- Stage 3B：销售订单、发货出库、应收/应付。
+- 采购退货、价格协议、供应商绩效。
+- 审批流引擎、导入导出、附件。
+- 数据范围管理 API/UI。
 - 登录限流、token version、httpOnly Cookie 评估。
 - Redis、MinIO、RabbitMQ 适配器。
 - Outbox Worker、MRP/成本/月结计算服务。

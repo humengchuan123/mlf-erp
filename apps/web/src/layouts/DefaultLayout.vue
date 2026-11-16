@@ -16,7 +16,7 @@
         </el-menu-item>
 
         <el-menu-item-group v-if="canSupplyChain" title="供应链">
-          <el-menu-item v-if="authStore.hasPermission('purchase.read')" index="/purchase/orders">
+          <el-menu-item v-if="authStore.hasPermission('purchase.order.read')" index="/purchase/orders">
             <el-icon><ShoppingCart /></el-icon>
             <span>采购订单</span>
           </el-menu-item>
@@ -24,9 +24,13 @@
             <el-icon><Goods /></el-icon>
             <span>销售订单</span>
           </el-menu-item>
-          <el-menu-item v-if="authStore.hasPermission('inventory.read')" index="/inventory/stock">
+          <el-menu-item v-if="authStore.hasPermission('inventory.balance.read')" index="/inventory/balances">
             <el-icon><Box /></el-icon>
-            <span>库存管理</span>
+            <span>库存余额</span>
+          </el-menu-item>
+          <el-menu-item v-if="authStore.hasPermission('inventory.transaction.read')" index="/inventory/transactions">
+            <el-icon><Document /></el-icon>
+            <span>库存流水</span>
           </el-menu-item>
         </el-menu-item-group>
 
@@ -138,9 +142,10 @@ const currentTitle = computed(() => (route.meta.title as string) ?? '工作台')
 const displayName = computed(() => authStore.user?.display_name || authStore.user?.username || '未登录')
 const canSupplyChain = computed(
   () =>
-    authStore.hasPermission('purchase.read') ||
+    authStore.hasPermission('purchase.order.read') ||
     authStore.hasPermission('sales.read') ||
-    authStore.hasPermission('inventory.read')
+    authStore.hasPermission('inventory.balance.read') ||
+    authStore.hasPermission('inventory.transaction.read')
 )
 const canMasterData = computed(
   () =>

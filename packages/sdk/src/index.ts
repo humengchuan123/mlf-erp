@@ -1,6 +1,7 @@
 export * from './client'
 export * from './runtime'
 export * from './purchase'
+export * from './inventory'
 export * from './auth'
 export * from './system'
 export * from './masterdata'

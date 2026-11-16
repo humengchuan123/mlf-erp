@@ -1,75 +1,54 @@
 package domain
 
 import (
-	"errors"
-	"strings"
 	"time"
 
 	"github.com/shopspring/decimal"
 )
 
-type OrderStatus string
-
-const (
-	OrderStatusDraft    OrderStatus = "draft"
-	OrderStatusApproved OrderStatus = "approved"
-	OrderStatusClosed   OrderStatus = "closed"
-)
-
-var (
-	ErrTenantRequired = errors.New("tenant is required")
-	ErrCodeRequired   = errors.New("order code is required")
-	ErrAmountNegative = errors.New("order amount cannot be negative")
-)
-
 type Order struct {
-	ID         string
-	TenantID   string
-	OrgID      string
-	Code       string
-	SupplierID string
-	Amount     decimal.Decimal
-	Currency   string
-	Status     OrderStatus
-	CreatedAt  time.Time
-	UpdatedAt  time.Time
+	ID            string
+	TenantID      string
+	OrgID         string
+	Code          string
+	SupplierID    string
+	SupplierName  string
+	WarehouseID   string
+	WarehouseName string
+	OrderDate     time.Time
+	Currency      string
+	Status        Status
+	TotalAmount   decimal.Decimal
+	Remark        string
+	CreatedBy     string
+	UpdatedBy     string
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
+	Lines         []*OrderLine
 }
 
-func NewOrder(
-	id string,
-	tenantID string,
-	orgID string,
-	code string,
-	supplierID string,
-	amount decimal.Decimal,
-	currency string,
-) (*Order, error) {
-	if strings.TrimSpace(tenantID) == "" {
-		return nil, ErrTenantRequired
-	}
-	if strings.TrimSpace(code) == "" {
-		return nil, ErrCodeRequired
-	}
-	if amount.IsNegative() {
-		return nil, ErrAmountNegative
-	}
+type OrderLine struct {
+	ID           string
+	TenantID     string
+	OrderID      string
+	LineNo       int
+	MaterialID   string
+	MaterialName string
+	Quantity     decimal.Decimal
+	UnitPrice    decimal.Decimal
+	Amount       decimal.Decimal
+	ReceivedQty  decimal.Decimal
+}
 
-	currency = strings.ToUpper(strings.TrimSpace(currency))
-	if currency == "" {
-		currency = "CNY"
-	}
+func (l *OrderLine) Remaining() decimal.Decimal {
+	return l.Quantity.Sub(l.ReceivedQty)
+}
 
-	now := time.Now()
-	return &Order{
-		ID:         id,
-		TenantID:   tenantID,
-		OrgID:      orgID,
-		Code:       strings.TrimSpace(code),
-		SupplierID: strings.TrimSpace(supplierID),
-		Amount:     amount,
-		Currency:   currency,
-		Status:     OrderStatusDraft,
-		CreatedAt:  now,
-		UpdatedAt:  now,
-	}, nil
+func (o *Order) Recalculate() {
+	total := decimal.Zero
+	for _, line := range o.Lines {
+		line.Amount = line.Quantity.Mul(line.UnitPrice).Round(4)
+		total = total.Add(line.Amount)
+	}
+	o.TotalAmount = total.Round(4)
 }
