@@ -37,6 +37,7 @@ jobs:
               - 'cmd/api/**'
               - 'cmd/migrate/**'
               - 'cmd/seed/**'
+              - 'cmd/demo/**'
               - 'internal/**'
               - 'api/**'
               - 'go.mod'
@@ -85,6 +86,7 @@ jobs:
       - run: CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X main.version=${{ github.sha }}" -o dist/api ./cmd/api
       - run: CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o dist/migrate ./cmd/migrate
       - run: CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o dist/seed ./cmd/seed
+      - run: go build ./cmd/demo
       - uses: actions/upload-artifact@v4
         with:
           name: api-bin

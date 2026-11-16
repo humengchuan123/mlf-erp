@@ -30,6 +30,7 @@ func normalizePage(page, pageSize int) (int, int) {
 func tenantActor(ctx context.Context) (tenantID, orgID, userID string) {
 	if info, ok := tenant.From(ctx); ok {
 		tenantID = info.ID
+		orgID = info.OrgID
 	}
 	if actor, ok := auth.ActorFrom(ctx); ok {
 		userID = actor.UserID

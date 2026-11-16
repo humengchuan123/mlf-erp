@@ -110,6 +110,24 @@ go run ./cmd/seed
 密码：Admin@123456
 ```
 
+需要演示数据时：
+
+```bash
+go run ./cmd/demo
+# 或
+pnpm demo:seed
+```
+
+演示账号（仅 dev/test）：
+
+```text
+demo_admin   / Demo@123456   数据范围 all
+demo_company / Demo@123456   数据范围 company
+demo_dept    / Demo@123456   数据范围 dept
+```
+
+演示数据包含：4 个计量单位、2 个币种、4 个税率、4 个仓库、12 个客商、20 个物料、2 个部门组织。
+
 > Stage 1 起 API 要求 PostgreSQL 可用；`DB_REQUIRED=true`。
 
 ### 4. 同时启动前端和后端
@@ -203,6 +221,7 @@ gofmt -w ./cmd ./internal ./db
 go run ./cmd/migrate -direction up
 go run ./cmd/migrate -direction down -steps 1
 go run ./cmd/seed
+go run ./cmd/demo
 
 # Local development
 pnpm install
