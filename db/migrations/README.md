@@ -1,6 +1,10 @@
 # 数据库迁移
 
 - `000001_init`：租户、组织、用户、角色、成员关系、Outbox 事件基础表。
+- `000002_platform_auth_rbac_audit`：权限、角色权限、refresh token、登录日志、审计日志。
+- `000003_masterdata_code_rules`：主数据表、编码规则表、Stage 2 权限。
+- `000004_fix_org_root_path`：修正根组织 path 为 `/<id>`。
+- `000005_rebuild_org_paths`：递归重建全部组织 path，并给现有 admin 角色补授 Stage 2 权限。Down 为 no-op，路径修复不可安全回滚。
 - 迁移由 `cmd/migrate` 执行，使用 `golang-migrate`，SQL 文件通过 `embed` 打进二进制。
 - 所有业务表遵循 `tenant_id` 非空、唯一键带租户、外键尽量带租户的原则。
 

@@ -87,6 +87,27 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ApiResponse'
+  /auth/logout:
+    post:
+      summary: Revoke the refresh-token family for the current session
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [refresh_token]
+              properties:
+                refresh_token:
+                  type: string
+      responses:
+        '200':
+          description: Logged out
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
   /system/code-rules:
     get:
       summary: List code rules
@@ -187,6 +208,15 @@ paths:
       responses:
         '200':
           description: Disabled
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+    post:
+      summary: Enable a master data record
+      responses:
+        '200':
+          description: Enabled
           content:
             application/json:
               schema:
@@ -438,9 +468,6 @@ components:
           type: string
         category:
           type: string
-        status:
-          type: string
-          enum: [active, disabled]
     MasterDataItem:
       type: object
       properties:

@@ -2,7 +2,7 @@ import { createApp } from 'vue'
 import { createPinia } from 'pinia'
 import ElementPlus from 'element-plus'
 import 'element-plus/dist/index.css'
-import { setRefreshHandler, setUnauthorizedHandler } from '@mlf-erp/sdk'
+import { ApiError, setRefreshHandler, setUnauthorizedHandler } from '@mlf-erp/sdk'
 import App from './App.vue'
 import router from './router'
 import { useAuthStore } from './stores/auth'
@@ -30,7 +30,11 @@ window.addEventListener('storage', (event) => {
   }
   authStore.restoreFromStorage()
   if (authStore.hasToken) {
-    authStore.loadMe().catch(() => authStore.clear())
+    authStore.loadMe().catch((error) => {
+      if (error instanceof ApiError && error.status === 401) {
+        authStore.clear()
+      }
+    })
   } else {
     authStore.clear()
   }

@@ -197,8 +197,11 @@ func entityScoped[T domain.Entity](entity T) bool {
 }
 
 func appendScope(where *string, args *[]any, filter scope.Filter) {
-	if filter.DataScope == "" || filter.DataScope == "all" {
+	if filter.DataScope == "all" {
 		return
+	}
+	if filter.DataScope == "" {
+		filter.DataScope = "self"
 	}
 
 	switch filter.DataScope {

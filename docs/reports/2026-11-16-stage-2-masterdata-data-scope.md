@@ -214,7 +214,7 @@ pnpm demo:seed
 
 ### 5.2 审核结论
 
-**Ready to merge: No（初次审核）**
+**初次审核：Ready to merge: No**
 
 - Critical 1 项：数据权限在组织/公司路径为空时失败开放，可能让 dept/company 用户看到全租户主数据。
 - Important 10 项：编码规则缺失/禁用返回 500、日期模式与重置策略冲突、000004 未重建子组织路径、状态字段无效且无法重新启用、会话刷新/登出跨标签页竞态、禁用单位/税率仍可被引用、Stage 2 自动化测试不足、app 层直接依赖 PostgreSQL、数据范围无产品化配置入口、seed 覆盖编码规则/admin 权限。
@@ -231,16 +231,19 @@ pnpm demo:seed
 - **禁用单位/税率可被引用**：物料引用校验要求 `status=active`；前端单位/税率下拉只加载启用记录。
 - **app 层依赖 infra**：新增 `masterdata/domain.CrudRepository[T]` 接口，服务改为依赖接口，不再 import PostgreSQL 实现。
 - **seed 覆盖配置**：编码规则改为 `ON CONFLICT DO NOTHING`；admin 权限改为增量 `ON CONFLICT DO NOTHING`；迁移 000005 为现有 admin 角色补授 Stage 2 权限。
-- **文档**：Stage 1 报告补充审核结论；Stage 2 报告、README、OpenAPI 已更新。
+- **文档**：Stage 1 报告补充审核结论；Stage 2 报告、README、OpenAPI、迁移 README 已更新。
+- **二次复核修复**：并发 refresh 在 `ConsumeByHash` 竞争失败时重新读取 token 并应用宽限期，避免误撤销赢家令牌族；logout 改为撤销该用户整个 refresh token 族；空 DataScope 默认按 `self` 处理；物料只在校验单位/税率发生变化时校验，避免已引用禁用记录无法改名称；storage 事件 `loadMe` 仅在 401 时清理会话；补充 OpenAPI logout/enable 和迁移文档。
+- **新增测试**：`TestAuthServiceRefreshDoesNotRevokeFamilyOnConcurrentConsumption`、`TestAuthServiceLogoutRevokesRotatedFamily`。
 
 ### 5.4 未修复/后续处理
 
 - 数据范围仍没有产品化 API/UI；目前通过 `org_memberships` SQL 或 seed 配置，建议 Stage 3 增加成员/数据范围管理。
 - 禁用被物料引用的单位/税率尚未阻止，只阻止“新引用禁用记录”；引用完整性策略需在单据/库存阶段统一设计。
-- 跨标签页 refresh 仅通过宽限期 + epoch + storage 同步缓解，尚未实现严格的跨标签页刷新锁。
+- 跨标签页 refresh 通过宽限期 + 竞争失败重读 + session epoch + storage 同步缓解，尚未实现严格的跨标签页刷新锁。
 - 自动化测试仍缺少真实 PostgreSQL 数据权限矩阵、编码并发生成、迁移/seed 幂等、handler 错误码和浏览器 E2E。
+- 刷新宽限期是为多标签页体验做的安全折中；如安全要求更高，可改为幂等轮换或客户端绑定。
 - Minor 项（序列号空号、响应时间戳、UUID/数值错误映射、分页溢出、索引、N+1、CORS、菜单细节）记录为后续优化。
-- 初次审核未重新跑完整审核；Critical 已修复并回归验证，建议用户审阅时一并确认。
+- 二次复核结论为 “With fixes”，上述复核问题已修复并通过自动化测试；仍未做第三次完整审核。
 
 ---
 

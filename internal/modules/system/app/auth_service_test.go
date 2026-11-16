@@ -164,6 +164,51 @@ func TestAuthServiceRefreshRotation(t *testing.T) {
 	}
 }
 
+func TestAuthServiceRefreshDoesNotRevokeFamilyOnConcurrentConsumption(t *testing.T) {
+	service, _, _, tokens, _ := newTestAuthService(t, "Admin@123456")
+
+	result, err := service.Login(context.Background(), LoginInput{
+		TenantID: "t1",
+		Username: "admin",
+		Password: "Admin@123456",
+	})
+	if err != nil {
+		t.Fatalf("Login() error = %v", err)
+	}
+
+	tokens.forceConsumeFailure = true
+	if _, err := service.Refresh(context.Background(), result.RefreshToken, "", ""); !errors.Is(err, domain.ErrInvalidToken) {
+		t.Fatalf("Refresh() error = %v, want ErrInvalidToken", err)
+	}
+	if tokens.revokeAllCount != 0 {
+		t.Fatalf("RevokeAllForUser() called %d times, want 0 for concurrent consumption inside grace window", tokens.revokeAllCount)
+	}
+}
+
+func TestAuthServiceLogoutRevokesRotatedFamily(t *testing.T) {
+	service, _, _, _, _ := newTestAuthService(t, "Admin@123456")
+
+	result, err := service.Login(context.Background(), LoginInput{
+		TenantID: "t1",
+		Username: "admin",
+		Password: "Admin@123456",
+	})
+	if err != nil {
+		t.Fatalf("Login() error = %v", err)
+	}
+	refreshed, err := service.Refresh(context.Background(), result.RefreshToken, "", "")
+	if err != nil {
+		t.Fatalf("Refresh() error = %v", err)
+	}
+
+	if err := service.Logout(context.Background(), result.RefreshToken); err != nil {
+		t.Fatalf("Logout() error = %v", err)
+	}
+	if _, err := service.Refresh(context.Background(), refreshed.RefreshToken, "", ""); !errors.Is(err, domain.ErrInvalidToken) {
+		t.Fatalf("Refresh() after logout error = %v, want ErrInvalidToken", err)
+	}
+}
+
 func TestAuthServiceChangePasswordRevokesTokens(t *testing.T) {
 	service, _, _, _, _ := newTestAuthService(t, "Admin@123456")
 

@@ -130,6 +130,16 @@ func (s *AuthService) Refresh(ctx context.Context, rawToken, ip, userAgent strin
 		return nil, err
 	}
 	if !consumed {
+		// Another request may have consumed the token between FindByHash and
+		// ConsumeByHash. Re-read it and apply the same grace window so a normal
+		// multi-tab race does not revoke the winner's new token family.
+		latest, findErr := s.tokens.FindByHash(ctx, hash)
+		if findErr != nil {
+			return nil, domain.ErrInvalidToken
+		}
+		if latest.RevokedAt != nil && time.Since(*latest.RevokedAt) <= 30*time.Second {
+			return nil, domain.ErrInvalidToken
+		}
 		_ = s.tokens.RevokeAllForUser(ctx, token.TenantID, token.UserID)
 		return nil, domain.ErrInvalidToken
 	}
@@ -149,7 +159,17 @@ func (s *AuthService) Refresh(ctx context.Context, rawToken, ip, userAgent strin
 }
 
 func (s *AuthService) Logout(ctx context.Context, rawToken string) error {
-	return s.tokens.RevokeByHash(ctx, security.HashRefreshToken(rawToken))
+	hash := security.HashRefreshToken(rawToken)
+	token, err := s.tokens.FindByHash(ctx, hash)
+	if err != nil {
+		if errors.Is(err, domain.ErrNotFound) {
+			return nil
+		}
+		return err
+	}
+	// Revoke the user's whole refresh-token family so a concurrent rotation
+	// cannot leave a successor token alive after logout.
+	return s.tokens.RevokeAllForUser(ctx, token.TenantID, token.UserID)
 }
 
 func (s *AuthService) Me(ctx context.Context, tenantID, userID string) (*MeResult, error) {

@@ -34,6 +34,7 @@ export const useAuthStore = defineStore('auth', () => {
       password,
       ...(tenantId ? { tenant_id: tenantId } : {})
     })
+    sessionEpoch += 1
     applySession(result)
   }
 
@@ -117,6 +118,8 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   function restoreFromStorage(): void {
+    sessionEpoch += 1
+    refreshPromise = null
     const nextAccessToken = localStorage.getItem(ACCESS_TOKEN_KEY) ?? ''
     const nextRefreshToken = localStorage.getItem(REFRESH_TOKEN_KEY) ?? ''
 
@@ -136,6 +139,7 @@ export const useAuthStore = defineStore('auth', () => {
 
   function clear(): void {
     sessionEpoch += 1
+    refreshPromise = null
     user.value = null
     roles.value = []
     permissions.value = []

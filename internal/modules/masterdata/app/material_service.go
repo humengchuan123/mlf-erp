@@ -94,8 +94,12 @@ func (s *MaterialService) Update(ctx context.Context, id string, input MaterialI
 	if name == "" {
 		return domain.Material{}, domain.ErrInvalidInput
 	}
-	if err := s.validateReferences(ctx, tenantID, input.UnitID, input.TaxRateID); err != nil {
-		return domain.Material{}, err
+	nextUnitID := strings.TrimSpace(input.UnitID)
+	nextTaxRateID := strings.TrimSpace(input.TaxRateID)
+	if nextUnitID != material.UnitID || nextTaxRateID != material.TaxRateID {
+		if err := s.validateReferences(ctx, tenantID, nextUnitID, nextTaxRateID); err != nil {
+			return domain.Material{}, err
+		}
 	}
 	if code := strings.TrimSpace(input.Code); code != "" {
 		material.Code = code
@@ -103,8 +107,8 @@ func (s *MaterialService) Update(ctx context.Context, id string, input MaterialI
 	material.Name = name
 	material.Spec = strings.TrimSpace(input.Spec)
 	material.Category = strings.TrimSpace(input.Category)
-	material.UnitID = strings.TrimSpace(input.UnitID)
-	material.TaxRateID = strings.TrimSpace(input.TaxRateID)
+	material.UnitID = nextUnitID
+	material.TaxRateID = nextTaxRateID
 	material.Barcode = strings.TrimSpace(input.Barcode)
 	material.UpdatedBy = userID
 

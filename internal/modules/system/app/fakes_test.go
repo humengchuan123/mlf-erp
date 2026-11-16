@@ -175,7 +175,9 @@ func (r *fakeRoleRepo) RoleCodesByUserID(_ context.Context, tenantID, userID str
 }
 
 type fakeRefreshTokenRepo struct {
-	tokens map[string]*domain.RefreshToken
+	tokens              map[string]*domain.RefreshToken
+	forceConsumeFailure bool
+	revokeAllCount      int
 }
 
 func newFakeRefreshTokenRepo() *fakeRefreshTokenRepo {
@@ -198,6 +200,14 @@ func (r *fakeRefreshTokenRepo) FindByHash(_ context.Context, hash string) (*doma
 }
 
 func (r *fakeRefreshTokenRepo) ConsumeByHash(_ context.Context, hash string) (bool, error) {
+	if r.forceConsumeFailure {
+		if token, ok := r.tokens[hash]; ok {
+			now := time.Now()
+			token.RevokedAt = &now
+		}
+		return false, nil
+	}
+
 	token, ok := r.tokens[hash]
 	if !ok || token.RevokedAt != nil || !token.ExpiresAt.After(time.Now()) {
 		return false, nil
@@ -216,6 +226,7 @@ func (r *fakeRefreshTokenRepo) RevokeByHash(_ context.Context, hash string) erro
 }
 
 func (r *fakeRefreshTokenRepo) RevokeAllForUser(_ context.Context, tenantID, userID string) error {
+	r.revokeAllCount++
 	now := time.Now()
 	for _, token := range r.tokens {
 		if token.TenantID == tenantID && token.UserID == userID {
