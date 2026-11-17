@@ -1,7 +1,7 @@
 # Stage 3C 总账与基础报表设计
 
-> 日期：2026-11-17  
-> 分支：`stage-3c-general-ledger`  
+> 日期：2026-11-17
+> 分支：`stage-3c-general-ledger`
 > 状态：设计已确认
 
 ## 1. 目标

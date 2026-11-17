@@ -2,7 +2,7 @@
 
 > 日期：2026-11-17
 > 分支：`stage-3c-general-ledger`
-> 提交：`6ff728a`（实现，审核修复后追加）
+> 提交：`6ff728a`（实现）+ `427bd71`（会计完整性加固）
 > 设计：`docs/superpowers/specs/2026-11-17-stage-3c-general-ledger-design.md`
 > 计划：`docs/superpowers/plans/2026-11-17-stage-3c-general-ledger.md`
 > 状态：待用户审阅
@@ -128,7 +128,7 @@ pnpm test:api:stage3c
 pnpm test:api:stage3b
 ```
 
-结果：`TestStage3C` 7 个子测试全部通过，`TestStage3B` 11 个子测试全部通过；同一 API 进程执行 `TestStage3`（Stage 3B + 3C）也通过。
+结果：`TestStage3C` 8 个子测试全部通过，`TestStage3B` 11 个子测试全部通过；同一 API 进程执行 `TestStage3`（Stage 3B + 3C）也通过。
 
 | 用例 | 结果 |
 |---|---|
@@ -173,12 +173,13 @@ gl backfill completed: sales_shipments=0 purchase_receipts=0 payments=0
 截至测试时：
 
 ```text
-已过账凭证借贷合计：43,308.0000 / 43,308.0000
-资产 signed balance：5,360.0000
-负债 signed balance：-650.0000
-收入 signed balance：-11,510.0000
-费用 signed balance：6,800.0000
-本年利润：4,710.0000
+已过账凭证借贷合计：72,964.1477 / 72,964.1477
+资产 signed balance：10,657.8523
+负债 signed balance：-1,950.0000
+权益 signed balance：-5.0000
+收入 signed balance：-20,410.0000
+费用 signed balance：11,707.1477
+本年利润：8,702.8523
 资产 = 负债 + 权益 + 本年利润
 ```
 

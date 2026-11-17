@@ -131,6 +131,13 @@ func TestStage3C(t *testing.T) {
 			"direction": "debit",
 			"status":    "active",
 		}, http.StatusConflict, "CONFLICT")
+		admin.expectError(http.MethodPut, "/finance/accounts/"+text(ar, "id"), map[string]any{
+			"code":      text(ar, "code"),
+			"name":      text(ar, "name"),
+			"type":      text(ar, "type"),
+			"direction": text(ar, "direction"),
+			"status":    "disabled",
+		}, http.StatusConflict, "CONFLICT")
 	})
 
 	t.Run("purchase receipt auto voucher", func(t *testing.T) {
