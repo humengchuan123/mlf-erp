@@ -150,11 +150,7 @@ func (s *OrderService) UpdateDraft(ctx context.Context, id string, input OrderIn
 	if currency == "" {
 		currency = order.Currency
 	}
-	override := input.ExchangeRate
-	if override.IsZero() && currency == order.Currency && order.ExchangeRate.IsPositive() {
-		override = order.ExchangeRate
-	}
-	exchangeRate, err := fx.Resolve(ctx, s.rates, tenantID, currency, orderDate, override)
+	exchangeRate, err := fx.Resolve(ctx, s.rates, tenantID, currency, orderDate, input.ExchangeRate)
 	if err != nil {
 		return nil, err
 	}

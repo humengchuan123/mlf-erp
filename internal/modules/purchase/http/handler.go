@@ -15,6 +15,7 @@ import (
 	"github.com/mlf-erp/mlf-erp/internal/modules/purchase/domain"
 	systemapp "github.com/mlf-erp/mlf-erp/internal/modules/system/app"
 	"github.com/mlf-erp/mlf-erp/internal/platform/authmw"
+	"github.com/mlf-erp/mlf-erp/internal/platform/fx"
 	"github.com/mlf-erp/mlf-erp/internal/platform/httpmw"
 	"github.com/mlf-erp/mlf-erp/internal/platform/httpx"
 	"github.com/shopspring/decimal"
@@ -397,6 +398,10 @@ func (h *Handler) handleError(c *gin.Context, err error) {
 		httpx.Error(c, http.StatusBadRequest, "UNBALANCED", "automatic voucher is not balanced")
 	case errors.Is(err, gldomain.ErrInvalidInput):
 		httpx.Error(c, http.StatusBadRequest, httpx.CodeBadRequest, "general ledger posting is not configured")
+	case errors.Is(err, fx.ErrRateNotFound):
+		httpx.Error(c, http.StatusBadRequest, "EXCHANGE_RATE_NOT_FOUND", "exchange rate not found")
+	case errors.Is(err, fx.ErrInvalidRate):
+		httpx.Error(c, http.StatusBadRequest, "INVALID_EXCHANGE_RATE", "invalid exchange rate")
 	default:
 		h.log.Error("purchase request failed",
 			"error", err,

@@ -68,6 +68,38 @@ func TestOrderRecalculateExclusive(t *testing.T) {
 	}
 }
 
+func TestOrderRecalculateBaseAmounts(t *testing.T) {
+	order := &Order{
+		ExchangeRate:     decimal.RequireFromString("7.2"),
+		PriceIncludesTax: true,
+		Lines: []*OrderLine{
+			{Quantity: decimal.NewFromInt(1), UnitPrice: decimal.NewFromInt(113), TaxRate: decimal.RequireFromString("0.13")},
+			{Quantity: decimal.NewFromInt(1), UnitPrice: decimal.NewFromInt(50), TaxRate: decimal.Zero},
+		},
+	}
+	if err := order.Recalculate(); err != nil {
+		t.Fatalf("recalculate: %v", err)
+	}
+	if !order.BaseNetAmount.Equal(decimal.RequireFromString("1080")) {
+		t.Fatalf("base net = %s, want 1080", order.BaseNetAmount)
+	}
+	if !order.BaseTaxAmount.Equal(decimal.RequireFromString("93.6")) {
+		t.Fatalf("base tax = %s, want 93.6", order.BaseTaxAmount)
+	}
+	if !order.BaseTotalAmount.Equal(decimal.RequireFromString("1173.6")) {
+		t.Fatalf("base gross = %s, want 1173.6", order.BaseTotalAmount)
+	}
+	if !order.Lines[0].BaseAmount.Equal(decimal.RequireFromString("720")) ||
+		!order.Lines[0].BaseTaxAmount.Equal(decimal.RequireFromString("93.6")) ||
+		!order.Lines[0].BaseGrossAmount.Equal(decimal.RequireFromString("813.6")) {
+		t.Fatalf("line base net/tax/gross = %s/%s/%s, want 720/93.6/813.6",
+			order.Lines[0].BaseAmount, order.Lines[0].BaseTaxAmount, order.Lines[0].BaseGrossAmount)
+	}
+	if !order.Lines[0].BaseAmount.Add(order.Lines[0].BaseTaxAmount).Equal(order.Lines[0].BaseGrossAmount) {
+		t.Fatal("line base net + base tax must equal base gross")
+	}
+}
+
 func TestOrderLineRemaining(t *testing.T) {
 	line := &OrderLine{
 		Quantity:   decimal.RequireFromString("10"),

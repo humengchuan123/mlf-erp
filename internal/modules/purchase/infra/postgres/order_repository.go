@@ -336,7 +336,7 @@ func (r *Repository) Receive(ctx context.Context, filter scope.Filter, receipt *
 				biz_id, biz_code, quantity, unit_cost, amount, occurred_at, created_by
 			) VALUES ($1,$2,$3,$4,$5,'in','purchase_receipt',$6,$7,$8,$9,$10,now(),$11)`,
 			uuid.NewString(), receipt.TenantID, receipt.OrgID, receipt.WarehouseID, line.MaterialID,
-			receipt.ID, receipt.Code, line.Quantity.String(), unitCost.String(), line.Amount.String(), receipt.CreatedBy,
+			receipt.ID, receipt.Code, line.Quantity.String(), unitCost.String(), line.BaseAmount.String(), receipt.CreatedBy,
 		); err != nil {
 			return fmt.Errorf("insert inventory transaction: %w", err)
 		}

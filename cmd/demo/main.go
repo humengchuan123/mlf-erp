@@ -934,7 +934,13 @@ func ensureDemoPaymentAllocation(
 func ensureDemoPayablesForLegacyReceipts(ctx context.Context, db *pgxpool.Pool, tenantID string) error {
 	rows, err := db.Query(ctx, `
 		SELECT r.id::text, r.org_id::text, r.code, r.receipt_date, r.created_by::text,
-		       o.supplier_id::text, o.currency, SUM(rl.amount)::text
+		       o.supplier_id::text, o.currency, COALESCE(NULLIF(o.exchange_rate, 0), 1)::text,
+		       COALESCE(SUM(rl.amount), 0)::text,
+		       COALESCE(SUM(rl.tax_amount), 0)::text,
+		       COALESCE(SUM(rl.gross_amount), 0)::text,
+		       COALESCE(NULLIF(r.base_net_amount, 0), COALESCE(SUM(rl.amount), 0))::text,
+		       COALESCE(NULLIF(r.base_tax_amount, 0), COALESCE(SUM(rl.tax_amount), 0))::text,
+		       COALESCE(NULLIF(r.base_total_amount, 0), COALESCE(SUM(rl.gross_amount), 0))::text
 		FROM erp.purchase_receipts r
 		JOIN erp.purchase_orders o ON o.tenant_id = r.tenant_id AND o.id = r.order_id
 		JOIN erp.purchase_receipt_lines rl ON rl.tenant_id = r.tenant_id AND rl.receipt_id = r.id
@@ -944,7 +950,9 @@ func ensureDemoPayablesForLegacyReceipts(ctx context.Context, db *pgxpool.Pool, 
 		      WHERE i.tenant_id = r.tenant_id AND i.invoice_type = 'payable'
 		        AND i.source_type = 'purchase_receipt' AND i.source_id = r.id
 		  )
-		GROUP BY r.id, r.org_id, r.code, r.receipt_date, r.created_by, o.supplier_id, o.currency
+		GROUP BY r.id, r.org_id, r.code, r.receipt_date, r.created_by, o.supplier_id,
+		         o.currency, o.exchange_rate, r.base_net_amount, r.base_tax_amount,
+		         r.base_total_amount, r.created_at
 		ORDER BY r.receipt_date, r.created_at`, tenantID)
 	if err != nil {
 		return fmt.Errorf("list legacy receipts without payable: %w", err)
@@ -952,15 +960,19 @@ func ensureDemoPayablesForLegacyReceipts(ctx context.Context, db *pgxpool.Pool, 
 	defer rows.Close()
 
 	type legacyReceipt struct {
-		id, orgID, code, createdBy, supplierID, currency, total string
-		receiptDate                                             time.Time
+		id, orgID, code, createdBy, supplierID, currency string
+		exchangeRate, net, tax, total                    string
+		baseNet, baseTax, baseTotal                      string
+		receiptDate                                      time.Time
 	}
 	receipts := make([]legacyReceipt, 0)
 	for rows.Next() {
 		var item legacyReceipt
 		if err := rows.Scan(
 			&item.id, &item.orgID, &item.code, &item.receiptDate, &item.createdBy,
-			&item.supplierID, &item.currency, &item.total,
+			&item.supplierID, &item.currency, &item.exchangeRate,
+			&item.net, &item.tax, &item.total,
+			&item.baseNet, &item.baseTax, &item.baseTotal,
 		); err != nil {
 			return fmt.Errorf("scan legacy receipt: %w", err)
 		}
@@ -975,15 +987,18 @@ func ensureDemoPayablesForLegacyReceipts(ctx context.Context, db *pgxpool.Pool, 
 		if _, err := db.Exec(ctx, `
 			INSERT INTO erp.finance_invoices (
 				id, tenant_id, org_id, code, invoice_type, source_type, source_id, source_code,
-				partner_id, invoice_date, due_date, currency, status, net_amount, tax_amount,
-				total_amount, paid_amount, vat_invoice_status, remark, created_by, updated_by
+				partner_id, invoice_date, due_date, currency, exchange_rate, status,
+				net_amount, tax_amount, total_amount,
+				base_net_amount, base_tax_amount, base_total_amount, base_paid_amount,
+				paid_amount, vat_invoice_status, remark, created_by, updated_by
 			) VALUES (gen_random_uuid(), $1, $2, $3, 'payable', 'purchase_receipt', $4, $5,
-			          $6, $7, $8, $9, 'open', $10, 0, $10, 0, 'pending',
-			          'demo legacy payable', $11, $11)
+			          $6, $7, $8, $9, $10, 'open', $11, $12, $13, $14, $15, $16, 0,
+			          0, 'pending', 'demo legacy payable', $17, $17)
 			ON CONFLICT DO NOTHING`,
 			tenantID, item.orgID, code, item.id, item.code, item.supplierID,
 			item.receiptDate, item.receiptDate.AddDate(0, 0, 30), item.currency,
-			item.total, item.createdBy,
+			item.exchangeRate, item.net, item.tax, item.total,
+			item.baseNet, item.baseTax, item.baseTotal, item.createdBy,
 		); err != nil {
 			return fmt.Errorf("insert legacy payable: %w", err)
 		}

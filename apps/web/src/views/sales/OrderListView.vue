@@ -89,13 +89,13 @@
           </el-col>
           <el-col :span="8">
             <el-form-item label="订单日期" required>
-              <el-date-picker v-model="form.order_date" type="date" value-format="YYYY-MM-DD" style="width: 100%" />
+              <el-date-picker v-model="form.order_date" type="date" value-format="YYYY-MM-DD" style="width: 100%" @change="clearExchangeRate" />
             </el-form-item>
           </el-col>
           <el-col :span="8">
             <el-form-item label="币种">
-              <el-select v-model="form.currency" style="width: 100%">
-                <el-option v-for="item in currencies" :key="item.code" :label="item.code" :value="item.code" />
+              <el-select v-model="form.currency" style="width: 100%" @change="clearExchangeRate">
+                <el-option v-for="code in currencyCodes" :key="code" :label="code" :value="code" />
               </el-select>
             </el-form-item>
           </el-col>
@@ -273,7 +273,6 @@ import {
   inventoryApi,
   masterDataApi,
   salesApi,
-  type Currency,
   type Material,
   type Partner,
   type SalesOrder,
@@ -307,7 +306,7 @@ const partners = ref<Partner[]>([])
 const warehouses = ref<Warehouse[]>([])
 const materials = ref<Material[]>([])
 const taxRates = ref<TaxRate[]>([])
-const currencies = ref<Currency[]>([])
+const currencyCodes = ref<string[]>(['CNY', 'USD'])
 const loading = ref(false)
 const saving = ref(false)
 const keyword = ref('')
@@ -396,20 +395,24 @@ async function loadOrders() {
 
 async function loadOptions() {
   try {
-    const [partnerResult, warehouseResult, materialResult, taxRateResult, currencyResult] = await Promise.all([
+    const [partnerResult, warehouseResult, materialResult, taxRateResult] = await Promise.all([
       masterDataApi.partners.list({ page_size: 200 }),
       masterDataApi.warehouses.list({ page_size: 200 }),
       masterDataApi.materials.list({ page_size: 200 }),
-      masterDataApi.taxRates.list({ page_size: 200 }),
-      masterDataApi.currencies.list({ page_size: 200 })
+      masterDataApi.taxRates.list({ page_size: 200 })
     ])
     partners.value = partnerResult.items
     warehouses.value = warehouseResult.items.filter((item) => item.status === 'active')
     materials.value = materialResult.items.filter((item) => item.status === 'active')
     taxRates.value = taxRateResult.items.filter((item) => item.status === 'active')
-    currencies.value = currencyResult.items.filter((item) => item.status === 'active')
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : '加载销售选项失败')
+  }
+  try {
+    const currencyResult = await masterDataApi.currencies.list({ page_size: 200 })
+    currencyCodes.value = currencyResult.items.filter((item) => item.status === 'active').map((item) => item.code)
+  } catch {
+    // Currency options fall back to CNY/USD so order entry still works without masterdata.currency.read.
   }
 }
 
@@ -472,6 +475,10 @@ function openEdit(order: SalesOrder) {
 function onMaterialChange(line: OrderFormLine) {
   const material = materials.value.find((item) => item.id === line.material_id)
   line.tax_rate_id = material?.tax_rate_id ?? ''
+}
+
+function clearExchangeRate() {
+  form.exchange_rate = ''
 }
 
 function taxRateValue(line: OrderFormLine) {

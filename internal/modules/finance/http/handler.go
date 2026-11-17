@@ -247,6 +247,9 @@ func (h *Handler) latestExchangeRate(c *gin.Context) {
 		httpx.Error(c, http.StatusBadRequest, httpx.CodeBadRequest, "invalid date")
 		return
 	}
+	if date.IsZero() {
+		date = time.Now()
+	}
 	rate, err := h.exchangeRates.Latest(c.Request.Context(), c.Query("currency"), date)
 	if err != nil {
 		h.handleError(c, err)

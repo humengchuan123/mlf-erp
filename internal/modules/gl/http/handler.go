@@ -764,6 +764,8 @@ func (h *Handler) handleError(c *gin.Context, err error) {
 		httpx.Error(c, http.StatusConflict, "YEAR_OUT_OF_ORDER", "years must be closed in chronological order")
 	case errors.Is(err, domain.ErrPeriodCloseMissing):
 		httpx.Error(c, http.StatusConflict, "PERIOD_CLOSE_MISSING", "every closed period must have a period close record")
+	case errors.Is(err, domain.ErrFXRateNotFound):
+		httpx.Error(c, http.StatusBadRequest, "EXCHANGE_RATE_NOT_FOUND", "exchange rate not found")
 	case errors.Is(err, domain.ErrInvalidStatus):
 		httpx.Error(c, http.StatusConflict, "INVALID_STATUS", "voucher status does not allow this operation")
 	case errors.Is(err, domain.ErrConflict):

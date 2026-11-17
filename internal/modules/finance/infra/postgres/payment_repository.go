@@ -298,7 +298,9 @@ func (r *PaymentRepository) Allocate(
 
 		tag, updateErr := tx.Exec(ctx, `
 			UPDATE erp.finance_invoices
-			SET paid_amount = $3, base_paid_amount = $4, status = $5, updated_by = $6, updated_at = now()
+			SET paid_amount = $3, base_paid_amount = $4, status = $5,
+			    base_revalued_amount = CASE WHEN $5 = 'paid' THEN 0 ELSE base_revalued_amount END,
+			    updated_by = $6, updated_at = now()
 			WHERE tenant_id = $1 AND id = $2 AND paid_amount + $7 <= total_amount`,
 			tenantID, invoiceID, newPaid.String(), newBasePaid.String(), newStatus, userID, allocationAmount.String(),
 		)

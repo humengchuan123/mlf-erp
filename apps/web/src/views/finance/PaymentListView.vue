@@ -102,8 +102,7 @@
           <el-col :span="8">
             <el-form-item label="币种">
               <el-select v-model="form.currency" style="width: 100%">
-                <el-option label="CNY" value="CNY" />
-                <el-option label="USD" value="USD" />
+                <el-option v-for="code in currencyCodes" :key="code" :label="code" :value="code" />
               </el-select>
             </el-form-item>
           </el-col>
@@ -201,6 +200,7 @@ const canWrite = computed(() => authStore.hasPermission('finance.payment.write')
 
 const payments = ref<Payment[]>([])
 const partners = ref<Partner[]>([])
+const currencyCodes = ref<string[]>(['CNY', 'USD'])
 const loading = ref(false)
 const saving = ref(false)
 const keyword = ref('')
@@ -283,6 +283,15 @@ async function loadPartners() {
     partners.value = result.items
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : '加载往来单位失败')
+  }
+}
+
+async function loadCurrencies() {
+  try {
+    const result = await masterDataApi.currencies.list({ page_size: 200 })
+    currencyCodes.value = result.items.filter((item) => item.status === 'active').map((item) => item.code)
+  } catch {
+    // Fall back to CNY/USD when the user cannot read currency master data.
   }
 }
 
@@ -418,7 +427,7 @@ async function saveAllocate() {
 }
 
 onMounted(async () => {
-  await Promise.all([load(), loadPartners()])
+  await Promise.all([load(), loadPartners(), loadCurrencies()])
 })
 </script>
 

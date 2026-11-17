@@ -674,7 +674,7 @@ func revalueForeignInvoicesTx(
 	rows, err := tx.Query(ctx, `
 		SELECT i.id::text, i.invoice_type, i.partner_id::text, i.currency,
 		       i.total_amount::text, i.paid_amount::text, i.exchange_rate::text,
-		       i.base_total_amount::text, i.base_paid_amount::text, i.base_revalued_amount::text
+		       i.base_total_amount::text, i.base_paid_amount::text
 		FROM erp.finance_invoices i
 		WHERE i.tenant_id = $1
 		  AND i.currency <> 'CNY'
@@ -688,16 +688,16 @@ func revalueForeignInvoicesTx(
 	}
 
 	type invoiceRow struct {
-		id, invoiceType, partnerID, currency             string
-		foreign, rate, baseTotal, basePaid, baseRevalued decimal.Decimal
+		id, invoiceType, partnerID, currency string
+		foreign, rate, baseTotal, basePaid   decimal.Decimal
 	}
 	invoices := make([]invoiceRow, 0)
 	for rows.Next() {
 		var item invoiceRow
-		var totalRaw, paidRaw, rateRaw, baseTotalRaw, basePaidRaw, baseRevaluedRaw string
+		var totalRaw, paidRaw, rateRaw, baseTotalRaw, basePaidRaw string
 		if err := rows.Scan(
 			&item.id, &item.invoiceType, &item.partnerID, &item.currency,
-			&totalRaw, &paidRaw, &rateRaw, &baseTotalRaw, &basePaidRaw, &baseRevaluedRaw,
+			&totalRaw, &paidRaw, &rateRaw, &baseTotalRaw, &basePaidRaw,
 		); err != nil {
 			rows.Close()
 			return fmt.Errorf("scan foreign invoice: %w", err)
@@ -708,7 +708,6 @@ func revalueForeignInvoicesTx(
 		item.rate = decimal.RequireFromString(rateRaw)
 		item.baseTotal = decimal.RequireFromString(baseTotalRaw)
 		item.basePaid = decimal.RequireFromString(basePaidRaw)
-		item.baseRevalued = decimal.RequireFromString(baseRevaluedRaw)
 		invoices = append(invoices, item)
 	}
 	if err := rows.Err(); err != nil {
@@ -726,6 +725,7 @@ func revalueForeignInvoicesTx(
 
 	rates := make(map[string]decimal.Decimal)
 	items := make([]fxRevaluationItem, 0, len(invoices))
+	zeroIDs := make([]string, 0)
 	for _, invoice := range invoices {
 		if invoice.foreign.IsZero() {
 			continue
@@ -746,9 +746,14 @@ func revalueForeignInvoicesTx(
 			rates[invoice.currency] = closingRate
 		}
 		target := invoice.foreign.Mul(closingRate).Round(4)
-		book := invoice.baseTotal.Sub(invoice.basePaid).Add(invoice.baseRevalued).Round(4)
+		// The prior period's revaluation was already reversed in this period,
+		// so the carrying amount before this close is the invoice-rate base
+		// less base-currency payments. base_revalued_amount is replaced, not
+		// accumulated, with this period's adjustment.
+		book := invoice.baseTotal.Sub(invoice.basePaid).Round(4)
 		adjustment := target.Sub(book).Round(4)
 		if adjustment.IsZero() {
+			zeroIDs = append(zeroIDs, invoice.id)
 			continue
 		}
 		items = append(items, fxRevaluationItem{
@@ -759,7 +764,7 @@ func revalueForeignInvoicesTx(
 		})
 	}
 	if len(items) == 0 {
-		return nil
+		return resetInvoiceRevaluations(ctx, tx, tenantID, zeroIDs)
 	}
 
 	batchID := uuid.NewString()
@@ -807,11 +812,25 @@ func revalueForeignInvoicesTx(
 		}
 		if _, err := tx.Exec(ctx, `
 			UPDATE erp.finance_invoices
-			SET base_revalued_amount = base_revalued_amount + $3, updated_at = now()
+			SET base_revalued_amount = $3, updated_at = now()
 			WHERE tenant_id = $1 AND id = $2`,
 			tenantID, item.InvoiceID, item.Adjustment.String(),
 		); err != nil {
 			return fmt.Errorf("update invoice revaluation: %w", err)
+		}
+	}
+	return resetInvoiceRevaluations(ctx, tx, tenantID, zeroIDs)
+}
+
+func resetInvoiceRevaluations(ctx context.Context, tx pgx.Tx, tenantID string, invoiceIDs []string) error {
+	for _, invoiceID := range invoiceIDs {
+		if _, err := tx.Exec(ctx, `
+			UPDATE erp.finance_invoices
+			SET base_revalued_amount = 0, updated_at = now()
+			WHERE tenant_id = $1 AND id = $2`,
+			tenantID, invoiceID,
+		); err != nil {
+			return fmt.Errorf("clear invoice revaluation: %w", err)
 		}
 	}
 	return nil
@@ -969,9 +988,9 @@ func fxRevaluationLines(items []fxRevaluationItem, reverse bool) []postingLine {
 		)
 	}
 	if reverse {
-		for _, line := range lines {
-			line.Debit, line.Credit = line.Credit, line.Debit
-			line.Summary = "反重估 " + line.Summary
+		for i := range lines {
+			lines[i].Debit, lines[i].Credit = lines[i].Credit, lines[i].Debit
+			lines[i].Summary = "反重估 " + lines[i].Summary
 		}
 	}
 	return lines

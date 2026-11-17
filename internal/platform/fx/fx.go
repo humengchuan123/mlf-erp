@@ -53,6 +53,7 @@ func Resolve(
 	if override.IsNegative() {
 		return decimal.Zero, ErrInvalidRate
 	}
+	override = override.Round(8)
 	if override.IsPositive() {
 		return override, nil
 	}
