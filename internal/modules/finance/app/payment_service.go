@@ -108,6 +108,9 @@ func (s *PaymentService) Create(ctx context.Context, input PaymentInput) (*domai
 	if method == "" {
 		method = "bank"
 	}
+	if method != "bank" && method != "cash" && method != "other" {
+		return nil, domain.ErrInvalidInput
+	}
 
 	payment := &domain.Payment{
 		ID:              uuid.NewString(),

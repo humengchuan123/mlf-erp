@@ -847,11 +847,11 @@ func ensureDemoPaymentAllocation(
 	paymentService *financeapp.PaymentService,
 	partnerID, paymentType, invoiceID, amount, reference string,
 ) error {
-	var paymentID, status, allocatedRaw string
+	var paymentID, status, amountRaw, allocatedRaw string
 	err := db.QueryRow(ctx, `
-		SELECT id::text, status, allocated_amount::text
+		SELECT id::text, status, amount::text, allocated_amount::text
 		FROM erp.finance_payments
-		WHERE tenant_id = $1 AND reference = $2`, tenantID, reference).Scan(&paymentID, &status, &allocatedRaw)
+		WHERE tenant_id = $1 AND reference = $2`, tenantID, reference).Scan(&paymentID, &status, &amountRaw, &allocatedRaw)
 	if errors.Is(err, pgx.ErrNoRows) {
 		payment, createErr := paymentService.Create(ctx, financeapp.PaymentInput{
 			PaymentType: paymentType,
@@ -867,6 +867,7 @@ func ensureDemoPaymentAllocation(
 			return createErr
 		}
 		paymentID = payment.ID
+		amountRaw = amount
 		allocatedRaw = "0"
 	} else if err != nil {
 		return fmt.Errorf("check demo payment: %w", err)
@@ -897,7 +898,7 @@ func ensureDemoPaymentAllocation(
 		return nil
 	}
 	allocated := decimal.RequireFromString(allocatedRaw)
-	unallocated := decimal.RequireFromString(amount).Sub(allocated)
+	unallocated := decimal.RequireFromString(amountRaw).Sub(allocated)
 	if !unallocated.IsPositive() {
 		return nil
 	}

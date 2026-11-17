@@ -2,7 +2,7 @@
 
 > 日期：2026-11-17  
 > 分支：`stage-3b-sales-finance`  
-> 提交：`f25db52`（实现提交，审核修复后追加）  
+> 提交：`f25db52`（实现）+ `ceb06aa`（范围收紧/API 契约）  
 > 计划：`docs/superpowers/plans/2026-11-17-stage-3b-sales-finance.md`  
 > 状态：待用户审阅
 
@@ -159,7 +159,7 @@ pnpm test:api:stage3b
 | 已全额核销收款继续核销 | 409 `PAYMENT_ALLOCATED` |
 | 付款 1000 核销应付 | 应付发票 paid |
 | 收款核销应付发票 | 400 `PAYMENT_TYPE_MISMATCH` |
-| demo_dept 查看 HQ 销售订单/发票 | 0 / 0 |
+| demo_dept 查看 HQ 销售订单/发票/发货单/收付款 | 0 / 0 / 0 / 0 |
 | demo_dept 创建销售订单/收付款 | 403 |
 | 同一物料多行发货 | 通过，金额正确 |
 | 零单价发货 | 应收发票 total=0，status=paid |
@@ -228,6 +228,7 @@ pnpm test:api:stage3b
 - OpenAPI 已补充采购、销售、库存、应收应付、收付款路径和 schema，但尚未接入自动契约校验。
 - 前端主包偏大，后续按需引入 Element Plus。
 - 自动化测试覆盖主要业务路径，但缺少并发发货/并发核销、事务故障注入、真实浏览器 E2E。
+- `pnpm test:api:stage3b` 会在当前 dev 数据库留下测试单据和库存；建议在独立测试库执行，或在测试后重建数据库。
 
 ---
 
