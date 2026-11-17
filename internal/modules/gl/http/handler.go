@@ -65,6 +65,7 @@ func Register(
 	finance.GET("/reports/balance-sheet", authmw.RequirePermission("finance.report.read"), handler.balanceSheet)
 	finance.GET("/reports/income-statement", authmw.RequirePermission("finance.report.read"), handler.incomeStatement)
 	finance.GET("/reports/auxiliary-balance", authmw.RequirePermission("finance.report.read"), handler.auxiliaryBalance)
+	finance.GET("/reports/vat-summary", authmw.RequirePermission("finance.report.read"), handler.vatSummary)
 }
 
 type accountRequest struct {
@@ -249,6 +250,22 @@ type auxiliaryBalanceResponse struct {
 	Rows        []auxiliaryBalanceRowResponse `json:"rows"`
 	TotalDebit  string                        `json:"total_debit"`
 	TotalCredit string                        `json:"total_credit"`
+}
+
+type vatSummaryRowResponse struct {
+	Month      string `json:"month"`
+	OutputTax  string `json:"output_tax"`
+	InputTax   string `json:"input_tax"`
+	NetPayable string `json:"net_payable"`
+}
+
+type vatSummaryResponse struct {
+	StartDate       string                  `json:"start_date"`
+	EndDate         string                  `json:"end_date"`
+	Rows            []vatSummaryRowResponse `json:"rows"`
+	TotalOutputTax  string                  `json:"total_output_tax"`
+	TotalInputTax   string                  `json:"total_input_tax"`
+	TotalNetPayable string                  `json:"total_net_payable"`
 }
 
 type incomeStatementResponse struct {
@@ -609,6 +626,31 @@ func (h *Handler) auxiliaryBalance(c *gin.Context) {
 		Dimension: report.Dimension,
 		StartDate: report.StartDate.Format("2006-01-02"), EndDate: report.EndDate.Format("2006-01-02"),
 		Rows: rows, TotalDebit: report.TotalDebit.StringFixed(4), TotalCredit: report.TotalCredit.StringFixed(4),
+	})
+}
+
+func (h *Handler) vatSummary(c *gin.Context) {
+	startDate, endDate, err := parseRange(c)
+	if err != nil {
+		httpx.Error(c, http.StatusBadRequest, httpx.CodeBadRequest, "invalid date range")
+		return
+	}
+	report, err := h.reports.VATSummary(c.Request.Context(), startDate, endDate)
+	if err != nil {
+		h.handleError(c, err)
+		return
+	}
+	rows := make([]vatSummaryRowResponse, 0, len(report.Rows))
+	for _, row := range report.Rows {
+		rows = append(rows, vatSummaryRowResponse{
+			Month: row.Month, OutputTax: row.OutputTax.StringFixed(4),
+			InputTax: row.InputTax.StringFixed(4), NetPayable: row.NetPayable.StringFixed(4),
+		})
+	}
+	httpx.OK(c, vatSummaryResponse{
+		StartDate: report.StartDate.Format("2006-01-02"), EndDate: report.EndDate.Format("2006-01-02"),
+		Rows: rows, TotalOutputTax: report.TotalOutputTax.StringFixed(4),
+		TotalInputTax: report.TotalInputTax.StringFixed(4), TotalNetPayable: report.TotalNetPayable.StringFixed(4),
 	})
 }
 

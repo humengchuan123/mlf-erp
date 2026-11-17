@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 
@@ -23,7 +24,7 @@ func NewInvoiceRepository(db *pgxpool.Pool) *InvoiceRepository {
 func (r *InvoiceRepository) List(
 	ctx context.Context,
 	filter scope.Filter,
-	tenantID, invoiceType, status, partnerID, keyword string,
+	tenantID, invoiceType, status, vatInvoiceStatus, partnerID, keyword string,
 	offset, limit int,
 ) ([]*domain.Invoice, int, error) {
 	args := []any{tenantID}
@@ -36,6 +37,10 @@ func (r *InvoiceRepository) List(
 		args = append(args, status)
 		where += fmt.Sprintf(" AND i.status = $%d", len(args))
 	}
+	if vatInvoiceStatus != "" {
+		args = append(args, vatInvoiceStatus)
+		where += fmt.Sprintf(" AND i.vat_invoice_status = $%d", len(args))
+	}
 	if partnerID != "" {
 		args = append(args, partnerID)
 		where += fmt.Sprintf(" AND i.partner_id = $%d", len(args))
@@ -43,7 +48,7 @@ func (r *InvoiceRepository) List(
 	if keyword != "" {
 		args = append(args, "%"+keyword+"%")
 		index := len(args)
-		where += fmt.Sprintf(" AND (i.code ILIKE $%d OR i.source_code ILIKE $%d OR p.name ILIKE $%d)", index, index, index)
+		where += fmt.Sprintf(" AND (i.code ILIKE $%d OR i.source_code ILIKE $%d OR i.vat_invoice_no ILIKE $%d OR p.name ILIKE $%d)", index, index, index, index)
 	}
 	appendScope(&where, &args, "i", filter)
 
@@ -85,6 +90,75 @@ func (r *InvoiceRepository) Get(ctx context.Context, filter scope.Filter, tenant
 	return scanInvoice(row)
 }
 
+func (r *InvoiceRepository) Issue(
+	ctx context.Context,
+	filter scope.Filter,
+	tenantID, id string,
+	input domain.IssueInput,
+) (*domain.Invoice, error) {
+	invoice, err := r.Get(ctx, filter, tenantID, id)
+	if err != nil {
+		return nil, err
+	}
+	if invoice.VatInvoiceStatus == domain.VatInvoiceStatusVoid {
+		return nil, domain.ErrInvoiceStatus
+	}
+	if invoice.VatInvoiceStatus == domain.VatInvoiceStatusIssued {
+		return nil, domain.ErrInvoiceStatus
+	}
+
+	args := []any{tenantID, id, input.VatInvoiceNo, input.VatInvoiceType,
+		input.VatInvoiceDate, input.BuyerTaxNo, input.SellerTaxNo}
+	where := "i.tenant_id = $1 AND i.id = $2 AND i.vat_invoice_status = 'pending'"
+	appendScope(&where, &args, "i", filter)
+
+	tag, err := r.db.Exec(ctx, `
+		UPDATE erp.finance_invoices AS i
+		SET vat_invoice_no = $3, vat_invoice_type = $4, vat_invoice_date = $5,
+		    buyer_tax_no = $6, seller_tax_no = $7, vat_invoice_status = 'issued',
+		    updated_at = now()
+		WHERE `+where, args...)
+	if err != nil {
+		if mapped := mapDBError(err); mapped != nil && mapped != err {
+			return nil, domain.ErrVatInvoiceDuplicate
+		}
+		return nil, err
+	}
+	if tag.RowsAffected() == 0 {
+		return nil, domain.ErrInvoiceStatus
+	}
+	return r.Get(ctx, filter, tenantID, id)
+}
+
+func (r *InvoiceRepository) Void(
+	ctx context.Context,
+	filter scope.Filter,
+	tenantID, id, _ string,
+) (*domain.Invoice, error) {
+	invoice, err := r.Get(ctx, filter, tenantID, id)
+	if err != nil {
+		return nil, err
+	}
+	if invoice.VatInvoiceStatus != domain.VatInvoiceStatusIssued {
+		return nil, domain.ErrInvoiceStatus
+	}
+
+	args := []any{tenantID, id}
+	where := "i.tenant_id = $1 AND i.id = $2 AND i.vat_invoice_status = 'issued'"
+	appendScope(&where, &args, "i", filter)
+	tag, err := r.db.Exec(ctx, `
+		UPDATE erp.finance_invoices AS i
+		SET vat_invoice_status = 'void', updated_at = now()
+		WHERE `+where, args...)
+	if err != nil {
+		return nil, mapDBError(err)
+	}
+	if tag.RowsAffected() == 0 {
+		return nil, domain.ErrInvoiceStatus
+	}
+	return r.Get(ctx, filter, tenantID, id)
+}
+
 func (r *InvoiceRepository) ListAllocations(ctx context.Context, filter scope.Filter, tenantID, invoiceID string) ([]*domain.Allocation, error) {
 	args := []any{tenantID, invoiceID}
 	where := "a.tenant_id = $1 AND a.invoice_id = $2"
@@ -123,7 +197,10 @@ const invoiceSelectSQL = `
 	SELECT i.id::text, i.tenant_id::text, i.org_id::text, i.code, i.invoice_type,
 	       i.source_type, i.source_id::text, i.source_code,
 	       i.partner_id::text, COALESCE(p.name, ''), i.invoice_date, i.due_date,
-	       i.currency, i.status, i.total_amount::text, i.paid_amount::text,
+	       i.currency, i.status, i.net_amount::text, i.tax_amount::text,
+	       i.total_amount::text, i.paid_amount::text,
+	       i.vat_invoice_no, i.vat_invoice_type, i.vat_invoice_date, i.vat_invoice_status,
+	       i.buyer_tax_no, i.seller_tax_no,
 	       i.remark, i.created_by::text, i.updated_by::text, i.created_at, i.updated_at
 	FROM erp.finance_invoices i
 	LEFT JOIN erp.partners p ON p.tenant_id = i.tenant_id AND p.id = i.partner_id`
@@ -134,13 +211,16 @@ type rowScanner interface {
 
 func scanInvoice(row rowScanner) (*domain.Invoice, error) {
 	var item domain.Invoice
-	var total, paid string
+	var netAmount, taxAmount, total, paid string
+	var vatInvoiceDate sql.NullTime
 
 	err := row.Scan(
 		&item.ID, &item.TenantID, &item.OrgID, &item.Code, &item.InvoiceType,
 		&item.SourceType, &item.SourceID, &item.SourceCode,
 		&item.PartnerID, &item.PartnerName, &item.InvoiceDate, &item.DueDate,
-		&item.Currency, &item.Status, &total, &paid,
+		&item.Currency, &item.Status, &netAmount, &taxAmount, &total, &paid,
+		&item.VatInvoiceNo, &item.VatInvoiceType, &vatInvoiceDate, &item.VatInvoiceStatus,
+		&item.BuyerTaxNo, &item.SellerTaxNo,
 		&item.Remark, &item.CreatedBy, &item.UpdatedBy, &item.CreatedAt, &item.UpdatedAt,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -149,7 +229,12 @@ func scanInvoice(row rowScanner) (*domain.Invoice, error) {
 	if err != nil {
 		return nil, fmt.Errorf("scan invoice: %w", err)
 	}
+	item.NetAmount = decimal.RequireFromString(netAmount)
+	item.TaxAmount = decimal.RequireFromString(taxAmount)
 	item.TotalAmount = decimal.RequireFromString(total)
 	item.PaidAmount = decimal.RequireFromString(paid)
+	if vatInvoiceDate.Valid {
+		item.VatInvoiceDate = &vatInvoiceDate.Time
+	}
 	return &item, nil
 }

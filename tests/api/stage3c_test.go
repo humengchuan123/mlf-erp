@@ -131,9 +131,11 @@ func TestStage3C(t *testing.T) {
 	supplier := findItem(listItems(admin, "/masterdata/partners?keyword=SUP-DEMO-001&page_size=20", http.StatusOK), "code", "SUP-DEMO-001")
 	warehouse := findItem(listItems(admin, "/masterdata/warehouses?keyword=WH-SH&page_size=20", http.StatusOK), "code", "WH-SH")
 	material := findItem(listItems(admin, "/masterdata/materials?keyword=MAT-DEMO-004&page_size=20", http.StatusOK), "code", "MAT-DEMO-004")
-	if customer == nil || supplier == nil || warehouse == nil || material == nil {
+	zeroTax := findItem(listItems(admin, "/masterdata/tax-rates?keyword=VAT0&page_size=20", http.StatusOK), "code", "VAT0")
+	if customer == nil || supplier == nil || warehouse == nil || material == nil || zeroTax == nil {
 		t.Fatal("demo master data missing")
 	}
+	zeroTaxID := text(zeroTax, "id")
 
 	t.Run("account integrity", func(t *testing.T) {
 		ar := accountByCode["1122"]
@@ -161,7 +163,7 @@ func TestStage3C(t *testing.T) {
 			"currency":     "CNY",
 			"remark":       "stage3c-purchase",
 			"lines": []map[string]any{
-				{"material_id": text(material, "id"), "quantity": "2", "unit_price": "100.00"},
+				{"material_id": text(material, "id"), "quantity": "2", "unit_price": "100.00", "tax_rate_id": zeroTaxID},
 			},
 		}, http.StatusCreated)
 		orderID := text(order, "id")
@@ -209,7 +211,7 @@ func TestStage3C(t *testing.T) {
 			"currency":     "CNY",
 			"remark":       "stage3c-sales",
 			"lines": []map[string]any{
-				{"material_id": text(material, "id"), "quantity": "2", "unit_price": "150.00"},
+				{"material_id": text(material, "id"), "quantity": "2", "unit_price": "150.00", "tax_rate_id": zeroTaxID},
 			},
 		}, http.StatusCreated)
 		orderID := text(order, "id")

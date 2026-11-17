@@ -7,26 +7,30 @@ import (
 )
 
 type Shipment struct {
-	ID             string
-	TenantID       string
-	OrgID          string
-	Code           string
-	OrderID        string
-	OrderCode      string
-	CustomerID     string
-	CustomerName   string
-	WarehouseID    string
-	WarehouseName  string
-	ShipmentDate   time.Time
-	Status         string
-	Remark         string
-	CreatedBy      string
-	CreatedAt      time.Time
-	InvoiceID      string
-	InvoiceCode    string
-	InvoiceDueDate time.Time
-	VoucherCode    string
-	Lines          []*ShipmentLine
+	ID               string
+	TenantID         string
+	OrgID            string
+	Code             string
+	OrderID          string
+	OrderCode        string
+	CustomerID       string
+	CustomerName     string
+	WarehouseID      string
+	WarehouseName    string
+	ShipmentDate     time.Time
+	Status           string
+	PriceIncludesTax bool
+	NetAmount        decimal.Decimal
+	TaxAmount        decimal.Decimal
+	GrossAmount      decimal.Decimal
+	Remark           string
+	CreatedBy        string
+	CreatedAt        time.Time
+	InvoiceID        string
+	InvoiceCode      string
+	InvoiceDueDate   time.Time
+	VoucherCode      string
+	Lines            []*ShipmentLine
 }
 
 type ShipmentLine struct {
@@ -38,15 +42,22 @@ type ShipmentLine struct {
 	MaterialName string
 	Quantity     decimal.Decimal
 	UnitPrice    decimal.Decimal
+	TaxRateID    string
+	TaxRate      decimal.Decimal
 	Amount       decimal.Decimal
+	TaxAmount    decimal.Decimal
+	GrossAmount  decimal.Decimal
 	UnitCost     decimal.Decimal
 	CostAmount   decimal.Decimal
 }
 
 func (s *Shipment) TotalAmount() decimal.Decimal {
+	if !s.GrossAmount.IsZero() {
+		return s.GrossAmount.Round(4)
+	}
 	total := decimal.Zero
 	for _, line := range s.Lines {
-		total = total.Add(line.Amount)
+		total = total.Add(line.GrossAmount)
 	}
 	return total.Round(4)
 }

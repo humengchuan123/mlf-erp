@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/mlf-erp/mlf-erp/internal/modules/sales/domain"
 	"github.com/mlf-erp/mlf-erp/internal/platform/scope"
+	"github.com/mlf-erp/mlf-erp/internal/platform/taxcalc"
 	"github.com/shopspring/decimal"
 )
 
@@ -70,12 +71,22 @@ func (s *ShipmentService) Ship(ctx context.Context, orderID string, input ShipIn
 
 	shipmentID := uuid.NewString()
 	shipmentLines := make([]*domain.ShipmentLine, 0, len(lineIDs))
+	netTotal := decimal.Zero
+	taxTotal := decimal.Zero
+	grossTotal := decimal.Zero
 	for _, lineID := range lineIDs {
 		orderLine := lineByID[lineID]
 		quantity := requested[lineID]
 		if quantity.GreaterThan(orderLine.Remaining()) {
 			return nil, domain.ErrOverShipment
 		}
+		result, err := taxcalc.Calculate(quantity, orderLine.UnitPrice, orderLine.TaxRate, order.PriceIncludesTax)
+		if err != nil {
+			return nil, domain.ErrInvalidInput
+		}
+		netTotal = netTotal.Add(result.Net)
+		taxTotal = taxTotal.Add(result.Tax)
+		grossTotal = grossTotal.Add(result.Gross)
 		shipmentLines = append(shipmentLines, &domain.ShipmentLine{
 			ID:           uuid.NewString(),
 			TenantID:     tenantID,
@@ -85,7 +96,11 @@ func (s *ShipmentService) Ship(ctx context.Context, orderID string, input ShipIn
 			MaterialName: orderLine.MaterialName,
 			Quantity:     quantity,
 			UnitPrice:    orderLine.UnitPrice,
-			Amount:       quantity.Mul(orderLine.UnitPrice).Round(4),
+			TaxRateID:    orderLine.TaxRateID,
+			TaxRate:      orderLine.TaxRate,
+			Amount:       result.Net,
+			TaxAmount:    result.Tax,
+			GrossAmount:  result.Gross,
 		})
 	}
 
@@ -107,26 +122,30 @@ func (s *ShipmentService) Ship(ctx context.Context, orderID string, input ShipIn
 	}
 
 	shipment := &domain.Shipment{
-		ID:             shipmentID,
-		TenantID:       tenantID,
-		OrgID:          order.OrgID,
-		Code:           code,
-		OrderID:        order.ID,
-		OrderCode:      order.Code,
-		CustomerID:     order.CustomerID,
-		CustomerName:   order.CustomerName,
-		WarehouseID:    order.WarehouseID,
-		WarehouseName:  order.WarehouseName,
-		ShipmentDate:   shipmentDate,
-		Status:         "posted",
-		Remark:         strings.TrimSpace(input.Remark),
-		CreatedBy:      userID,
-		CreatedAt:      time.Now(),
-		InvoiceID:      uuid.NewString(),
-		InvoiceCode:    invoiceCode,
-		InvoiceDueDate: shipmentDate.AddDate(0, 0, 30),
-		VoucherCode:    voucherCode,
-		Lines:          shipmentLines,
+		ID:               shipmentID,
+		TenantID:         tenantID,
+		OrgID:            order.OrgID,
+		Code:             code,
+		OrderID:          order.ID,
+		OrderCode:        order.Code,
+		CustomerID:       order.CustomerID,
+		CustomerName:     order.CustomerName,
+		WarehouseID:      order.WarehouseID,
+		WarehouseName:    order.WarehouseName,
+		ShipmentDate:     shipmentDate,
+		Status:           "posted",
+		PriceIncludesTax: order.PriceIncludesTax,
+		NetAmount:        netTotal.Round(4),
+		TaxAmount:        taxTotal.Round(4),
+		GrossAmount:      grossTotal.Round(4),
+		Remark:           strings.TrimSpace(input.Remark),
+		CreatedBy:        userID,
+		CreatedAt:        time.Now(),
+		InvoiceID:        uuid.NewString(),
+		InvoiceCode:      invoiceCode,
+		InvoiceDueDate:   shipmentDate.AddDate(0, 0, 30),
+		VoucherCode:      voucherCode,
+		Lines:            shipmentLines,
 	}
 
 	if err := s.orders.Ship(ctx, filter, shipment); err != nil {

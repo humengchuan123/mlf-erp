@@ -247,6 +247,7 @@ func seedDemo(ctx context.Context, cfg *config.Config, db *pgxpool.Pool, log *sl
 		partnerRepository,
 		materialRepository,
 		warehouseRepository,
+		taxRateRepository,
 	)
 	receiptService := purchaseapp.NewReceiptService(purchaseRepository, codeRuleService)
 
@@ -257,6 +258,7 @@ func seedDemo(ctx context.Context, cfg *config.Config, db *pgxpool.Pool, log *sl
 		partnerRepository,
 		materialRepository,
 		warehouseRepository,
+		taxRateRepository,
 	)
 	salesShipmentService := salesapp.NewShipmentService(salesRepository, codeRuleService)
 
@@ -970,10 +972,11 @@ func ensureDemoPayablesForLegacyReceipts(ctx context.Context, db *pgxpool.Pool, 
 		if _, err := db.Exec(ctx, `
 			INSERT INTO erp.finance_invoices (
 				id, tenant_id, org_id, code, invoice_type, source_type, source_id, source_code,
-				partner_id, invoice_date, due_date, currency, status, total_amount, paid_amount,
-				remark, created_by, updated_by
+				partner_id, invoice_date, due_date, currency, status, net_amount, tax_amount,
+				total_amount, paid_amount, vat_invoice_status, remark, created_by, updated_by
 			) VALUES (gen_random_uuid(), $1, $2, $3, 'payable', 'purchase_receipt', $4, $5,
-			          $6, $7, $8, $9, 'open', $10, 0, 'demo legacy payable', $11, $11)
+			          $6, $7, $8, $9, 'open', $10, 0, $10, 0, 'pending',
+			          'demo legacy payable', $11, $11)
 			ON CONFLICT DO NOTHING`,
 			tenantID, item.orgID, code, item.id, item.code, item.supplierID,
 			item.receiptDate, item.receiptDate.AddDate(0, 0, 30), item.currency,

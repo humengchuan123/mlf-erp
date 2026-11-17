@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/mlf-erp/mlf-erp/internal/modules/purchase/domain"
 	"github.com/mlf-erp/mlf-erp/internal/platform/scope"
+	"github.com/mlf-erp/mlf-erp/internal/platform/taxcalc"
 	"github.com/shopspring/decimal"
 )
 
@@ -70,12 +71,22 @@ func (s *ReceiptService) Receive(ctx context.Context, orderID string, input Rece
 
 	receiptID := uuid.NewString()
 	receiptLines := make([]*domain.ReceiptLine, 0, len(lineIDs))
+	netTotal := decimal.Zero
+	taxTotal := decimal.Zero
+	grossTotal := decimal.Zero
 	for _, lineID := range lineIDs {
 		orderLine := lineByID[lineID]
 		quantity := requested[lineID]
 		if quantity.GreaterThan(orderLine.Remaining()) {
 			return nil, domain.ErrOverReceive
 		}
+		result, err := taxcalc.Calculate(quantity, orderLine.UnitPrice, orderLine.TaxRate, order.PriceIncludesTax)
+		if err != nil {
+			return nil, domain.ErrInvalidInput
+		}
+		netTotal = netTotal.Add(result.Net)
+		taxTotal = taxTotal.Add(result.Tax)
+		grossTotal = grossTotal.Add(result.Gross)
 		receiptLines = append(receiptLines, &domain.ReceiptLine{
 			ID:           uuid.NewString(),
 			TenantID:     tenantID,
@@ -85,7 +96,11 @@ func (s *ReceiptService) Receive(ctx context.Context, orderID string, input Rece
 			MaterialName: orderLine.MaterialName,
 			Quantity:     quantity,
 			UnitPrice:    orderLine.UnitPrice,
-			Amount:       quantity.Mul(orderLine.UnitPrice).Round(4),
+			TaxRateID:    orderLine.TaxRateID,
+			TaxRate:      orderLine.TaxRate,
+			Amount:       result.Net,
+			TaxAmount:    result.Tax,
+			GrossAmount:  result.Gross,
 		})
 	}
 
@@ -107,25 +122,29 @@ func (s *ReceiptService) Receive(ctx context.Context, orderID string, input Rece
 	}
 
 	receipt := &domain.Receipt{
-		ID:             receiptID,
-		TenantID:       tenantID,
-		OrgID:          order.OrgID,
-		Code:           code,
-		OrderID:        order.ID,
-		OrderCode:      order.Code,
-		SupplierName:   order.SupplierName,
-		WarehouseID:    order.WarehouseID,
-		WarehouseName:  order.WarehouseName,
-		ReceiptDate:    receiptDate,
-		Status:         "posted",
-		Remark:         strings.TrimSpace(input.Remark),
-		CreatedBy:      userID,
-		CreatedAt:      time.Now(),
-		PayableID:      uuid.NewString(),
-		PayableCode:    payableCode,
-		PayableDueDate: receiptDate.AddDate(0, 0, 30),
-		VoucherCode:    voucherCode,
-		Lines:          receiptLines,
+		ID:               receiptID,
+		TenantID:         tenantID,
+		OrgID:            order.OrgID,
+		Code:             code,
+		OrderID:          order.ID,
+		OrderCode:        order.Code,
+		SupplierName:     order.SupplierName,
+		WarehouseID:      order.WarehouseID,
+		WarehouseName:    order.WarehouseName,
+		ReceiptDate:      receiptDate,
+		Status:           "posted",
+		PriceIncludesTax: order.PriceIncludesTax,
+		NetAmount:        netTotal.Round(4),
+		TaxAmount:        taxTotal.Round(4),
+		GrossAmount:      grossTotal.Round(4),
+		Remark:           strings.TrimSpace(input.Remark),
+		CreatedBy:        userID,
+		CreatedAt:        time.Now(),
+		PayableID:        uuid.NewString(),
+		PayableCode:      payableCode,
+		PayableDueDate:   receiptDate.AddDate(0, 0, 30),
+		VoucherCode:      voucherCode,
+		Lines:            receiptLines,
 	}
 
 	if err := s.orders.Receive(ctx, filter, receipt); err != nil {

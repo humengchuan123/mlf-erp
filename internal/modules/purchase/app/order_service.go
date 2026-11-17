@@ -18,6 +18,7 @@ type OrderService struct {
 	partners   PartnerReader
 	materials  MaterialReader
 	warehouses WarehouseReader
+	taxRates   TaxRateReader
 }
 
 func NewOrderService(
@@ -26,9 +27,10 @@ func NewOrderService(
 	partners PartnerReader,
 	materials MaterialReader,
 	warehouses WarehouseReader,
+	taxRates TaxRateReader,
 ) *OrderService {
 	return &OrderService{
-		orders: orders, codes: codes, partners: partners, materials: materials, warehouses: warehouses,
+		orders: orders, codes: codes, partners: partners, materials: materials, warehouses: warehouses, taxRates: taxRates,
 	}
 }
 
@@ -36,15 +38,17 @@ type OrderLineInput struct {
 	MaterialID string
 	Quantity   decimal.Decimal
 	UnitPrice  decimal.Decimal
+	TaxRateID  string
 }
 
 type OrderInput struct {
-	SupplierID  string
-	WarehouseID string
-	OrderDate   time.Time
-	Currency    string
-	Remark      string
-	Lines       []OrderLineInput
+	SupplierID       string
+	WarehouseID      string
+	OrderDate        time.Time
+	Currency         string
+	PriceIncludesTax bool
+	Remark           string
+	Lines            []OrderLineInput
 }
 
 func (s *OrderService) List(ctx context.Context, status, keyword string, page, pageSize int) ([]*domain.Order, int, error) {
@@ -81,25 +85,31 @@ func (s *OrderService) Create(ctx context.Context, input OrderInput) (*domain.Or
 	}
 
 	order := &domain.Order{
-		ID:            uuid.NewString(),
-		TenantID:      tenantID,
-		OrgID:         warehouse.OrgID,
-		Code:          code,
-		SupplierID:    partner.ID,
-		SupplierName:  partner.Name,
-		WarehouseID:   warehouse.ID,
-		WarehouseName: warehouse.Name,
-		OrderDate:     orderDate,
-		Currency:      currency,
-		Status:        domain.StatusDraft,
-		Remark:        strings.TrimSpace(input.Remark),
-		CreatedBy:     userID,
-		UpdatedBy:     userID,
-		CreatedAt:     now,
-		UpdatedAt:     now,
+		ID:               uuid.NewString(),
+		TenantID:         tenantID,
+		OrgID:            warehouse.OrgID,
+		Code:             code,
+		SupplierID:       partner.ID,
+		SupplierName:     partner.Name,
+		WarehouseID:      warehouse.ID,
+		WarehouseName:    warehouse.Name,
+		OrderDate:        orderDate,
+		Currency:         currency,
+		Status:           domain.StatusDraft,
+		PriceIncludesTax: input.PriceIncludesTax,
+		Remark:           strings.TrimSpace(input.Remark),
+		CreatedBy:        userID,
+		UpdatedBy:        userID,
+		CreatedAt:        now,
+		UpdatedAt:        now,
 	}
-	order.Lines = buildLines(order.ID, tenantID, input.Lines, materials)
-	order.Recalculate()
+	order.Lines, err = s.buildLines(ctx, tenantID, order.ID, input.Lines, materials)
+	if err != nil {
+		return nil, err
+	}
+	if err := order.Recalculate(); err != nil {
+		return nil, err
+	}
 
 	if err := s.orders.Create(ctx, order); err != nil {
 		return nil, err
@@ -138,11 +148,17 @@ func (s *OrderService) UpdateDraft(ctx context.Context, id string, input OrderIn
 	order.WarehouseName = warehouse.Name
 	order.OrderDate = orderDate
 	order.Currency = currency
+	order.PriceIncludesTax = input.PriceIncludesTax
 	order.Remark = strings.TrimSpace(input.Remark)
 	order.UpdatedBy = userID
 	order.UpdatedAt = time.Now()
-	order.Lines = buildLines(order.ID, tenantID, input.Lines, materials)
-	order.Recalculate()
+	order.Lines, err = s.buildLines(ctx, tenantID, order.ID, input.Lines, materials)
+	if err != nil {
+		return nil, err
+	}
+	if err := order.Recalculate(); err != nil {
+		return nil, err
+	}
 
 	if err := s.orders.UpdateDraft(ctx, filter, order); err != nil {
 		return nil, err
@@ -239,9 +255,27 @@ func (s *OrderService) validate(
 	return &partner, &warehouse, materials, nil
 }
 
-func buildLines(orderID, tenantID string, inputs []OrderLineInput, materials []masterdomain.Material) []*domain.OrderLine {
+func (s *OrderService) buildLines(
+	ctx context.Context,
+	tenantID, orderID string,
+	inputs []OrderLineInput,
+	materials []masterdomain.Material,
+) ([]*domain.OrderLine, error) {
+	filter := scope.FromActor(ctx, tenantID)
 	lines := make([]*domain.OrderLine, 0, len(inputs))
 	for i, input := range inputs {
+		rateID := strings.TrimSpace(input.TaxRateID)
+		if rateID == "" {
+			rateID = materials[i].TaxRateID
+		}
+		rate := decimal.Zero
+		if rateID != "" {
+			taxRate, err := s.taxRates.FindByID(ctx, filter, tenantID, rateID)
+			if err != nil || taxRate.Status != masterdomain.StatusActive {
+				return nil, domain.ErrInvalidInput
+			}
+			rate = decimal.RequireFromString(taxRate.Rate)
+		}
 		lines = append(lines, &domain.OrderLine{
 			ID:           uuid.NewString(),
 			TenantID:     tenantID,
@@ -251,9 +285,10 @@ func buildLines(orderID, tenantID string, inputs []OrderLineInput, materials []m
 			MaterialName: materials[i].Name,
 			Quantity:     input.Quantity,
 			UnitPrice:    input.UnitPrice,
-			Amount:       input.Quantity.Mul(input.UnitPrice).Round(4),
+			TaxRateID:    rateID,
+			TaxRate:      rate,
 			ReceivedQty:  decimal.Zero,
 		})
 	}
-	return lines
+	return lines, nil
 }

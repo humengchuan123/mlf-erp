@@ -14,12 +14,28 @@ export interface Invoice {
   due_date: string
   currency: string
   status: string
+  net_amount: string
+  tax_amount: string
   total_amount: string
   paid_amount: string
   outstanding_amount: string
+  vat_invoice_no: string
+  vat_invoice_type: string
+  vat_invoice_date: string
+  vat_invoice_status: string
+  buyer_tax_no: string
+  seller_tax_no: string
   remark: string
   created_at: string
   updated_at: string
+}
+
+export interface IssueInvoiceInput {
+  vat_invoice_no: string
+  vat_invoice_type: string
+  vat_invoice_date: string
+  buyer_tax_no?: string
+  seller_tax_no?: string
 }
 
 export interface InvoiceAllocation {
@@ -86,6 +102,7 @@ export const financeApi = {
   invoices(params: {
     invoice_type?: string
     status?: string
+    vat_invoice_status?: string
     partner_id?: string
     keyword?: string
     page?: number
@@ -95,6 +112,12 @@ export const financeApi = {
   },
   invoice(id: string): Promise<InvoiceDetail> {
     return api.get<InvoiceDetail>(`/finance/invoices/${id}`)
+  },
+  issueInvoice(id: string, input: IssueInvoiceInput): Promise<Invoice> {
+    return api.post<Invoice>(`/finance/invoices/${id}/issue`, input)
+  },
+  voidInvoice(id: string): Promise<Invoice> {
+    return api.post<Invoice>(`/finance/invoices/${id}/void`)
   },
   payments(params: {
     payment_type?: string

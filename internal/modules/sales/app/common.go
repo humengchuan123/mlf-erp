@@ -25,6 +25,10 @@ type WarehouseReader interface {
 	FindByID(ctx context.Context, filter scope.Filter, tenantID, id string) (masterdomain.Warehouse, error)
 }
 
+type TaxRateReader interface {
+	FindByID(ctx context.Context, filter scope.Filter, tenantID, id string) (masterdomain.TaxRate, error)
+}
+
 func tenantActor(ctx context.Context) (tenantID, orgID, userID string) {
 	if info, ok := tenant.From(ctx); ok {
 		tenantID = info.ID

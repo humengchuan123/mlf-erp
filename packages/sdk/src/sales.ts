@@ -8,7 +8,11 @@ export interface SalesOrderLine {
   material_name: string
   quantity: string
   unit_price: string
+  tax_rate_id: string
+  tax_rate: string
   amount: string
+  tax_amount: string
+  gross_amount: string
   shipped_qty: string
   remaining_qty: string
 }
@@ -23,6 +27,9 @@ export interface SalesOrder {
   order_date: string
   currency: string
   status: string
+  price_includes_tax: boolean
+  net_amount: string
+  tax_amount: string
   total_amount: string
   remark: string
   created_at: string
@@ -34,6 +41,7 @@ export interface SalesOrderLineInput {
   material_id: string
   quantity: string
   unit_price: string
+  tax_rate_id?: string
 }
 
 export interface SalesOrderInput {
@@ -41,6 +49,7 @@ export interface SalesOrderInput {
   warehouse_id: string
   order_date: string
   currency: string
+  price_includes_tax?: boolean
   remark?: string
   lines: SalesOrderLineInput[]
 }
@@ -51,7 +60,11 @@ export interface ShipmentLine {
   material_name: string
   quantity: string
   unit_price: string
+  tax_rate_id: string
+  tax_rate: string
   amount: string
+  tax_amount: string
+  gross_amount: string
   unit_cost: string
   cost_amount: string
 }
@@ -67,6 +80,9 @@ export interface Shipment {
   warehouse_name: string
   shipment_date: string
   status: string
+  price_includes_tax: boolean
+  net_amount: string
+  tax_amount: string
   remark: string
   invoice_id: string
   invoice_code: string

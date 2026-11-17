@@ -21,7 +21,9 @@ type SalesShipmentPosting struct {
 	CustomerID  string
 	CreatedBy   string
 	VoucherDate time.Time
-	SalesAmount decimal.Decimal
+	NetAmount   decimal.Decimal
+	TaxAmount   decimal.Decimal
+	GrossAmount decimal.Decimal
 	CostAmount  decimal.Decimal
 }
 
@@ -34,7 +36,9 @@ type PurchaseReceiptPosting struct {
 	SupplierID  string
 	CreatedBy   string
 	VoucherDate time.Time
-	Amount      decimal.Decimal
+	NetAmount   decimal.Decimal
+	TaxAmount   decimal.Decimal
+	GrossAmount decimal.Decimal
 }
 
 type PaymentPosting struct {
@@ -60,12 +64,15 @@ type postingLine struct {
 }
 
 func PostSalesShipment(ctx context.Context, tx pgx.Tx, input SalesShipmentPosting) error {
-	lines := make([]postingLine, 0, 4)
-	if input.SalesAmount.IsPositive() {
+	lines := make([]postingLine, 0, 5)
+	if input.GrossAmount.IsPositive() {
 		lines = append(lines,
-			postingLine{AccountKey: "ar", Summary: "销售应收", Debit: input.SalesAmount, PartnerID: input.CustomerID},
-			postingLine{AccountKey: "revenue", Summary: "销售收入", Credit: input.SalesAmount, PartnerID: input.CustomerID},
+			postingLine{AccountKey: "ar", Summary: "销售应收", Debit: input.GrossAmount, PartnerID: input.CustomerID},
+			postingLine{AccountKey: "revenue", Summary: "销售收入", Credit: input.NetAmount, PartnerID: input.CustomerID},
 		)
+		if input.TaxAmount.IsPositive() {
+			lines = append(lines, postingLine{AccountKey: "output_vat", Summary: "销项税额", Credit: input.TaxAmount, PartnerID: input.CustomerID})
+		}
 	}
 	if input.CostAmount.IsPositive() {
 		lines = append(lines,
@@ -89,9 +96,16 @@ func PostSalesShipment(ctx context.Context, tx pgx.Tx, input SalesShipmentPostin
 }
 
 func PostPurchaseReceipt(ctx context.Context, tx pgx.Tx, input PurchaseReceiptPosting) error {
-	if !input.Amount.IsPositive() {
+	if !input.GrossAmount.IsPositive() {
 		return nil
 	}
+	lines := []postingLine{
+		{AccountKey: "inventory", Summary: "采购入库", Debit: input.NetAmount},
+	}
+	if input.TaxAmount.IsPositive() {
+		lines = append(lines, postingLine{AccountKey: "input_vat", Summary: "进项税额", Debit: input.TaxAmount})
+	}
+	lines = append(lines, postingLine{AccountKey: "ap", Summary: "采购应付", Credit: input.GrossAmount, PartnerID: input.SupplierID})
 	return postVoucherTx(ctx, tx, voucherPostingInput{
 		TenantID:    input.TenantID,
 		OrgID:       input.OrgID,
@@ -103,10 +117,7 @@ func PostPurchaseReceipt(ctx context.Context, tx pgx.Tx, input PurchaseReceiptPo
 		SourceCode:  input.SourceCode,
 		Memo:        "采购收货 " + input.SourceCode,
 		CreatedBy:   input.CreatedBy,
-		Lines: []postingLine{
-			{AccountKey: "inventory", Summary: "采购入库", Debit: input.Amount},
-			{AccountKey: "ap", Summary: "采购应付", Credit: input.Amount, PartnerID: input.SupplierID},
-		},
+		Lines:       lines,
 	})
 }
 

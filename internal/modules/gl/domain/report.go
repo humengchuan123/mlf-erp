@@ -94,3 +94,19 @@ type AuxiliaryBalance struct {
 	TotalDebit  decimal.Decimal
 	TotalCredit decimal.Decimal
 }
+
+type VATSummaryRow struct {
+	Month      string
+	OutputTax  decimal.Decimal
+	InputTax   decimal.Decimal
+	NetPayable decimal.Decimal
+}
+
+type VATSummary struct {
+	StartDate       time.Time
+	EndDate         time.Time
+	Rows            []*VATSummaryRow
+	TotalOutputTax  decimal.Decimal
+	TotalInputTax   decimal.Decimal
+	TotalNetPayable decimal.Decimal
+}

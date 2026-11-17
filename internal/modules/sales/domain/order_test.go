@@ -13,7 +13,9 @@ func TestOrderRecalculate(t *testing.T) {
 			{Quantity: decimal.RequireFromString("3"), UnitPrice: decimal.RequireFromString("80")},
 		},
 	}
-	order.Recalculate()
+	if err := order.Recalculate(); err != nil {
+		t.Fatalf("recalculate: %v", err)
+	}
 
 	if !order.Lines[0].Amount.Equal(decimal.RequireFromString("241")) {
 		t.Fatalf("line 1 amount = %s, want 241", order.Lines[0].Amount)
@@ -23,6 +25,46 @@ func TestOrderRecalculate(t *testing.T) {
 	}
 	if !order.TotalAmount.Equal(decimal.RequireFromString("481")) {
 		t.Fatalf("total = %s, want 481", order.TotalAmount)
+	}
+}
+
+func TestOrderRecalculateMixedTax(t *testing.T) {
+	order := &Order{
+		PriceIncludesTax: true,
+		Lines: []*OrderLine{
+			{Quantity: decimal.NewFromInt(1), UnitPrice: decimal.NewFromInt(113), TaxRate: decimal.RequireFromString("0.13")},
+			{Quantity: decimal.NewFromInt(1), UnitPrice: decimal.NewFromInt(50), TaxRate: decimal.Zero},
+		},
+	}
+	if err := order.Recalculate(); err != nil {
+		t.Fatalf("recalculate: %v", err)
+	}
+	if !order.NetAmount.Equal(decimal.RequireFromString("150")) {
+		t.Fatalf("net = %s, want 150", order.NetAmount)
+	}
+	if !order.TaxAmount.Equal(decimal.RequireFromString("13")) {
+		t.Fatalf("tax = %s, want 13", order.TaxAmount)
+	}
+	if !order.TotalAmount.Equal(decimal.RequireFromString("163")) {
+		t.Fatalf("gross = %s, want 163", order.TotalAmount)
+	}
+	if !order.Lines[0].GrossAmount.Equal(decimal.NewFromInt(113)) {
+		t.Fatalf("line 1 gross = %s, want 113", order.Lines[0].GrossAmount)
+	}
+}
+
+func TestOrderRecalculateExclusive(t *testing.T) {
+	order := &Order{
+		PriceIncludesTax: false,
+		Lines: []*OrderLine{
+			{Quantity: decimal.NewFromInt(2), UnitPrice: decimal.NewFromInt(50), TaxRate: decimal.RequireFromString("0.13")},
+		},
+	}
+	if err := order.Recalculate(); err != nil {
+		t.Fatalf("recalculate: %v", err)
+	}
+	if !order.NetAmount.Equal(decimal.NewFromInt(100)) || !order.TaxAmount.Equal(decimal.NewFromInt(13)) || !order.TotalAmount.Equal(decimal.NewFromInt(113)) {
+		t.Fatalf("net/tax/gross = %s/%s/%s, want 100/13/113", order.NetAmount, order.TaxAmount, order.TotalAmount)
 	}
 }
 
@@ -61,14 +103,16 @@ func TestShipmentTotals(t *testing.T) {
 	shipment := &Shipment{
 		Lines: []*ShipmentLine{
 			{
-				Quantity:   decimal.RequireFromString("2"),
-				Amount:     decimal.RequireFromString("240"),
-				CostAmount: decimal.RequireFromString("200"),
+				Quantity:    decimal.RequireFromString("2"),
+				Amount:      decimal.RequireFromString("240"),
+				GrossAmount: decimal.RequireFromString("240"),
+				CostAmount:  decimal.RequireFromString("200"),
 			},
 			{
-				Quantity:   decimal.RequireFromString("1"),
-				Amount:     decimal.RequireFromString("80"),
-				CostAmount: decimal.RequireFromString("50"),
+				Quantity:    decimal.RequireFromString("1"),
+				Amount:      decimal.RequireFromString("80"),
+				GrossAmount: decimal.RequireFromString("80"),
+				CostAmount:  decimal.RequireFromString("50"),
 			},
 		},
 	}

@@ -1,9 +1,9 @@
 openapi: 3.1.0
 info:
   title: MLF ERP API
-  version: 0.5.0
+  version: 0.6.0
   description: |
-    MLF ERP Stage 1 + Stage 2 + Stage 3A/3B/3C/3D API contract.
+    MLF ERP Stage 1 + Stage 2 + Stage 3A/3B/3C/3D/3E API contract.
     Master data uses a generic CRUD surface under /masterdata/{entity}.
     Purchase, sales, inventory, receivables/payables, payments, general ledger and reports are included.
 servers:
@@ -648,6 +648,11 @@ paths:
             type: string
             enum: [open, partially_paid, paid]
         - in: query
+          name: vat_invoice_status
+          schema:
+            type: string
+            enum: [pending, issued, void]
+        - in: query
           name: partner_id
           schema:
             type: string
@@ -688,6 +693,72 @@ paths:
                     properties:
                       data:
                         $ref: '#/components/schemas/InvoiceDetail'
+  /finance/invoices/{id}/issue:
+    post:
+      summary: Issue a VAT invoice
+      parameters:
+        - $ref: '#/components/parameters/ID'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [vat_invoice_no, vat_invoice_type, vat_invoice_date]
+              properties:
+                vat_invoice_no:
+                  type: string
+                vat_invoice_type:
+                  type: string
+                  enum: [special, general]
+                vat_invoice_date:
+                  type: string
+                  format: date
+                buyer_tax_no:
+                  type: string
+                seller_tax_no:
+                  type: string
+      responses:
+        '200':
+          description: Issued
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Invoice'
+        '409':
+          description: Invoice status does not allow issue, or invoice number duplicate
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+  /finance/invoices/{id}/void:
+    post:
+      summary: Void an issued VAT invoice
+      parameters:
+        - $ref: '#/components/parameters/ID'
+      responses:
+        '200':
+          description: Voided
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Invoice'
+        '409':
+          description: Invoice status does not allow void
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
   /finance/payments:
     get:
       summary: List receipts and payments
@@ -1260,6 +1331,32 @@ paths:
                     properties:
                       data:
                         $ref: '#/components/schemas/GlAuxiliaryBalance'
+  /finance/reports/vat-summary:
+    get:
+      summary: VAT output, input and net payable by month
+      parameters:
+        - in: query
+          name: start_date
+          schema:
+            type: string
+            format: date
+        - in: query
+          name: end_date
+          schema:
+            type: string
+            format: date
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/GlVATSummary'
 components:
   securitySchemes:
     bearerAuth:
@@ -1545,7 +1642,15 @@ components:
           type: string
         unit_price:
           type: string
+        tax_rate_id:
+          type: string
+        tax_rate:
+          type: string
         amount:
+          type: string
+        tax_amount:
+          type: string
+        gross_amount:
           type: string
         received_qty:
           type: string
@@ -1574,6 +1679,12 @@ components:
         status:
           type: string
           enum: [draft, submitted, approved, partially_received, received, closed, cancelled]
+        price_includes_tax:
+          type: boolean
+        net_amount:
+          type: string
+        tax_amount:
+          type: string
         total_amount:
           type: string
         remark:
@@ -1605,6 +1716,8 @@ components:
           type: string
         unit_price:
           type: string
+        tax_rate_id:
+          type: string
     PurchaseOrderInput:
       type: object
       required: [supplier_id, warehouse_id, order_date, lines]
@@ -1619,6 +1732,9 @@ components:
         currency:
           type: string
           default: CNY
+        price_includes_tax:
+          type: boolean
+          default: true
         remark:
           type: string
         lines:
@@ -1638,7 +1754,15 @@ components:
           type: string
         unit_price:
           type: string
+        tax_rate_id:
+          type: string
+        tax_rate:
+          type: string
         amount:
+          type: string
+        tax_amount:
+          type: string
+        gross_amount:
           type: string
     PurchaseReceipt:
       type: object
@@ -1662,7 +1786,15 @@ components:
           format: date
         status:
           type: string
+        price_includes_tax:
+          type: boolean
+        net_amount:
+          type: string
+        tax_amount:
+          type: string
         remark:
+          type: string
+        payable_id:
           type: string
         payable_code:
           type: string
@@ -1719,7 +1851,15 @@ components:
           type: string
         unit_price:
           type: string
+        tax_rate_id:
+          type: string
+        tax_rate:
+          type: string
         amount:
+          type: string
+        tax_amount:
+          type: string
+        gross_amount:
           type: string
         shipped_qty:
           type: string
@@ -1748,6 +1888,12 @@ components:
         status:
           type: string
           enum: [draft, submitted, approved, partially_shipped, shipped, cancelled]
+        price_includes_tax:
+          type: boolean
+        net_amount:
+          type: string
+        tax_amount:
+          type: string
         total_amount:
           type: string
         remark:
@@ -1779,6 +1925,8 @@ components:
           type: string
         unit_price:
           type: string
+        tax_rate_id:
+          type: string
     SalesOrderInput:
       type: object
       required: [customer_id, warehouse_id, order_date, lines]
@@ -1793,6 +1941,9 @@ components:
         currency:
           type: string
           default: CNY
+        price_includes_tax:
+          type: boolean
+          default: true
         remark:
           type: string
         lines:
@@ -1812,7 +1963,15 @@ components:
           type: string
         unit_price:
           type: string
+        tax_rate_id:
+          type: string
+        tax_rate:
+          type: string
         amount:
+          type: string
+        tax_amount:
+          type: string
+        gross_amount:
           type: string
         unit_cost:
           type: string
@@ -1841,6 +2000,12 @@ components:
           type: string
           format: date
         status:
+          type: string
+        price_includes_tax:
+          type: boolean
+        net_amount:
+          type: string
+        tax_amount:
           type: string
         remark:
           type: string
@@ -1983,11 +2148,30 @@ components:
         status:
           type: string
           enum: [open, partially_paid, paid]
+        net_amount:
+          type: string
+        tax_amount:
+          type: string
         total_amount:
           type: string
         paid_amount:
           type: string
         outstanding_amount:
+          type: string
+        vat_invoice_no:
+          type: string
+        vat_invoice_type:
+          type: string
+          enum: ['', special, general]
+        vat_invoice_date:
+          type: string
+          format: date
+        vat_invoice_status:
+          type: string
+          enum: [pending, issued, void]
+        buyer_tax_no:
+          type: string
+        seller_tax_no:
           type: string
         remark:
           type: string
@@ -2501,4 +2685,34 @@ components:
         total_debit:
           type: string
         total_credit:
+          type: string
+    GlVATSummaryRow:
+      type: object
+      properties:
+        month:
+          type: string
+        output_tax:
+          type: string
+        input_tax:
+          type: string
+        net_payable:
+          type: string
+    GlVATSummary:
+      type: object
+      properties:
+        start_date:
+          type: string
+          format: date
+        end_date:
+          type: string
+          format: date
+        rows:
+          type: array
+          items:
+            $ref: '#/components/schemas/GlVATSummaryRow'
+        total_output_tax:
+          type: string
+        total_input_tax:
+          type: string
+        total_net_payable:
           type: string

@@ -70,7 +70,7 @@
       />
     </el-card>
 
-    <el-dialog v-model="dialogVisible" :title="editingOrder ? '编辑销售订单' : '新建销售订单'" width="900px">
+    <el-dialog v-model="dialogVisible" :title="editingOrder ? '编辑销售订单' : '新建销售订单'" width="1180px">
       <el-form :model="form" label-width="90px">
         <el-row :gutter="12">
           <el-col :span="12">
@@ -105,13 +105,18 @@
               <el-input v-model="form.remark" />
             </el-form-item>
           </el-col>
+          <el-col :span="8">
+            <el-form-item label="价格口径">
+              <el-switch v-model="form.price_includes_tax" active-text="含税" inactive-text="不含税" />
+            </el-form-item>
+          </el-col>
         </el-row>
 
         <el-divider content-position="left">明细</el-divider>
         <el-table :data="form.lines" border>
-          <el-table-column label="物料" min-width="220">
+          <el-table-column label="物料" min-width="200">
             <template #default="{ row }">
-              <el-select v-model="row.material_id" filterable style="width: 100%" placeholder="选择物料">
+              <el-select v-model="row.material_id" filterable style="width: 100%" placeholder="选择物料" @change="onMaterialChange(row)">
                 <el-option
                   v-for="material in materials"
                   :key="material.id"
@@ -121,25 +126,43 @@
               </el-select>
             </template>
           </el-table-column>
-          <el-table-column label="数量" width="140">
+          <el-table-column label="数量" width="110">
             <template #default="{ row }">
               <el-input v-model="row.quantity" placeholder="0" />
             </template>
           </el-table-column>
-          <el-table-column label="单价" width="140">
+          <el-table-column label="单价" width="120">
             <template #default="{ row }">
               <el-input v-model="row.unit_price" placeholder="0.0000" />
             </template>
           </el-table-column>
-          <el-table-column label="金额" width="130" align="right">
-            <template #default="{ row }">{{ lineAmount(row) }}</template>
+          <el-table-column label="税率" width="130">
+            <template #default="{ row }">
+              <el-select v-model="row.tax_rate_id" clearable style="width: 100%" placeholder="默认物料">
+                <el-option v-for="rate in taxRates" :key="rate.id" :label="rate.name" :value="rate.id" />
+              </el-select>
+            </template>
           </el-table-column>
-          <el-table-column width="80">
+          <el-table-column label="不含税金额" width="120" align="right">
+            <template #default="{ row }">{{ lineNet(row) }}</template>
+          </el-table-column>
+          <el-table-column label="税额" width="100" align="right">
+            <template #default="{ row }">{{ lineTax(row) }}</template>
+          </el-table-column>
+          <el-table-column label="含税金额" width="120" align="right">
+            <template #default="{ row }">{{ lineGross(row) }}</template>
+          </el-table-column>
+          <el-table-column width="70">
             <template #default="{ $index }">
               <el-button link type="danger" @click="removeLine($index)">删除</el-button>
             </template>
           </el-table-column>
         </el-table>
+        <div class="line-totals">
+          <span>不含税合计：{{ formNetTotal }}</span>
+          <span>税额合计：{{ formTaxTotal }}</span>
+          <span>含税合计：{{ formGrossTotal }}</span>
+        </div>
         <el-button class="add-line" plain @click="addLine">添加明细行</el-button>
       </el-form>
       <template #footer>
@@ -158,18 +181,24 @@
           <el-descriptions-item label="客户">{{ detailOrder.customer_name }}</el-descriptions-item>
           <el-descriptions-item label="仓库">{{ detailOrder.warehouse_name }}</el-descriptions-item>
           <el-descriptions-item label="订单日期">{{ detailOrder.order_date }}</el-descriptions-item>
-          <el-descriptions-item label="金额">{{ detailOrder.total_amount }}</el-descriptions-item>
+          <el-descriptions-item label="价格口径">{{ detailOrder.price_includes_tax ? '含税' : '不含税' }}</el-descriptions-item>
+          <el-descriptions-item label="不含税金额">{{ detailOrder.net_amount }}</el-descriptions-item>
+          <el-descriptions-item label="税额">{{ detailOrder.tax_amount }}</el-descriptions-item>
+          <el-descriptions-item label="含税金额">{{ detailOrder.total_amount }}</el-descriptions-item>
           <el-descriptions-item label="备注" :span="2">{{ detailOrder.remark || '-' }}</el-descriptions-item>
         </el-descriptions>
 
         <el-table :data="detailOrder.lines" border class="detail-table">
           <el-table-column prop="line_no" label="#" width="60" />
-          <el-table-column prop="material_name" label="物料" min-width="180" />
-          <el-table-column prop="quantity" label="数量" width="100" align="right" />
-          <el-table-column prop="unit_price" label="单价" width="110" align="right" />
-          <el-table-column prop="amount" label="金额" width="120" align="right" />
-          <el-table-column prop="shipped_qty" label="已发" width="100" align="right" />
-          <el-table-column prop="remaining_qty" label="未发" width="100" align="right" />
+          <el-table-column prop="material_name" label="物料" min-width="160" />
+          <el-table-column prop="quantity" label="数量" width="90" align="right" />
+          <el-table-column prop="unit_price" label="单价" width="100" align="right" />
+          <el-table-column prop="tax_rate" label="税率" width="90" align="right" />
+          <el-table-column prop="amount" label="不含税" width="110" align="right" />
+          <el-table-column prop="tax_amount" label="税额" width="100" align="right" />
+          <el-table-column prop="gross_amount" label="含税" width="110" align="right" />
+          <el-table-column prop="shipped_qty" label="已发" width="90" align="right" />
+          <el-table-column prop="remaining_qty" label="未发" width="90" align="right" />
         </el-table>
 
         <div class="drawer-actions">
@@ -240,6 +269,7 @@ import {
   type Material,
   type Partner,
   type SalesOrder,
+  type TaxRate,
   type Warehouse
 } from '@mlf-erp/sdk'
 import { useAuthStore } from '@/stores/auth'
@@ -248,6 +278,7 @@ interface OrderFormLine {
   material_id: string
   quantity: string
   unit_price: string
+  tax_rate_id: string
 }
 
 interface ShipFormLine {
@@ -267,6 +298,7 @@ const orders = ref<SalesOrder[]>([])
 const partners = ref<Partner[]>([])
 const warehouses = ref<Warehouse[]>([])
 const materials = ref<Material[]>([])
+const taxRates = ref<TaxRate[]>([])
 const loading = ref(false)
 const saving = ref(false)
 const keyword = ref('')
@@ -282,6 +314,7 @@ const form = reactive({
   warehouse_id: '',
   order_date: today(),
   currency: 'CNY',
+  price_includes_tax: true,
   remark: '',
   lines: [] as OrderFormLine[]
 })
@@ -353,14 +386,16 @@ async function loadOrders() {
 
 async function loadOptions() {
   try {
-    const [partnerResult, warehouseResult, materialResult] = await Promise.all([
+    const [partnerResult, warehouseResult, materialResult, taxRateResult] = await Promise.all([
       masterDataApi.partners.list({ page_size: 200 }),
       masterDataApi.warehouses.list({ page_size: 200 }),
-      masterDataApi.materials.list({ page_size: 200 })
+      masterDataApi.materials.list({ page_size: 200 }),
+      masterDataApi.taxRates.list({ page_size: 200 })
     ])
     partners.value = partnerResult.items
     warehouses.value = warehouseResult.items.filter((item) => item.status === 'active')
     materials.value = materialResult.items.filter((item) => item.status === 'active')
+    taxRates.value = taxRateResult.items.filter((item) => item.status === 'active')
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : '加载销售选项失败')
   }
@@ -384,7 +419,7 @@ function handleSizeChange() {
 }
 
 function factoryLine(): OrderFormLine {
-  return { material_id: '', quantity: '', unit_price: '' }
+  return { material_id: '', quantity: '', unit_price: '', tax_rate_id: '' }
 }
 
 function openCreate() {
@@ -394,6 +429,7 @@ function openCreate() {
     warehouse_id: '',
     order_date: today(),
     currency: 'CNY',
+    price_includes_tax: true,
     remark: '',
     lines: [factoryLine()]
   })
@@ -407,15 +443,67 @@ function openEdit(order: SalesOrder) {
     warehouse_id: order.warehouse_id,
     order_date: order.order_date,
     currency: order.currency,
+    price_includes_tax: order.price_includes_tax,
     remark: order.remark,
     lines: order.lines.map((line) => ({
       material_id: line.material_id,
       quantity: line.quantity,
-      unit_price: line.unit_price
+      unit_price: line.unit_price,
+      tax_rate_id: line.tax_rate_id
     }))
   })
   dialogVisible.value = true
 }
+
+function onMaterialChange(line: OrderFormLine) {
+  const material = materials.value.find((item) => item.id === line.material_id)
+  if (material?.tax_rate_id) {
+    line.tax_rate_id = material.tax_rate_id
+  }
+}
+
+function taxRateValue(line: OrderFormLine) {
+  const rateID = line.tax_rate_id || materials.value.find((item) => item.id === line.material_id)?.tax_rate_id
+  const rate = taxRates.value.find((item) => item.id === rateID)
+  return rate ? Number(rate.rate) : 0
+}
+
+function calcLine(line: OrderFormLine) {
+  const quantity = Number(line.quantity)
+  const unitPrice = Number(line.unit_price)
+  const rate = taxRateValue(line)
+  if (!Number.isFinite(quantity) || !Number.isFinite(unitPrice) || !Number.isFinite(rate)) {
+    return { net: 0, tax: 0, gross: 0 }
+  }
+  const entered = quantity * unitPrice
+  if (form.price_includes_tax) {
+    const net = entered / (1 + rate)
+    const tax = entered - net
+    return { net: round4(net), tax: round4(tax), gross: round4(entered) }
+  }
+  const tax = entered * rate
+  return { net: round4(entered), tax: round4(tax), gross: round4(entered + tax) }
+}
+
+function round4(value: number) {
+  return Math.round(value * 10000) / 10000
+}
+
+function lineNet(line: OrderFormLine) {
+  return calcLine(line).net.toFixed(4)
+}
+
+function lineTax(line: OrderFormLine) {
+  return calcLine(line).tax.toFixed(4)
+}
+
+function lineGross(line: OrderFormLine) {
+  return calcLine(line).gross.toFixed(4)
+}
+
+const formNetTotal = computed(() => form.lines.reduce((total, line) => total + calcLine(line).net, 0).toFixed(4))
+const formTaxTotal = computed(() => form.lines.reduce((total, line) => total + calcLine(line).tax, 0).toFixed(4))
+const formGrossTotal = computed(() => form.lines.reduce((total, line) => total + calcLine(line).gross, 0).toFixed(4))
 
 function addLine() {
   form.lines.push(factoryLine())
@@ -423,15 +511,6 @@ function addLine() {
 
 function removeLine(index: number) {
   form.lines.splice(index, 1)
-}
-
-function lineAmount(line: OrderFormLine) {
-  const quantity = Number(line.quantity)
-  const price = Number(line.unit_price)
-  if (!Number.isFinite(quantity) || !Number.isFinite(price)) {
-    return '0.0000'
-  }
-  return (quantity * price).toFixed(4)
 }
 
 async function saveOrder() {
@@ -457,11 +536,13 @@ async function saveOrder() {
       warehouse_id: form.warehouse_id,
       order_date: form.order_date,
       currency: form.currency,
+      price_includes_tax: form.price_includes_tax,
       remark: form.remark,
       lines: form.lines.map((line) => ({
         material_id: line.material_id,
         quantity: line.quantity,
-        unit_price: line.unit_price
+        unit_price: line.unit_price,
+        tax_rate_id: line.tax_rate_id || undefined
       }))
     }
     if (editingOrder.value) {
@@ -657,6 +738,15 @@ onMounted(async () => {
 
 .add-line {
   margin-top: 12px;
+}
+
+.line-totals {
+  display: flex;
+  gap: 20px;
+  justify-content: flex-end;
+  margin-top: 10px;
+  color: #475569;
+  font-size: 13px;
 }
 
 .detail-table {

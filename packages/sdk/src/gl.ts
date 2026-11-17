@@ -195,6 +195,22 @@ export interface AuxiliaryBalance {
   total_credit: string
 }
 
+export interface VATSummaryRow {
+  month: string
+  output_tax: string
+  input_tax: string
+  net_payable: string
+}
+
+export interface VATSummary {
+  start_date: string
+  end_date: string
+  rows: VATSummaryRow[]
+  total_output_tax: string
+  total_input_tax: string
+  total_net_payable: string
+}
+
 function queryString(params: Record<string, string | number | undefined>): string {
   const search = new URLSearchParams()
   for (const [key, value] of Object.entries(params)) {
@@ -293,6 +309,9 @@ export const glApi = {
       end_date?: string
     }): Promise<AuxiliaryBalance> {
       return api.get<AuxiliaryBalance>(`/finance/reports/auxiliary-balance${queryString(params)}`)
+    },
+    vatSummary(params: { start_date?: string; end_date?: string } = {}): Promise<VATSummary> {
+      return api.get<VATSummary>(`/finance/reports/vat-summary${queryString(params)}`)
     }
   }
 }

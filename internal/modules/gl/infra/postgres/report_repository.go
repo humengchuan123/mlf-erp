@@ -331,6 +331,55 @@ func (r *ReportRepository) AuxiliaryBalance(
 	return result, rows.Err()
 }
 
+func (r *ReportRepository) VATSummary(
+	ctx context.Context,
+	filter scope.Filter,
+	tenantID string,
+	startDate, endDate time.Time,
+) (*domain.VATSummary, error) {
+	args := []any{tenantID, startDate.Format("2006-01-02"), endDate.Format("2006-01-02")}
+	where := "l.tenant_id = $1 AND v.status IN ('posted', 'reversed') AND v.voucher_date BETWEEN $2::date AND $3::date"
+	appendScope(&where, &args, "v", filter)
+
+	rows, err := r.db.Query(ctx, `
+		SELECT to_char(v.voucher_date, 'YYYY-MM'),
+		       COALESCE(SUM(CASE WHEN m.key = 'output_vat' THEN l.credit - l.debit ELSE 0 END), 0)::text,
+		       COALESCE(SUM(CASE WHEN m.key = 'input_vat' THEN l.debit - l.credit ELSE 0 END), 0)::text
+		FROM erp.gl_voucher_lines l
+		JOIN erp.gl_vouchers v ON v.tenant_id = l.tenant_id AND v.id = l.voucher_id
+		JOIN erp.gl_accounts a ON a.tenant_id = l.tenant_id AND a.id = l.account_id
+		JOIN erp.gl_account_mappings m ON m.tenant_id = l.tenant_id AND m.account_code = a.code
+		WHERE `+where+`
+		  AND m.key IN ('input_vat', 'output_vat')
+		GROUP BY to_char(v.voucher_date, 'YYYY-MM')
+		ORDER BY to_char(v.voucher_date, 'YYYY-MM')`, args...)
+	if err != nil {
+		return nil, fmt.Errorf("VAT summary: %w", err)
+	}
+	defer rows.Close()
+
+	result := &domain.VATSummary{
+		StartDate: startDate,
+		EndDate:   endDate,
+		Rows:      make([]*domain.VATSummaryRow, 0),
+	}
+	for rows.Next() {
+		row := &domain.VATSummaryRow{}
+		var outputRaw, inputRaw string
+		if err := rows.Scan(&row.Month, &outputRaw, &inputRaw); err != nil {
+			return nil, fmt.Errorf("scan VAT summary: %w", err)
+		}
+		row.OutputTax = decimal.RequireFromString(outputRaw)
+		row.InputTax = decimal.RequireFromString(inputRaw)
+		row.NetPayable = row.OutputTax.Sub(row.InputTax)
+		result.Rows = append(result.Rows, row)
+		result.TotalOutputTax = result.TotalOutputTax.Add(row.OutputTax)
+		result.TotalInputTax = result.TotalInputTax.Add(row.InputTax)
+		result.TotalNetPayable = result.TotalNetPayable.Add(row.NetPayable)
+	}
+	return result, rows.Err()
+}
+
 func (r *ReportRepository) IncomeStatement(
 	ctx context.Context,
 	filter scope.Filter,

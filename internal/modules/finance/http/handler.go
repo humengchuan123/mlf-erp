@@ -37,6 +37,8 @@ func Register(
 	finance := group.Group("/finance")
 	finance.GET("/invoices", authmw.RequirePermission("finance.invoice.read"), handler.listInvoices)
 	finance.GET("/invoices/:id", authmw.RequirePermission("finance.invoice.read"), handler.getInvoice)
+	finance.POST("/invoices/:id/issue", authmw.RequirePermission("finance.invoice.write"), handler.issueInvoice)
+	finance.POST("/invoices/:id/void", authmw.RequirePermission("finance.invoice.write"), handler.voidInvoice)
 	finance.GET("/payments", authmw.RequirePermission("finance.payment.read"), handler.listPayments)
 	finance.GET("/payments/:id", authmw.RequirePermission("finance.payment.read"), handler.getPayment)
 	finance.POST("/payments", authmw.RequirePermission("finance.payment.write"), handler.createPayment)
@@ -56,9 +58,17 @@ type invoiceResponse struct {
 	DueDate           string    `json:"due_date"`
 	Currency          string    `json:"currency"`
 	Status            string    `json:"status"`
+	NetAmount         string    `json:"net_amount"`
+	TaxAmount         string    `json:"tax_amount"`
 	TotalAmount       string    `json:"total_amount"`
 	PaidAmount        string    `json:"paid_amount"`
 	OutstandingAmount string    `json:"outstanding_amount"`
+	VatInvoiceNo      string    `json:"vat_invoice_no"`
+	VatInvoiceType    string    `json:"vat_invoice_type"`
+	VatInvoiceDate    string    `json:"vat_invoice_date"`
+	VatInvoiceStatus  string    `json:"vat_invoice_status"`
+	BuyerTaxNo        string    `json:"buyer_tax_no"`
+	SellerTaxNo       string    `json:"seller_tax_no"`
 	Remark            string    `json:"remark"`
 	CreatedAt         time.Time `json:"created_at"`
 	UpdatedAt         time.Time `json:"updated_at"`
@@ -123,12 +133,65 @@ type pagedResponse[T any] struct {
 	Total int `json:"total"`
 }
 
+type issueInvoiceRequest struct {
+	VatInvoiceNo   string `json:"vat_invoice_no"`
+	VatInvoiceType string `json:"vat_invoice_type"`
+	VatInvoiceDate string `json:"vat_invoice_date"`
+	BuyerTaxNo     string `json:"buyer_tax_no"`
+	SellerTaxNo    string `json:"seller_tax_no"`
+}
+
+func (h *Handler) issueInvoice(c *gin.Context) {
+	var request issueInvoiceRequest
+	if err := c.ShouldBindJSON(&request); err != nil {
+		httpx.Error(c, http.StatusBadRequest, httpx.CodeBadRequest, "invalid invoice payload")
+		return
+	}
+	invoiceDate, err := time.Parse("2006-01-02", request.VatInvoiceDate)
+	if err != nil {
+		httpx.Error(c, http.StatusBadRequest, httpx.CodeBadRequest, "invalid vat invoice date")
+		return
+	}
+	input := domain.IssueInput{
+		VatInvoiceNo:   strings.TrimSpace(request.VatInvoiceNo),
+		VatInvoiceType: strings.TrimSpace(request.VatInvoiceType),
+		VatInvoiceDate: invoiceDate,
+		BuyerTaxNo:     strings.TrimSpace(request.BuyerTaxNo),
+		SellerTaxNo:    strings.TrimSpace(request.SellerTaxNo),
+	}
+	if input.VatInvoiceNo == "" ||
+		(input.VatInvoiceType != domain.VatInvoiceTypeSpecial && input.VatInvoiceType != domain.VatInvoiceTypeGeneral) {
+		httpx.Error(c, http.StatusBadRequest, httpx.CodeBadRequest, "invalid vat invoice payload")
+		return
+	}
+	invoice, err := h.invoices.Issue(c.Request.Context(), c.Param("id"), input)
+	if err != nil {
+		h.handleError(c, err)
+		return
+	}
+	response := toInvoiceResponse(invoice)
+	h.recordAudit(c, "finance.invoice.issue", "finance_invoice", invoice.ID, response)
+	httpx.OK(c, response)
+}
+
+func (h *Handler) voidInvoice(c *gin.Context) {
+	invoice, err := h.invoices.Void(c.Request.Context(), c.Param("id"))
+	if err != nil {
+		h.handleError(c, err)
+		return
+	}
+	response := toInvoiceResponse(invoice)
+	h.recordAudit(c, "finance.invoice.void", "finance_invoice", invoice.ID, response)
+	httpx.OK(c, response)
+}
+
 func (h *Handler) listInvoices(c *gin.Context) {
 	page, pageSize := parsePage(c)
 	items, total, err := h.invoices.List(
 		c.Request.Context(),
 		c.Query("invoice_type"),
 		c.Query("status"),
+		c.Query("vat_invoice_status"),
 		c.Query("partner_id"),
 		c.Query("keyword"),
 		page,
@@ -304,6 +367,10 @@ func (h *Handler) handleError(c *gin.Context, err error) {
 		httpx.Error(c, http.StatusConflict, "INVOICE_PAID", "invoice is already paid")
 	case errors.Is(err, domain.ErrPaymentAllocated):
 		httpx.Error(c, http.StatusConflict, "PAYMENT_ALLOCATED", "payment is already fully allocated")
+	case errors.Is(err, domain.ErrInvoiceStatus):
+		httpx.Error(c, http.StatusConflict, "INVOICE_STATUS", "invoice status does not allow this operation")
+	case errors.Is(err, domain.ErrVatInvoiceDuplicate):
+		httpx.Error(c, http.StatusConflict, "VAT_INVOICE_NO_DUPLICATE", "VAT invoice number is already used")
 	case errors.Is(err, domain.ErrConflict):
 		httpx.Error(c, http.StatusConflict, "CONFLICT", "finance record is in conflict")
 	case errors.Is(err, gldomain.ErrConflict):
@@ -329,14 +396,23 @@ func (h *Handler) handleError(c *gin.Context, err error) {
 }
 
 func toInvoiceResponse(item *domain.Invoice) invoiceResponse {
+	vatInvoiceDate := ""
+	if item.VatInvoiceDate != nil {
+		vatInvoiceDate = item.VatInvoiceDate.Format("2006-01-02")
+	}
 	return invoiceResponse{
 		ID: item.ID, Code: item.Code, InvoiceType: item.InvoiceType,
 		SourceType: item.SourceType, SourceID: item.SourceID, SourceCode: item.SourceCode,
 		PartnerID: item.PartnerID, PartnerName: item.PartnerName,
 		InvoiceDate: item.InvoiceDate.Format("2006-01-02"), DueDate: item.DueDate.Format("2006-01-02"),
 		Currency: item.Currency, Status: item.Status,
+		NetAmount: item.NetAmount.StringFixed(4), TaxAmount: item.TaxAmount.StringFixed(4),
 		TotalAmount: item.TotalAmount.StringFixed(4), PaidAmount: item.PaidAmount.StringFixed(4),
-		OutstandingAmount: item.Outstanding().StringFixed(4), Remark: item.Remark,
+		OutstandingAmount: item.Outstanding().StringFixed(4),
+		VatInvoiceNo:      item.VatInvoiceNo, VatInvoiceType: item.VatInvoiceType,
+		VatInvoiceDate: vatInvoiceDate, VatInvoiceStatus: item.VatInvoiceStatus,
+		BuyerTaxNo: item.BuyerTaxNo, SellerTaxNo: item.SellerTaxNo,
+		Remark:    item.Remark,
 		CreatedAt: item.CreatedAt, UpdatedAt: item.UpdatedAt,
 	}
 }

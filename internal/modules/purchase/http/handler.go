@@ -51,15 +51,17 @@ type orderLineRequest struct {
 	MaterialID string `json:"material_id"`
 	Quantity   string `json:"quantity"`
 	UnitPrice  string `json:"unit_price"`
+	TaxRateID  string `json:"tax_rate_id"`
 }
 
 type orderRequest struct {
-	SupplierID  string             `json:"supplier_id"`
-	WarehouseID string             `json:"warehouse_id"`
-	OrderDate   string             `json:"order_date"`
-	Currency    string             `json:"currency"`
-	Remark      string             `json:"remark"`
-	Lines       []orderLineRequest `json:"lines"`
+	SupplierID       string             `json:"supplier_id"`
+	WarehouseID      string             `json:"warehouse_id"`
+	OrderDate        string             `json:"order_date"`
+	Currency         string             `json:"currency"`
+	PriceIncludesTax *bool              `json:"price_includes_tax"`
+	Remark           string             `json:"remark"`
+	Lines            []orderLineRequest `json:"lines"`
 }
 
 type receiveLineRequest struct {
@@ -80,26 +82,33 @@ type orderLineResponse struct {
 	MaterialName string `json:"material_name"`
 	Quantity     string `json:"quantity"`
 	UnitPrice    string `json:"unit_price"`
+	TaxRateID    string `json:"tax_rate_id"`
+	TaxRate      string `json:"tax_rate"`
 	Amount       string `json:"amount"`
+	TaxAmount    string `json:"tax_amount"`
+	GrossAmount  string `json:"gross_amount"`
 	ReceivedQty  string `json:"received_qty"`
 	RemainingQty string `json:"remaining_qty"`
 }
 
 type orderResponse struct {
-	ID            string              `json:"id"`
-	Code          string              `json:"code"`
-	SupplierID    string              `json:"supplier_id"`
-	SupplierName  string              `json:"supplier_name"`
-	WarehouseID   string              `json:"warehouse_id"`
-	WarehouseName string              `json:"warehouse_name"`
-	OrderDate     string              `json:"order_date"`
-	Currency      string              `json:"currency"`
-	Status        string              `json:"status"`
-	TotalAmount   string              `json:"total_amount"`
-	Remark        string              `json:"remark"`
-	CreatedAt     time.Time           `json:"created_at"`
-	UpdatedAt     time.Time           `json:"updated_at"`
-	Lines         []orderLineResponse `json:"lines"`
+	ID               string              `json:"id"`
+	Code             string              `json:"code"`
+	SupplierID       string              `json:"supplier_id"`
+	SupplierName     string              `json:"supplier_name"`
+	WarehouseID      string              `json:"warehouse_id"`
+	WarehouseName    string              `json:"warehouse_name"`
+	OrderDate        string              `json:"order_date"`
+	Currency         string              `json:"currency"`
+	Status           string              `json:"status"`
+	PriceIncludesTax bool                `json:"price_includes_tax"`
+	NetAmount        string              `json:"net_amount"`
+	TaxAmount        string              `json:"tax_amount"`
+	TotalAmount      string              `json:"total_amount"`
+	Remark           string              `json:"remark"`
+	CreatedAt        time.Time           `json:"created_at"`
+	UpdatedAt        time.Time           `json:"updated_at"`
+	Lines            []orderLineResponse `json:"lines"`
 }
 
 type receiptLineResponse struct {
@@ -108,25 +117,33 @@ type receiptLineResponse struct {
 	MaterialName string `json:"material_name"`
 	Quantity     string `json:"quantity"`
 	UnitPrice    string `json:"unit_price"`
+	TaxRateID    string `json:"tax_rate_id"`
+	TaxRate      string `json:"tax_rate"`
 	Amount       string `json:"amount"`
+	TaxAmount    string `json:"tax_amount"`
+	GrossAmount  string `json:"gross_amount"`
 }
 
 type receiptResponse struct {
-	ID             string                `json:"id"`
-	Code           string                `json:"code"`
-	OrderID        string                `json:"order_id"`
-	OrderCode      string                `json:"order_code"`
-	SupplierName   string                `json:"supplier_name"`
-	WarehouseID    string                `json:"warehouse_id"`
-	WarehouseName  string                `json:"warehouse_name"`
-	ReceiptDate    string                `json:"receipt_date"`
-	Status         string                `json:"status"`
-	Remark         string                `json:"remark"`
-	PayableCode    string                `json:"payable_code"`
-	PayableDueDate string                `json:"payable_due_date"`
-	VoucherCode    string                `json:"voucher_code"`
-	CreatedAt      time.Time             `json:"created_at"`
-	Lines          []receiptLineResponse `json:"lines"`
+	ID               string                `json:"id"`
+	Code             string                `json:"code"`
+	OrderID          string                `json:"order_id"`
+	OrderCode        string                `json:"order_code"`
+	SupplierName     string                `json:"supplier_name"`
+	WarehouseID      string                `json:"warehouse_id"`
+	WarehouseName    string                `json:"warehouse_name"`
+	ReceiptDate      string                `json:"receipt_date"`
+	Status           string                `json:"status"`
+	PriceIncludesTax bool                  `json:"price_includes_tax"`
+	NetAmount        string                `json:"net_amount"`
+	TaxAmount        string                `json:"tax_amount"`
+	Remark           string                `json:"remark"`
+	PayableID        string                `json:"payable_id"`
+	PayableCode      string                `json:"payable_code"`
+	PayableDueDate   string                `json:"payable_due_date"`
+	VoucherCode      string                `json:"voucher_code"`
+	CreatedAt        time.Time             `json:"created_at"`
+	Lines            []receiptLineResponse `json:"lines"`
 }
 
 type pagedResponse[T any] struct {
@@ -270,11 +287,17 @@ func parseOrderInput(c *gin.Context) (app.OrderInput, error) {
 			MaterialID: line.MaterialID,
 			Quantity:   quantity,
 			UnitPrice:  unitPrice,
+			TaxRateID:  line.TaxRateID,
 		})
+	}
+	priceIncludesTax := true
+	if request.PriceIncludesTax != nil {
+		priceIncludesTax = *request.PriceIncludesTax
 	}
 	return app.OrderInput{
 		SupplierID: request.SupplierID, WarehouseID: request.WarehouseID,
-		OrderDate: orderDate, Currency: request.Currency, Remark: request.Remark, Lines: lines,
+		OrderDate: orderDate, Currency: request.Currency,
+		PriceIncludesTax: priceIncludesTax, Remark: request.Remark, Lines: lines,
 	}, nil
 }
 
@@ -356,7 +379,9 @@ func toOrderResponse(order *domain.Order) orderResponse {
 		lines = append(lines, orderLineResponse{
 			ID: line.ID, LineNo: line.LineNo, MaterialID: line.MaterialID, MaterialName: line.MaterialName,
 			Quantity: line.Quantity.String(), UnitPrice: line.UnitPrice.String(),
-			Amount: line.Amount.StringFixed(4), ReceivedQty: line.ReceivedQty.String(),
+			TaxRateID: line.TaxRateID, TaxRate: line.TaxRate.String(),
+			Amount: line.Amount.StringFixed(4), TaxAmount: line.TaxAmount.StringFixed(4),
+			GrossAmount: line.GrossAmount.StringFixed(4), ReceivedQty: line.ReceivedQty.String(),
 			RemainingQty: line.Remaining().String(),
 		})
 	}
@@ -364,8 +389,10 @@ func toOrderResponse(order *domain.Order) orderResponse {
 		ID: order.ID, Code: order.Code, SupplierID: order.SupplierID, SupplierName: order.SupplierName,
 		WarehouseID: order.WarehouseID, WarehouseName: order.WarehouseName,
 		OrderDate: order.OrderDate.Format("2006-01-02"), Currency: order.Currency,
-		Status: string(order.Status), TotalAmount: order.TotalAmount.StringFixed(4),
-		Remark: order.Remark, CreatedAt: order.CreatedAt, UpdatedAt: order.UpdatedAt, Lines: lines,
+		Status: string(order.Status), PriceIncludesTax: order.PriceIncludesTax,
+		NetAmount: order.NetAmount.StringFixed(4), TaxAmount: order.TaxAmount.StringFixed(4),
+		TotalAmount: order.TotalAmount.StringFixed(4),
+		Remark:      order.Remark, CreatedAt: order.CreatedAt, UpdatedAt: order.UpdatedAt, Lines: lines,
 	}
 }
 
@@ -374,7 +401,10 @@ func toReceiptResponse(receipt *domain.Receipt) receiptResponse {
 	for _, line := range receipt.Lines {
 		lines = append(lines, receiptLineResponse{
 			OrderLineID: line.OrderLineID, MaterialID: line.MaterialID, MaterialName: line.MaterialName,
-			Quantity: line.Quantity.String(), UnitPrice: line.UnitPrice.String(), Amount: line.Amount.StringFixed(4),
+			Quantity: line.Quantity.String(), UnitPrice: line.UnitPrice.String(),
+			TaxRateID: line.TaxRateID, TaxRate: line.TaxRate.String(),
+			Amount: line.Amount.StringFixed(4), TaxAmount: line.TaxAmount.StringFixed(4),
+			GrossAmount: line.GrossAmount.StringFixed(4),
 		})
 	}
 	payableDueDate := ""
@@ -384,8 +414,10 @@ func toReceiptResponse(receipt *domain.Receipt) receiptResponse {
 	return receiptResponse{
 		ID: receipt.ID, Code: receipt.Code, OrderID: receipt.OrderID, OrderCode: receipt.OrderCode,
 		SupplierName: receipt.SupplierName, WarehouseID: receipt.WarehouseID, WarehouseName: receipt.WarehouseName,
-		ReceiptDate: receipt.ReceiptDate.Format("2006-01-02"), Status: receipt.Status, Remark: receipt.Remark,
-		PayableCode: receipt.PayableCode, PayableDueDate: payableDueDate, VoucherCode: receipt.VoucherCode,
+		ReceiptDate: receipt.ReceiptDate.Format("2006-01-02"), Status: receipt.Status,
+		PriceIncludesTax: receipt.PriceIncludesTax, NetAmount: receipt.NetAmount.StringFixed(4),
+		TaxAmount: receipt.TaxAmount.StringFixed(4), Remark: receipt.Remark,
+		PayableID: receipt.PayableID, PayableCode: receipt.PayableCode, PayableDueDate: payableDueDate, VoucherCode: receipt.VoucherCode,
 		CreatedAt: receipt.CreatedAt, Lines: lines,
 	}
 }

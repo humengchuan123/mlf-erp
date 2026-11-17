@@ -45,4 +45,5 @@ type ReportRepository interface {
 	BalanceSheet(ctx context.Context, filter scope.Filter, tenantID string, asOf time.Time) (*BalanceSheet, error)
 	IncomeStatement(ctx context.Context, filter scope.Filter, tenantID string, startDate, endDate time.Time) (*IncomeStatement, error)
 	AuxiliaryBalance(ctx context.Context, filter scope.Filter, tenantID, dimension, accountID string, startDate, endDate time.Time) (*AuxiliaryBalance, error)
+	VATSummary(ctx context.Context, filter scope.Filter, tenantID string, startDate, endDate time.Time) (*VATSummary, error)
 }

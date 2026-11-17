@@ -71,7 +71,22 @@ assertFile('apps/web/src/views/sales/OrderListView.vue', [
   'el-drawer',
   'salesApi.ship',
   'sales.order.write',
+  'price_includes_tax',
+  'tax_rate_id',
+  'tax_amount',
+  'gross_amount',
   '发货'
+])
+
+assertFile('apps/web/src/views/purchase/OrderListView.vue', [
+  'PageHeader',
+  'el-table',
+  'el-dialog',
+  'purchaseApi.receive',
+  'price_includes_tax',
+  'tax_rate_id',
+  'tax_amount',
+  'gross_amount'
 ])
 
 assertFile('apps/web/src/views/sales/ShipmentListView.vue', [
@@ -79,6 +94,8 @@ assertFile('apps/web/src/views/sales/ShipmentListView.vue', [
   'el-table',
   'el-drawer',
   'salesApi.shipments',
+  'net_amount',
+  'tax_amount',
   'total_cost'
 ])
 
@@ -86,8 +103,14 @@ assertFile('apps/web/src/views/finance/InvoiceListView.vue', [
   'PageHeader',
   'el-table',
   'el-drawer',
+  'el-dialog',
   'financeApi.invoices',
   'financeApi.invoice',
+  'financeApi.issueInvoice',
+  'financeApi.voidInvoice',
+  'vat_invoice_status',
+  'net_amount',
+  'tax_amount',
   'outstanding_amount',
   'allocations'
 ])
@@ -144,7 +167,8 @@ assertFile('apps/web/src/views/finance/ReportView.vue', [
   'glApi.reports.generalLedger',
   'glApi.reports.balanceSheet',
   'glApi.reports.incomeStatement',
-  'glApi.reports.auxiliaryBalance'
+  'glApi.reports.auxiliaryBalance',
+  'glApi.reports.vatSummary'
 ])
 
 assertFile('packages/sdk/src/sales.ts', [
@@ -157,18 +181,25 @@ assertFile('packages/sdk/src/sales.ts', [
   'approve(',
   'cancel(',
   'ship(',
-  'shipments('
+  'shipments(',
+  'tax_rate_id',
+  'gross_amount'
 ])
 
 assertFile('packages/sdk/src/finance.ts', [
   'financeApi',
   'invoices(',
   'invoice(',
+  'issueInvoice(',
+  'voidInvoice(',
+  'vat_invoice_status',
   'payments(',
   'payment(',
   'createPayment(',
   'allocate('
 ])
+
+assertFile('packages/sdk/src/purchase.ts', ['purchaseApi', 'tax_rate_id', 'gross_amount'])
 
 assertFile('packages/sdk/src/gl.ts', [
   'glApi',
@@ -180,10 +211,11 @@ assertFile('packages/sdk/src/gl.ts', [
   'generalLedger(',
   'balanceSheet(',
   'incomeStatement(',
-  'auxiliaryBalance('
+  'auxiliaryBalance(',
+  'vatSummary('
 ])
 
-assertFile('package.json', ['test:api:stage3b', 'test:frontend'])
+assertFile('package.json', ['test:api:stage3b', 'test:api:stage3e', 'test:frontend'])
 
 if (failures.length > 0) {
   console.error('Frontend completeness check failed:')

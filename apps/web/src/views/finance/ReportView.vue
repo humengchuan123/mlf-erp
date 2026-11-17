@@ -131,6 +131,24 @@
           </div>
         </el-tab-pane>
 
+        <el-tab-pane label="增值税汇总" name="vat">
+          <div class="toolbar">
+            <el-date-picker v-model="vatRange" type="daterange" value-format="YYYY-MM-DD" start-placeholder="开始日期" end-placeholder="结束日期" />
+            <el-button type="primary" plain @click="loadVATSummary">查询</el-button>
+          </div>
+          <el-table v-loading="loading" :data="vatSummary?.rows ?? []" border stripe>
+            <el-table-column prop="month" label="月份" width="120" />
+            <el-table-column prop="output_tax" label="销项税" width="150" align="right" />
+            <el-table-column prop="input_tax" label="进项税" width="150" align="right" />
+            <el-table-column prop="net_payable" label="应纳税额" width="150" align="right" />
+          </el-table>
+          <div class="summary">
+            <span>销项税合计：{{ vatSummary?.total_output_tax ?? '-' }}</span>
+            <span>进项税合计：{{ vatSummary?.total_input_tax ?? '-' }}</span>
+            <span>应纳税额合计：{{ vatSummary?.total_net_payable ?? '-' }}</span>
+          </div>
+        </el-tab-pane>
+
         <el-tab-pane label="利润表" name="income">
           <div class="toolbar">
             <el-date-picker v-model="incomeRange" type="daterange" value-format="YYYY-MM-DD" start-placeholder="开始日期" end-placeholder="结束日期" />
@@ -172,7 +190,8 @@ import {
   type GeneralLedger,
   type GlAccount,
   type IncomeStatement,
-  type TrialBalance
+  type TrialBalance,
+  type VATSummary
 } from '@mlf-erp/sdk'
 
 const activeTab = ref('trial')
@@ -197,6 +216,8 @@ const auxiliaryDimension = ref('partner')
 const auxiliaryAccountID = ref('')
 const auxiliaryRange = ref<[string, string]>([firstDay, today])
 const auxiliaryBalance = ref<AuxiliaryBalance | null>(null)
+const vatRange = ref<[string, string]>([firstDay, today])
+const vatSummary = ref<VATSummary | null>(null)
 
 const accountOptions = computed(() => accounts.value.filter((item) => item.is_leaf && item.status === 'active'))
 
@@ -276,6 +297,20 @@ async function loadAuxiliary() {
   }
 }
 
+async function loadVATSummary() {
+  loading.value = true
+  try {
+    vatSummary.value = await glApi.reports.vatSummary({
+      start_date: vatRange.value?.[0],
+      end_date: vatRange.value?.[1]
+    })
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : '加载增值税汇总失败')
+  } finally {
+    loading.value = false
+  }
+}
+
 async function loadIncomeStatement() {
   loading.value = true
   try {
@@ -307,6 +342,7 @@ function onTabChange(tab: string) {
   if (tab === 'ledger') loadLedger()
   if (tab === 'balance') loadBalanceSheet()
   if (tab === 'auxiliary') loadAuxiliary()
+  if (tab === 'vat') loadVATSummary()
   if (tab === 'income') loadIncomeStatement()
 }
 

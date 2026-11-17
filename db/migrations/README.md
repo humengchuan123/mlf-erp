@@ -16,6 +16,7 @@
 - `000014_general_ledger_indexes`：总账报表和期间关账查询索引。
 - `000015_period_close_auxiliary`：凭证行项目辅助、期末关账/年度关账记录、损益结转和利润分配科目映射。
 - `000016_period_close_integrity`：关账记录唯一索引、辅助核算外键和项目编码长度约束。
+- `000017_tax_invoice`：单据价税分离字段、增值税发票状态、进项/销项税科目和映射、发票开具权限。
 - 迁移由 `cmd/migrate` 执行，使用 `golang-migrate`，SQL 文件通过 `embed` 打进二进制。
 - 所有业务表遵循 `tenant_id` 非空、唯一键带租户、外键尽量带租户的原则。
 

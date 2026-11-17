@@ -51,15 +51,17 @@ type orderLineRequest struct {
 	MaterialID string `json:"material_id"`
 	Quantity   string `json:"quantity"`
 	UnitPrice  string `json:"unit_price"`
+	TaxRateID  string `json:"tax_rate_id"`
 }
 
 type orderRequest struct {
-	CustomerID  string             `json:"customer_id"`
-	WarehouseID string             `json:"warehouse_id"`
-	OrderDate   string             `json:"order_date"`
-	Currency    string             `json:"currency"`
-	Remark      string             `json:"remark"`
-	Lines       []orderLineRequest `json:"lines"`
+	CustomerID       string             `json:"customer_id"`
+	WarehouseID      string             `json:"warehouse_id"`
+	OrderDate        string             `json:"order_date"`
+	Currency         string             `json:"currency"`
+	PriceIncludesTax *bool              `json:"price_includes_tax"`
+	Remark           string             `json:"remark"`
+	Lines            []orderLineRequest `json:"lines"`
 }
 
 type shipLineRequest struct {
@@ -80,26 +82,33 @@ type orderLineResponse struct {
 	MaterialName string `json:"material_name"`
 	Quantity     string `json:"quantity"`
 	UnitPrice    string `json:"unit_price"`
+	TaxRateID    string `json:"tax_rate_id"`
+	TaxRate      string `json:"tax_rate"`
 	Amount       string `json:"amount"`
+	TaxAmount    string `json:"tax_amount"`
+	GrossAmount  string `json:"gross_amount"`
 	ShippedQty   string `json:"shipped_qty"`
 	RemainingQty string `json:"remaining_qty"`
 }
 
 type orderResponse struct {
-	ID            string              `json:"id"`
-	Code          string              `json:"code"`
-	CustomerID    string              `json:"customer_id"`
-	CustomerName  string              `json:"customer_name"`
-	WarehouseID   string              `json:"warehouse_id"`
-	WarehouseName string              `json:"warehouse_name"`
-	OrderDate     string              `json:"order_date"`
-	Currency      string              `json:"currency"`
-	Status        string              `json:"status"`
-	TotalAmount   string              `json:"total_amount"`
-	Remark        string              `json:"remark"`
-	CreatedAt     time.Time           `json:"created_at"`
-	UpdatedAt     time.Time           `json:"updated_at"`
-	Lines         []orderLineResponse `json:"lines"`
+	ID               string              `json:"id"`
+	Code             string              `json:"code"`
+	CustomerID       string              `json:"customer_id"`
+	CustomerName     string              `json:"customer_name"`
+	WarehouseID      string              `json:"warehouse_id"`
+	WarehouseName    string              `json:"warehouse_name"`
+	OrderDate        string              `json:"order_date"`
+	Currency         string              `json:"currency"`
+	Status           string              `json:"status"`
+	PriceIncludesTax bool                `json:"price_includes_tax"`
+	NetAmount        string              `json:"net_amount"`
+	TaxAmount        string              `json:"tax_amount"`
+	TotalAmount      string              `json:"total_amount"`
+	Remark           string              `json:"remark"`
+	CreatedAt        time.Time           `json:"created_at"`
+	UpdatedAt        time.Time           `json:"updated_at"`
+	Lines            []orderLineResponse `json:"lines"`
 }
 
 type shipmentLineResponse struct {
@@ -108,31 +117,38 @@ type shipmentLineResponse struct {
 	MaterialName string `json:"material_name"`
 	Quantity     string `json:"quantity"`
 	UnitPrice    string `json:"unit_price"`
+	TaxRateID    string `json:"tax_rate_id"`
+	TaxRate      string `json:"tax_rate"`
 	Amount       string `json:"amount"`
+	TaxAmount    string `json:"tax_amount"`
+	GrossAmount  string `json:"gross_amount"`
 	UnitCost     string `json:"unit_cost"`
 	CostAmount   string `json:"cost_amount"`
 }
 
 type shipmentResponse struct {
-	ID             string                 `json:"id"`
-	Code           string                 `json:"code"`
-	OrderID        string                 `json:"order_id"`
-	OrderCode      string                 `json:"order_code"`
-	CustomerID     string                 `json:"customer_id"`
-	CustomerName   string                 `json:"customer_name"`
-	WarehouseID    string                 `json:"warehouse_id"`
-	WarehouseName  string                 `json:"warehouse_name"`
-	ShipmentDate   string                 `json:"shipment_date"`
-	Status         string                 `json:"status"`
-	Remark         string                 `json:"remark"`
-	InvoiceID      string                 `json:"invoice_id"`
-	InvoiceCode    string                 `json:"invoice_code"`
-	InvoiceDueDate string                 `json:"invoice_due_date"`
-	VoucherCode    string                 `json:"voucher_code"`
-	TotalAmount    string                 `json:"total_amount"`
-	TotalCost      string                 `json:"total_cost"`
-	CreatedAt      time.Time              `json:"created_at"`
-	Lines          []shipmentLineResponse `json:"lines"`
+	ID               string                 `json:"id"`
+	Code             string                 `json:"code"`
+	OrderID          string                 `json:"order_id"`
+	OrderCode        string                 `json:"order_code"`
+	CustomerID       string                 `json:"customer_id"`
+	CustomerName     string                 `json:"customer_name"`
+	WarehouseID      string                 `json:"warehouse_id"`
+	WarehouseName    string                 `json:"warehouse_name"`
+	ShipmentDate     string                 `json:"shipment_date"`
+	Status           string                 `json:"status"`
+	PriceIncludesTax bool                   `json:"price_includes_tax"`
+	NetAmount        string                 `json:"net_amount"`
+	TaxAmount        string                 `json:"tax_amount"`
+	Remark           string                 `json:"remark"`
+	InvoiceID        string                 `json:"invoice_id"`
+	InvoiceCode      string                 `json:"invoice_code"`
+	InvoiceDueDate   string                 `json:"invoice_due_date"`
+	VoucherCode      string                 `json:"voucher_code"`
+	TotalAmount      string                 `json:"total_amount"`
+	TotalCost        string                 `json:"total_cost"`
+	CreatedAt        time.Time              `json:"created_at"`
+	Lines            []shipmentLineResponse `json:"lines"`
 }
 
 type pagedResponse[T any] struct {
@@ -276,11 +292,17 @@ func parseOrderInput(c *gin.Context) (app.OrderInput, error) {
 			MaterialID: line.MaterialID,
 			Quantity:   quantity,
 			UnitPrice:  unitPrice,
+			TaxRateID:  line.TaxRateID,
 		})
+	}
+	priceIncludesTax := true
+	if request.PriceIncludesTax != nil {
+		priceIncludesTax = *request.PriceIncludesTax
 	}
 	return app.OrderInput{
 		CustomerID: request.CustomerID, WarehouseID: request.WarehouseID,
-		OrderDate: orderDate, Currency: request.Currency, Remark: request.Remark, Lines: lines,
+		OrderDate: orderDate, Currency: request.Currency,
+		PriceIncludesTax: priceIncludesTax, Remark: request.Remark, Lines: lines,
 	}, nil
 }
 
@@ -364,7 +386,9 @@ func toOrderResponse(order *domain.Order) orderResponse {
 		lines = append(lines, orderLineResponse{
 			ID: line.ID, LineNo: line.LineNo, MaterialID: line.MaterialID, MaterialName: line.MaterialName,
 			Quantity: line.Quantity.String(), UnitPrice: line.UnitPrice.String(),
-			Amount: line.Amount.StringFixed(4), ShippedQty: line.ShippedQty.String(),
+			TaxRateID: line.TaxRateID, TaxRate: line.TaxRate.String(),
+			Amount: line.Amount.StringFixed(4), TaxAmount: line.TaxAmount.StringFixed(4),
+			GrossAmount: line.GrossAmount.StringFixed(4), ShippedQty: line.ShippedQty.String(),
 			RemainingQty: line.Remaining().String(),
 		})
 	}
@@ -372,8 +396,10 @@ func toOrderResponse(order *domain.Order) orderResponse {
 		ID: order.ID, Code: order.Code, CustomerID: order.CustomerID, CustomerName: order.CustomerName,
 		WarehouseID: order.WarehouseID, WarehouseName: order.WarehouseName,
 		OrderDate: order.OrderDate.Format("2006-01-02"), Currency: order.Currency,
-		Status: string(order.Status), TotalAmount: order.TotalAmount.StringFixed(4),
-		Remark: order.Remark, CreatedAt: order.CreatedAt, UpdatedAt: order.UpdatedAt, Lines: lines,
+		Status: string(order.Status), PriceIncludesTax: order.PriceIncludesTax,
+		NetAmount: order.NetAmount.StringFixed(4), TaxAmount: order.TaxAmount.StringFixed(4),
+		TotalAmount: order.TotalAmount.StringFixed(4),
+		Remark:      order.Remark, CreatedAt: order.CreatedAt, UpdatedAt: order.UpdatedAt, Lines: lines,
 	}
 }
 
@@ -383,7 +409,9 @@ func toShipmentResponse(shipment *domain.Shipment) shipmentResponse {
 		lines = append(lines, shipmentLineResponse{
 			OrderLineID: line.OrderLineID, MaterialID: line.MaterialID, MaterialName: line.MaterialName,
 			Quantity: line.Quantity.String(), UnitPrice: line.UnitPrice.String(),
-			Amount: line.Amount.StringFixed(4), UnitCost: line.UnitCost.String(),
+			TaxRateID: line.TaxRateID, TaxRate: line.TaxRate.String(),
+			Amount: line.Amount.StringFixed(4), TaxAmount: line.TaxAmount.StringFixed(4),
+			GrossAmount: line.GrossAmount.StringFixed(4), UnitCost: line.UnitCost.String(),
 			CostAmount: line.CostAmount.StringFixed(4),
 		})
 	}
@@ -396,7 +424,9 @@ func toShipmentResponse(shipment *domain.Shipment) shipmentResponse {
 		CustomerID: shipment.CustomerID, CustomerName: shipment.CustomerName,
 		WarehouseID: shipment.WarehouseID, WarehouseName: shipment.WarehouseName,
 		ShipmentDate: shipment.ShipmentDate.Format("2006-01-02"), Status: shipment.Status,
-		Remark: shipment.Remark, InvoiceID: shipment.InvoiceID, InvoiceCode: shipment.InvoiceCode,
+		PriceIncludesTax: shipment.PriceIncludesTax, NetAmount: shipment.NetAmount.StringFixed(4),
+		TaxAmount: shipment.TaxAmount.StringFixed(4),
+		Remark:    shipment.Remark, InvoiceID: shipment.InvoiceID, InvoiceCode: shipment.InvoiceCode,
 		InvoiceDueDate: invoiceDueDate, VoucherCode: shipment.VoucherCode,
 		TotalAmount: shipment.TotalAmount().StringFixed(4), TotalCost: shipment.TotalCost().StringFixed(4),
 		CreatedAt: shipment.CreatedAt, Lines: lines,

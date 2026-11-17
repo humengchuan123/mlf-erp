@@ -70,6 +70,7 @@ var permissions = []struct {
 	{"sales.order.approve", "审批销售订单", "sales", "api"},
 	{"sales.shipment.read", "查看销售发货", "sales", "api"},
 	{"finance.invoice.read", "查看应收应付", "finance", "api"},
+	{"finance.invoice.write", "开具/作废发票", "finance", "api"},
 	{"finance.payment.read", "查看收付款", "finance", "api"},
 	{"finance.payment.write", "管理收付款", "finance", "api"},
 	{"finance.account.read", "查看会计科目", "finance", "api"},
@@ -279,7 +280,9 @@ func seedGL(ctx context.Context, tx pgx.Tx, tenantID string) error {
 				('2000', '负债', 'liability', 'credit', 1, false),
 				('2202', '应付账款', 'liability', 'credit', 2, true),
 				('2211', '应付职工薪酬', 'liability', 'credit', 2, true),
-				('2221', '应交税费', 'liability', 'credit', 2, true),
+				('2221', '应交税费', 'liability', 'credit', 2, false),
+				('222101', '应交增值税-进项税额', 'liability', 'debit', 3, true),
+				('222102', '应交增值税-销项税额', 'liability', 'credit', 3, true),
 				('4000', '所有者权益', 'equity', 'credit', 1, false),
 				('4001', '实收资本', 'equity', 'credit', 2, true),
 				('4103', '本年利润', 'equity', 'credit', 2, true),
@@ -306,6 +309,7 @@ func seedGL(ctx context.Context, tx pgx.Tx, tenantID string) error {
 		  AND (
 		      (parent.code = '1000' AND child.code IN ('1001', '1002', '1122', '1405', '1601')) OR
 		      (parent.code = '2000' AND child.code IN ('2202', '2211', '2221')) OR
+		      (parent.code = '2221' AND child.code IN ('222101', '222102')) OR
 		      (parent.code = '4000' AND child.code IN ('4001', '4103', '4104')) OR
 		      (parent.code = '6000' AND child.code IN ('6001', '6051')) OR
 		      (parent.code = '6400' AND child.code IN ('6401', '6601', '6602', '6603', '6801'))
@@ -328,7 +332,9 @@ func seedGL(ctx context.Context, tx pgx.Tx, tenantID string) error {
 				('bank', '1002'),
 				('cash', '1001'),
 				('profit', '4103'),
-				('retained_earnings', '4104')
+				('retained_earnings', '4104'),
+				('input_vat', '222101'),
+				('output_vat', '222102')
 		) AS mapping(key, account_code)
 		ON CONFLICT DO NOTHING`, tenantID); err != nil {
 		return err

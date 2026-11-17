@@ -75,6 +75,15 @@ func (s *ReportService) AuxiliaryBalance(
 	return s.reports.AuxiliaryBalance(ctx, scope.FromActor(ctx, tenantID), tenantID, dimension, accountID, startDate, endDate)
 }
 
+func (s *ReportService) VATSummary(ctx context.Context, startDate, endDate time.Time) (*domain.VATSummary, error) {
+	tenantID, _, _ := tenantActor(ctx)
+	startDate, endDate = normalizeRange(startDate, endDate)
+	if startDate.After(endDate) {
+		return nil, domain.ErrInvalidInput
+	}
+	return s.reports.VATSummary(ctx, scope.FromActor(ctx, tenantID), tenantID, startDate, endDate)
+}
+
 func (s *ReportService) IncomeStatement(ctx context.Context, startDate, endDate time.Time) (*domain.IncomeStatement, error) {
 	tenantID, _, _ := tenantActor(ctx)
 	startDate, endDate = normalizeRange(startDate, endDate)

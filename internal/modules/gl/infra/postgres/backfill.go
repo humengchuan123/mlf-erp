@@ -23,12 +23,13 @@ func Backfill(ctx context.Context, db *pgxpool.Pool, next CodeFunc) (*BackfillRe
 	type salesShipment struct {
 		tenantID, orgID, id, code, customerID, createdBy string
 		shipmentDate                                     time.Time
-		salesAmount, costAmount                          decimal.Decimal
+		netAmount, taxAmount, grossAmount, costAmount    decimal.Decimal
 	}
 	rows, err := db.Query(ctx, `
 		SELECT s.tenant_id::text, s.org_id::text, s.id::text, s.code, s.shipment_date,
 		       o.customer_id::text, s.created_by::text,
-		       COALESCE(SUM(sl.amount), 0)::text, COALESCE(SUM(sl.cost_amount), 0)::text
+		       COALESCE(SUM(sl.amount), 0)::text, COALESCE(SUM(sl.tax_amount), 0)::text,
+		       COALESCE(SUM(sl.gross_amount), 0)::text, COALESCE(SUM(sl.cost_amount), 0)::text
 		FROM erp.sales_shipments s
 		JOIN erp.sales_orders o ON o.tenant_id = s.tenant_id AND o.id = s.order_id
 		JOIN erp.sales_shipment_lines sl ON sl.tenant_id = s.tenant_id AND sl.shipment_id = s.id
@@ -44,15 +45,17 @@ func Backfill(ctx context.Context, db *pgxpool.Pool, next CodeFunc) (*BackfillRe
 	salesShipments := make([]salesShipment, 0)
 	for rows.Next() {
 		var item salesShipment
-		var salesRaw, costRaw string
+		var netRaw, taxRaw, grossRaw, costRaw string
 		if err := rows.Scan(
 			&item.tenantID, &item.orgID, &item.id, &item.code, &item.shipmentDate,
-			&item.customerID, &item.createdBy, &salesRaw, &costRaw,
+			&item.customerID, &item.createdBy, &netRaw, &taxRaw, &grossRaw, &costRaw,
 		); err != nil {
 			rows.Close()
 			return result, fmt.Errorf("scan sales shipment for backfill: %w", err)
 		}
-		item.salesAmount = decimal.RequireFromString(salesRaw)
+		item.netAmount = decimal.RequireFromString(netRaw)
+		item.taxAmount = decimal.RequireFromString(taxRaw)
+		item.grossAmount = decimal.RequireFromString(grossRaw)
 		item.costAmount = decimal.RequireFromString(costRaw)
 		salesShipments = append(salesShipments, item)
 	}
@@ -74,7 +77,8 @@ func Backfill(ctx context.Context, db *pgxpool.Pool, next CodeFunc) (*BackfillRe
 			TenantID: item.tenantID, OrgID: item.orgID, VoucherCode: code,
 			SourceID: item.id, SourceCode: item.code, CustomerID: item.customerID,
 			CreatedBy: item.createdBy, VoucherDate: item.shipmentDate,
-			SalesAmount: item.salesAmount, CostAmount: item.costAmount,
+			NetAmount: item.netAmount, TaxAmount: item.taxAmount,
+			GrossAmount: item.grossAmount, CostAmount: item.costAmount,
 		}); err != nil {
 			tx.Rollback(ctx)
 			return result, fmt.Errorf("backfill sales shipment %s: %w", item.code, err)
@@ -88,11 +92,13 @@ func Backfill(ctx context.Context, db *pgxpool.Pool, next CodeFunc) (*BackfillRe
 	type purchaseReceipt struct {
 		tenantID, orgID, id, code, supplierID, createdBy string
 		receiptDate                                      time.Time
-		amount                                           decimal.Decimal
+		netAmount, taxAmount, grossAmount                decimal.Decimal
 	}
 	rows, err = db.Query(ctx, `
 		SELECT r.tenant_id::text, r.org_id::text, r.id::text, r.code, r.receipt_date,
-		       o.supplier_id::text, r.created_by::text, COALESCE(SUM(rl.amount), 0)::text
+		       o.supplier_id::text, r.created_by::text,
+		       COALESCE(SUM(rl.amount), 0)::text, COALESCE(SUM(rl.tax_amount), 0)::text,
+		       COALESCE(SUM(rl.gross_amount), 0)::text
 		FROM erp.purchase_receipts r
 		JOIN erp.purchase_orders o ON o.tenant_id = r.tenant_id AND o.id = r.order_id
 		JOIN erp.purchase_receipt_lines rl ON rl.tenant_id = r.tenant_id AND rl.receipt_id = r.id
@@ -108,15 +114,17 @@ func Backfill(ctx context.Context, db *pgxpool.Pool, next CodeFunc) (*BackfillRe
 	purchaseReceipts := make([]purchaseReceipt, 0)
 	for rows.Next() {
 		var item purchaseReceipt
-		var amountRaw string
+		var netRaw, taxRaw, grossRaw string
 		if err := rows.Scan(
 			&item.tenantID, &item.orgID, &item.id, &item.code, &item.receiptDate,
-			&item.supplierID, &item.createdBy, &amountRaw,
+			&item.supplierID, &item.createdBy, &netRaw, &taxRaw, &grossRaw,
 		); err != nil {
 			rows.Close()
 			return result, fmt.Errorf("scan purchase receipt for backfill: %w", err)
 		}
-		item.amount = decimal.RequireFromString(amountRaw)
+		item.netAmount = decimal.RequireFromString(netRaw)
+		item.taxAmount = decimal.RequireFromString(taxRaw)
+		item.grossAmount = decimal.RequireFromString(grossRaw)
 		purchaseReceipts = append(purchaseReceipts, item)
 	}
 	rows.Close()
@@ -136,7 +144,8 @@ func Backfill(ctx context.Context, db *pgxpool.Pool, next CodeFunc) (*BackfillRe
 		if err := PostPurchaseReceipt(ctx, tx, PurchaseReceiptPosting{
 			TenantID: item.tenantID, OrgID: item.orgID, VoucherCode: code,
 			SourceID: item.id, SourceCode: item.code, SupplierID: item.supplierID,
-			CreatedBy: item.createdBy, VoucherDate: item.receiptDate, Amount: item.amount,
+			CreatedBy: item.createdBy, VoucherDate: item.receiptDate,
+			NetAmount: item.netAmount, TaxAmount: item.taxAmount, GrossAmount: item.grossAmount,
 		}); err != nil {
 			tx.Rollback(ctx)
 			return result, fmt.Errorf("backfill purchase receipt %s: %w", item.code, err)

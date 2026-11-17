@@ -23,7 +23,7 @@ type InvoiceDetail struct {
 
 func (s *InvoiceService) List(
 	ctx context.Context,
-	invoiceType, status, partnerID, keyword string,
+	invoiceType, status, vatInvoiceStatus, partnerID, keyword string,
 	page, pageSize int,
 ) ([]*domain.Invoice, int, error) {
 	tenantID, _, _ := tenantActor(ctx)
@@ -34,6 +34,7 @@ func (s *InvoiceService) List(
 		tenantID,
 		normalizeString(invoiceType),
 		normalizeString(status),
+		normalizeString(vatInvoiceStatus),
 		normalizeString(partnerID),
 		strings.TrimSpace(keyword),
 		(page-1)*pageSize,
@@ -53,4 +54,14 @@ func (s *InvoiceService) Get(ctx context.Context, id string) (*InvoiceDetail, er
 		return nil, err
 	}
 	return &InvoiceDetail{Invoice: invoice, Allocations: allocations}, nil
+}
+
+func (s *InvoiceService) Issue(ctx context.Context, id string, input domain.IssueInput) (*domain.Invoice, error) {
+	tenantID, _, _ := tenantActor(ctx)
+	return s.invoices.Issue(ctx, scope.FromActor(ctx, tenantID), tenantID, id, input)
+}
+
+func (s *InvoiceService) Void(ctx context.Context, id string) (*domain.Invoice, error) {
+	tenantID, _, userID := tenantActor(ctx)
+	return s.invoices.Void(ctx, scope.FromActor(ctx, tenantID), tenantID, id, userID)
 }

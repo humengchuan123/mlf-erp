@@ -50,17 +50,23 @@
           <el-descriptions-item label="仓库">{{ detail.warehouse_name }}</el-descriptions-item>
           <el-descriptions-item label="发货日期">{{ detail.shipment_date }}</el-descriptions-item>
           <el-descriptions-item label="应收发票">{{ detail.invoice_code || '-' }}</el-descriptions-item>
-          <el-descriptions-item label="发货金额">{{ detail.total_amount }}</el-descriptions-item>
+          <el-descriptions-item label="价格口径">{{ detail.price_includes_tax ? '含税' : '不含税' }}</el-descriptions-item>
+          <el-descriptions-item label="不含税金额">{{ detail.net_amount }}</el-descriptions-item>
+          <el-descriptions-item label="税额">{{ detail.tax_amount }}</el-descriptions-item>
+          <el-descriptions-item label="含税金额">{{ detail.total_amount }}</el-descriptions-item>
           <el-descriptions-item label="出库成本">{{ detail.total_cost }}</el-descriptions-item>
         </el-descriptions>
 
         <el-table :data="detail.lines" border class="detail-table">
-          <el-table-column prop="material_name" label="物料" min-width="180" />
-          <el-table-column prop="quantity" label="数量" width="110" align="right" />
-          <el-table-column prop="unit_price" label="售价" width="110" align="right" />
-          <el-table-column prop="amount" label="金额" width="120" align="right" />
-          <el-table-column prop="unit_cost" label="单位成本" width="110" align="right" />
-          <el-table-column prop="cost_amount" label="成本金额" width="120" align="right" />
+          <el-table-column prop="material_name" label="物料" min-width="160" />
+          <el-table-column prop="quantity" label="数量" width="90" align="right" />
+          <el-table-column prop="unit_price" label="售价" width="100" align="right" />
+          <el-table-column prop="tax_rate" label="税率" width="80" align="right" />
+          <el-table-column prop="amount" label="不含税" width="110" align="right" />
+          <el-table-column prop="tax_amount" label="税额" width="100" align="right" />
+          <el-table-column prop="gross_amount" label="含税" width="110" align="right" />
+          <el-table-column prop="unit_cost" label="单位成本" width="100" align="right" />
+          <el-table-column prop="cost_amount" label="成本金额" width="110" align="right" />
         </el-table>
       </template>
     </el-drawer>

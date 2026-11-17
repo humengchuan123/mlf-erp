@@ -153,6 +153,7 @@ func main() {
 		partnerRepository,
 		materialRepository,
 		warehouseRepository,
+		taxRateRepository,
 	)
 	receiptService := app.NewReceiptService(purchaseRepository, codeRuleService)
 	purchasehttp.Register(protected, orderService, receiptService, auditService, log)
@@ -169,6 +170,7 @@ func main() {
 		partnerRepository,
 		materialRepository,
 		warehouseRepository,
+		taxRateRepository,
 	)
 	salesShipmentService := salesapp.NewShipmentService(salesRepository, codeRuleService)
 	saleshttp.Register(protected, salesOrderService, salesShipmentService, auditService, log)
