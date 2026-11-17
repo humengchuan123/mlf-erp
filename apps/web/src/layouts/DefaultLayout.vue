@@ -21,11 +21,11 @@
             <span>采购订单</span>
           </el-menu-item>
           <el-menu-item v-if="authStore.hasPermission('sales.order.read')" index="/sales/orders">
-            <el-icon><Goods /></el-icon>
+            <el-icon><Sell /></el-icon>
             <span>销售订单</span>
           </el-menu-item>
           <el-menu-item v-if="authStore.hasPermission('sales.shipment.read')" index="/sales/shipments">
-            <el-icon><Document /></el-icon>
+            <el-icon><Van /></el-icon>
             <span>发货单</span>
           </el-menu-item>
           <el-menu-item v-if="authStore.hasPermission('inventory.balance.read')" index="/inventory/balances">
@@ -33,47 +33,53 @@
             <span>库存余额</span>
           </el-menu-item>
           <el-menu-item v-if="authStore.hasPermission('inventory.transaction.read')" index="/inventory/transactions">
-            <el-icon><Document /></el-icon>
+            <el-icon><List /></el-icon>
             <span>库存流水</span>
           </el-menu-item>
         </el-menu-item-group>
 
         <el-menu-item-group v-if="canMasterData" title="主数据">
           <el-menu-item v-if="authStore.hasPermission('masterdata.partner.read')" index="/masterdata/partners">
+            <el-icon><UserFilled /></el-icon>
             <span>客商管理</span>
           </el-menu-item>
           <el-menu-item v-if="authStore.hasPermission('masterdata.material.read')" index="/masterdata/materials">
+            <el-icon><Goods /></el-icon>
             <span>物料管理</span>
           </el-menu-item>
           <el-menu-item v-if="authStore.hasPermission('masterdata.warehouse.read')" index="/masterdata/warehouses">
+            <el-icon><House /></el-icon>
             <span>仓库管理</span>
           </el-menu-item>
           <el-menu-item v-if="authStore.hasPermission('masterdata.unit.read')" index="/masterdata/units">
+            <el-icon><ScaleToOriginal /></el-icon>
             <span>计量单位</span>
           </el-menu-item>
           <el-menu-item v-if="authStore.hasPermission('masterdata.currency.read')" index="/masterdata/currencies">
+            <el-icon><Coin /></el-icon>
             <span>币种管理</span>
           </el-menu-item>
           <el-menu-item v-if="authStore.hasPermission('masterdata.tax.read')" index="/masterdata/tax-rates">
+            <el-icon><Discount /></el-icon>
             <span>税率管理</span>
           </el-menu-item>
         </el-menu-item-group>
 
         <el-menu-item-group v-if="canFinance" title="财务">
           <el-menu-item v-if="authStore.hasPermission('finance.invoice.read')" index="/finance/invoices">
-            <el-icon><Money /></el-icon>
+            <el-icon><Tickets /></el-icon>
             <span>应收应付</span>
           </el-menu-item>
           <el-menu-item v-if="authStore.hasPermission('finance.payment.read')" index="/finance/payments">
-            <el-icon><Money /></el-icon>
+            <el-icon><Wallet /></el-icon>
             <span>收付款</span>
           </el-menu-item>
           <el-menu-item v-if="authStore.hasPermission('finance.account.read')" index="/finance/accounts">
-            <el-icon><Money /></el-icon>
+            <el-icon><Collection /></el-icon>
             <span>会计科目</span>
           </el-menu-item>
           <el-menu-item v-if="authStore.hasPermission('finance.period.read')" index="/finance/periods">
-            <el-icon><Money /></el-icon>
+            <el-icon><Calendar /></el-icon>
             <span>会计期间</span>
           </el-menu-item>
           <el-menu-item v-if="authStore.hasPermission('finance.voucher.read')" index="/finance/vouchers">
@@ -81,7 +87,7 @@
             <span>会计凭证</span>
           </el-menu-item>
           <el-menu-item v-if="authStore.hasPermission('finance.report.read')" index="/finance/reports">
-            <el-icon><Document /></el-icon>
+            <el-icon><TrendCharts /></el-icon>
             <span>财务报表</span>
           </el-menu-item>
         </el-menu-item-group>
@@ -100,11 +106,11 @@
             <span>组织管理</span>
           </el-menu-item>
           <el-menu-item v-if="authStore.hasPermission('system.audit.read')" index="/system/audit-logs">
-            <el-icon><Document /></el-icon>
+            <el-icon><Memo /></el-icon>
             <span>审计日志</span>
           </el-menu-item>
           <el-menu-item v-if="authStore.hasPermission('system.code_rule.read')" index="/system/code-rules">
-            <el-icon><Document /></el-icon>
+            <el-icon><SetUp /></el-icon>
             <span>编码规则</span>
           </el-menu-item>
         </el-menu-item-group>
@@ -145,14 +151,28 @@ import { useRoute, useRouter } from 'vue-router'
 import {
   ArrowDown,
   Box,
+  Calendar,
+  Coin,
+  Collection,
   DataBoard,
+  Discount,
   Document,
   Goods,
+  House,
   Key,
-  Money,
+  List,
+  Memo,
   OfficeBuilding,
+  ScaleToOriginal,
+  Sell,
+  SetUp,
   ShoppingCart,
-  User
+  Tickets,
+  TrendCharts,
+  User,
+  UserFilled,
+  Van,
+  Wallet
 } from '@element-plus/icons-vue'
 import { useAppStore } from '@/stores/app'
 import { useAuthStore } from '@/stores/auth'
