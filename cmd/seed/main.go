@@ -82,6 +82,8 @@ var permissions = []struct {
 	{"finance.voucher.post", "过账凭证", "finance", "api"},
 	{"finance.voucher.reverse", "反过账凭证", "finance", "api"},
 	{"finance.report.read", "查看财务报表", "finance", "api"},
+	{"finance.exchange_rate.read", "查看汇率", "finance", "api"},
+	{"finance.exchange_rate.write", "管理汇率", "finance", "api"},
 }
 
 var defaultCodeRules = []struct {
@@ -294,7 +296,9 @@ func seedGL(ctx context.Context, tx pgx.Tx, tenantID string) error {
 				('6401', '主营业务成本', 'expense', 'debit', 2, true),
 				('6601', '销售费用', 'expense', 'debit', 2, true),
 				('6602', '管理费用', 'expense', 'debit', 2, true),
-				('6603', '财务费用', 'expense', 'debit', 2, true),
+				('6603', '财务费用', 'expense', 'debit', 2, false),
+				('660301', '汇兑损失', 'expense', 'debit', 3, true),
+				('660302', '汇兑收益', 'expense', 'credit', 3, true),
 				('6801', '所得税费用', 'expense', 'debit', 2, true)
 		) AS seed(code, name, type, direction, level, is_leaf)
 		ON CONFLICT (tenant_id, code) DO NOTHING`, tenantID); err != nil {
@@ -312,7 +316,8 @@ func seedGL(ctx context.Context, tx pgx.Tx, tenantID string) error {
 		      (parent.code = '2221' AND child.code IN ('222101', '222102')) OR
 		      (parent.code = '4000' AND child.code IN ('4001', '4103', '4104')) OR
 		      (parent.code = '6000' AND child.code IN ('6001', '6051')) OR
-		      (parent.code = '6400' AND child.code IN ('6401', '6601', '6602', '6603', '6801'))
+		      (parent.code = '6400' AND child.code IN ('6401', '6601', '6602', '6603', '6801')) OR
+		      (parent.code = '6603' AND child.code IN ('660301', '660302'))
 		  )
 		  AND child.parent_id IS NULL
 		  AND child.tenant_id = $1`, tenantID); err != nil {
@@ -334,7 +339,9 @@ func seedGL(ctx context.Context, tx pgx.Tx, tenantID string) error {
 				('profit', '4103'),
 				('retained_earnings', '4104'),
 				('input_vat', '222101'),
-				('output_vat', '222102')
+				('output_vat', '222102'),
+				('fx_loss', '660301'),
+				('fx_gain', '660302')
 		) AS mapping(key, account_code)
 		ON CONFLICT DO NOTHING`, tenantID); err != nil {
 		return err

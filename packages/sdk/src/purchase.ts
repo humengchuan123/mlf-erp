@@ -13,6 +13,9 @@ export interface PurchaseOrderLine {
   amount: string
   tax_amount: string
   gross_amount: string
+  base_amount: string
+  base_tax_amount: string
+  base_gross_amount: string
   received_qty: string
   remaining_qty: string
 }
@@ -26,11 +29,15 @@ export interface PurchaseOrder {
   warehouse_name: string
   order_date: string
   currency: string
+  exchange_rate: string
   status: string
   price_includes_tax: boolean
   net_amount: string
   tax_amount: string
   total_amount: string
+  base_net_amount: string
+  base_tax_amount: string
+  base_total_amount: string
   remark: string
   created_at: string
   updated_at: string
@@ -49,6 +56,7 @@ export interface PurchaseOrderInput {
   warehouse_id: string
   order_date: string
   currency: string
+  exchange_rate?: string
   price_includes_tax?: boolean
   remark?: string
   lines: PurchaseOrderLineInput[]
@@ -65,6 +73,9 @@ export interface PurchaseReceiptLine {
   amount: string
   tax_amount: string
   gross_amount: string
+  base_amount: string
+  base_tax_amount: string
+  base_gross_amount: string
 }
 
 export interface PurchaseReceipt {
@@ -78,9 +89,13 @@ export interface PurchaseReceipt {
   receipt_date: string
   status: string
   price_includes_tax: boolean
+  exchange_rate: string
   net_amount: string
   tax_amount: string
   total_amount: string
+  base_net_amount: string
+  base_tax_amount: string
+  base_total_amount: string
   remark: string
   payable_id: string
   payable_code: string
@@ -97,6 +112,7 @@ export interface ReceiveLineInput {
 
 export interface ReceiveInput {
   receipt_date: string
+  exchange_rate?: string
   remark?: string
   lines: ReceiveLineInput[]
 }

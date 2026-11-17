@@ -59,6 +59,7 @@ type orderRequest struct {
 	WarehouseID      string             `json:"warehouse_id"`
 	OrderDate        string             `json:"order_date"`
 	Currency         string             `json:"currency"`
+	ExchangeRate     string             `json:"exchange_rate"`
 	PriceIncludesTax *bool              `json:"price_includes_tax"`
 	Remark           string             `json:"remark"`
 	Lines            []orderLineRequest `json:"lines"`
@@ -70,25 +71,29 @@ type receiveLineRequest struct {
 }
 
 type receiveRequest struct {
-	ReceiptDate string               `json:"receipt_date"`
-	Remark      string               `json:"remark"`
-	Lines       []receiveLineRequest `json:"lines"`
+	ReceiptDate  string               `json:"receipt_date"`
+	ExchangeRate string               `json:"exchange_rate"`
+	Remark       string               `json:"remark"`
+	Lines        []receiveLineRequest `json:"lines"`
 }
 
 type orderLineResponse struct {
-	ID           string `json:"id"`
-	LineNo       int    `json:"line_no"`
-	MaterialID   string `json:"material_id"`
-	MaterialName string `json:"material_name"`
-	Quantity     string `json:"quantity"`
-	UnitPrice    string `json:"unit_price"`
-	TaxRateID    string `json:"tax_rate_id"`
-	TaxRate      string `json:"tax_rate"`
-	Amount       string `json:"amount"`
-	TaxAmount    string `json:"tax_amount"`
-	GrossAmount  string `json:"gross_amount"`
-	ReceivedQty  string `json:"received_qty"`
-	RemainingQty string `json:"remaining_qty"`
+	ID              string `json:"id"`
+	LineNo          int    `json:"line_no"`
+	MaterialID      string `json:"material_id"`
+	MaterialName    string `json:"material_name"`
+	Quantity        string `json:"quantity"`
+	UnitPrice       string `json:"unit_price"`
+	TaxRateID       string `json:"tax_rate_id"`
+	TaxRate         string `json:"tax_rate"`
+	Amount          string `json:"amount"`
+	TaxAmount       string `json:"tax_amount"`
+	GrossAmount     string `json:"gross_amount"`
+	BaseAmount      string `json:"base_amount"`
+	BaseTaxAmount   string `json:"base_tax_amount"`
+	BaseGrossAmount string `json:"base_gross_amount"`
+	ReceivedQty     string `json:"received_qty"`
+	RemainingQty    string `json:"remaining_qty"`
 }
 
 type orderResponse struct {
@@ -100,11 +105,15 @@ type orderResponse struct {
 	WarehouseName    string              `json:"warehouse_name"`
 	OrderDate        string              `json:"order_date"`
 	Currency         string              `json:"currency"`
+	ExchangeRate     string              `json:"exchange_rate"`
 	Status           string              `json:"status"`
 	PriceIncludesTax bool                `json:"price_includes_tax"`
 	NetAmount        string              `json:"net_amount"`
 	TaxAmount        string              `json:"tax_amount"`
 	TotalAmount      string              `json:"total_amount"`
+	BaseNetAmount    string              `json:"base_net_amount"`
+	BaseTaxAmount    string              `json:"base_tax_amount"`
+	BaseTotalAmount  string              `json:"base_total_amount"`
 	Remark           string              `json:"remark"`
 	CreatedAt        time.Time           `json:"created_at"`
 	UpdatedAt        time.Time           `json:"updated_at"`
@@ -112,16 +121,19 @@ type orderResponse struct {
 }
 
 type receiptLineResponse struct {
-	OrderLineID  string `json:"order_line_id"`
-	MaterialID   string `json:"material_id"`
-	MaterialName string `json:"material_name"`
-	Quantity     string `json:"quantity"`
-	UnitPrice    string `json:"unit_price"`
-	TaxRateID    string `json:"tax_rate_id"`
-	TaxRate      string `json:"tax_rate"`
-	Amount       string `json:"amount"`
-	TaxAmount    string `json:"tax_amount"`
-	GrossAmount  string `json:"gross_amount"`
+	OrderLineID     string `json:"order_line_id"`
+	MaterialID      string `json:"material_id"`
+	MaterialName    string `json:"material_name"`
+	Quantity        string `json:"quantity"`
+	UnitPrice       string `json:"unit_price"`
+	TaxRateID       string `json:"tax_rate_id"`
+	TaxRate         string `json:"tax_rate"`
+	Amount          string `json:"amount"`
+	TaxAmount       string `json:"tax_amount"`
+	GrossAmount     string `json:"gross_amount"`
+	BaseAmount      string `json:"base_amount"`
+	BaseTaxAmount   string `json:"base_tax_amount"`
+	BaseGrossAmount string `json:"base_gross_amount"`
 }
 
 type receiptResponse struct {
@@ -135,9 +147,13 @@ type receiptResponse struct {
 	ReceiptDate      string                `json:"receipt_date"`
 	Status           string                `json:"status"`
 	PriceIncludesTax bool                  `json:"price_includes_tax"`
+	ExchangeRate     string                `json:"exchange_rate"`
 	NetAmount        string                `json:"net_amount"`
 	TaxAmount        string                `json:"tax_amount"`
 	TotalAmount      string                `json:"total_amount"`
+	BaseNetAmount    string                `json:"base_net_amount"`
+	BaseTaxAmount    string                `json:"base_tax_amount"`
+	BaseTotalAmount  string                `json:"base_total_amount"`
 	Remark           string                `json:"remark"`
 	PayableID        string                `json:"payable_id"`
 	PayableCode      string                `json:"payable_code"`
@@ -295,15 +311,24 @@ func parseOrderInput(c *gin.Context) (app.OrderInput, error) {
 	if request.PriceIncludesTax != nil {
 		priceIncludesTax = *request.PriceIncludesTax
 	}
+	exchangeRate, err := parseOptionalDecimal(request.ExchangeRate)
+	if err != nil {
+		return app.OrderInput{}, err
+	}
 	return app.OrderInput{
 		SupplierID: request.SupplierID, WarehouseID: request.WarehouseID,
 		OrderDate: orderDate, Currency: request.Currency,
-		PriceIncludesTax: priceIncludesTax, Remark: request.Remark, Lines: lines,
+		ExchangeRate: exchangeRate, PriceIncludesTax: priceIncludesTax,
+		Remark: request.Remark, Lines: lines,
 	}, nil
 }
 
 func parseReceiveInput(request receiveRequest) (app.ReceiveInput, error) {
 	receiptDate, err := parseDate(request.ReceiptDate)
+	if err != nil {
+		return app.ReceiveInput{}, err
+	}
+	exchangeRate, err := parseOptionalDecimal(request.ExchangeRate)
 	if err != nil {
 		return app.ReceiveInput{}, err
 	}
@@ -315,7 +340,15 @@ func parseReceiveInput(request receiveRequest) (app.ReceiveInput, error) {
 		}
 		lines = append(lines, app.ReceiveLineInput{OrderLineID: line.OrderLineID, Quantity: quantity})
 	}
-	return app.ReceiveInput{ReceiptDate: receiptDate, Remark: request.Remark, Lines: lines}, nil
+	return app.ReceiveInput{ReceiptDate: receiptDate, ExchangeRate: exchangeRate, Remark: request.Remark, Lines: lines}, nil
+}
+
+func parseOptionalDecimal(value string) (decimal.Decimal, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return decimal.Zero, nil
+	}
+	return decimal.NewFromString(value)
 }
 
 func parseDate(value string) (time.Time, error) {
@@ -382,7 +415,9 @@ func toOrderResponse(order *domain.Order) orderResponse {
 			Quantity: line.Quantity.String(), UnitPrice: line.UnitPrice.String(),
 			TaxRateID: line.TaxRateID, TaxRate: line.TaxRate.String(),
 			Amount: line.Amount.StringFixed(4), TaxAmount: line.TaxAmount.StringFixed(4),
-			GrossAmount: line.GrossAmount.StringFixed(4), ReceivedQty: line.ReceivedQty.String(),
+			GrossAmount: line.GrossAmount.StringFixed(4),
+			BaseAmount:  line.BaseAmount.StringFixed(4), BaseTaxAmount: line.BaseTaxAmount.StringFixed(4),
+			BaseGrossAmount: line.BaseGrossAmount.StringFixed(4), ReceivedQty: line.ReceivedQty.String(),
 			RemainingQty: line.Remaining().String(),
 		})
 	}
@@ -390,10 +425,13 @@ func toOrderResponse(order *domain.Order) orderResponse {
 		ID: order.ID, Code: order.Code, SupplierID: order.SupplierID, SupplierName: order.SupplierName,
 		WarehouseID: order.WarehouseID, WarehouseName: order.WarehouseName,
 		OrderDate: order.OrderDate.Format("2006-01-02"), Currency: order.Currency,
-		Status: string(order.Status), PriceIncludesTax: order.PriceIncludesTax,
+		ExchangeRate: order.ExchangeRate.StringFixed(8),
+		Status:       string(order.Status), PriceIncludesTax: order.PriceIncludesTax,
 		NetAmount: order.NetAmount.StringFixed(4), TaxAmount: order.TaxAmount.StringFixed(4),
-		TotalAmount: order.TotalAmount.StringFixed(4),
-		Remark:      order.Remark, CreatedAt: order.CreatedAt, UpdatedAt: order.UpdatedAt, Lines: lines,
+		TotalAmount:   order.TotalAmount.StringFixed(4),
+		BaseNetAmount: order.BaseNetAmount.StringFixed(4), BaseTaxAmount: order.BaseTaxAmount.StringFixed(4),
+		BaseTotalAmount: order.BaseTotalAmount.StringFixed(4),
+		Remark:          order.Remark, CreatedAt: order.CreatedAt, UpdatedAt: order.UpdatedAt, Lines: lines,
 	}
 }
 
@@ -406,6 +444,8 @@ func toReceiptResponse(receipt *domain.Receipt) receiptResponse {
 			TaxRateID: line.TaxRateID, TaxRate: line.TaxRate.String(),
 			Amount: line.Amount.StringFixed(4), TaxAmount: line.TaxAmount.StringFixed(4),
 			GrossAmount: line.GrossAmount.StringFixed(4),
+			BaseAmount:  line.BaseAmount.StringFixed(4), BaseTaxAmount: line.BaseTaxAmount.StringFixed(4),
+			BaseGrossAmount: line.BaseGrossAmount.StringFixed(4),
 		})
 	}
 	payableDueDate := ""
@@ -416,9 +456,11 @@ func toReceiptResponse(receipt *domain.Receipt) receiptResponse {
 		ID: receipt.ID, Code: receipt.Code, OrderID: receipt.OrderID, OrderCode: receipt.OrderCode,
 		SupplierName: receipt.SupplierName, WarehouseID: receipt.WarehouseID, WarehouseName: receipt.WarehouseName,
 		ReceiptDate: receipt.ReceiptDate.Format("2006-01-02"), Status: receipt.Status,
-		PriceIncludesTax: receipt.PriceIncludesTax, NetAmount: receipt.NetAmount.StringFixed(4),
-		TaxAmount: receipt.TaxAmount.StringFixed(4), TotalAmount: receipt.TotalAmount().StringFixed(4),
-		Remark:    receipt.Remark,
+		PriceIncludesTax: receipt.PriceIncludesTax, ExchangeRate: receipt.ExchangeRate.StringFixed(8),
+		NetAmount: receipt.NetAmount.StringFixed(4), TaxAmount: receipt.TaxAmount.StringFixed(4),
+		TotalAmount:   receipt.TotalAmount().StringFixed(4),
+		BaseNetAmount: receipt.BaseNetAmount.StringFixed(4), BaseTaxAmount: receipt.BaseTaxAmount.StringFixed(4),
+		BaseTotalAmount: receipt.BaseTotalAmount.StringFixed(4), Remark: receipt.Remark,
 		PayableID: receipt.PayableID, PayableCode: receipt.PayableCode, PayableDueDate: payableDueDate, VoucherCode: receipt.VoucherCode,
 		CreatedAt: receipt.CreatedAt, Lines: lines,
 	}

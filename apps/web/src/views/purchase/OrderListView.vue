@@ -95,9 +95,13 @@
           <el-col :span="8">
             <el-form-item label="币种">
               <el-select v-model="form.currency" style="width: 100%">
-                <el-option label="CNY" value="CNY" />
-                <el-option label="USD" value="USD" />
+                <el-option v-for="item in currencies" :key="item.code" :label="item.code" :value="item.code" />
               </el-select>
+            </el-form-item>
+          </el-col>
+          <el-col :span="8">
+            <el-form-item label="汇率">
+              <el-input v-model="form.exchange_rate" placeholder="留空自动取汇率" />
             </el-form-item>
           </el-col>
           <el-col :span="8">
@@ -157,6 +161,7 @@
           <span>不含税合计：{{ formNetTotal }}</span>
           <span>税额合计：{{ formTaxTotal }}</span>
           <span>含税合计：{{ formGrossTotal }}</span>
+          <span>本位币含税合计：{{ formBaseGrossTotal }}</span>
         </div>
         <el-button class="add-line" plain @click="addLine">添加明细行</el-button>
       </el-form>
@@ -176,10 +181,12 @@
           <el-descriptions-item label="供应商">{{ detailOrder.supplier_name }}</el-descriptions-item>
           <el-descriptions-item label="仓库">{{ detailOrder.warehouse_name }}</el-descriptions-item>
           <el-descriptions-item label="订单日期">{{ detailOrder.order_date }}</el-descriptions-item>
+          <el-descriptions-item label="币种/汇率">{{ detailOrder.currency }} / {{ detailOrder.exchange_rate }}</el-descriptions-item>
           <el-descriptions-item label="价格口径">{{ detailOrder.price_includes_tax ? '含税' : '不含税' }}</el-descriptions-item>
           <el-descriptions-item label="不含税金额">{{ detailOrder.net_amount }}</el-descriptions-item>
           <el-descriptions-item label="税额">{{ detailOrder.tax_amount }}</el-descriptions-item>
           <el-descriptions-item label="含税金额">{{ detailOrder.total_amount }}</el-descriptions-item>
+          <el-descriptions-item label="本位币含税金额">{{ detailOrder.base_total_amount }}</el-descriptions-item>
           <el-descriptions-item label="备注" :span="2">{{ detailOrder.remark || '-' }}</el-descriptions-item>
         </el-descriptions>
 
@@ -259,6 +266,7 @@ import { PageHeader } from '@mlf-erp/ui'
 import {
   masterDataApi,
   purchaseApi,
+  type Currency,
   type Material,
   type Partner,
   type PurchaseOrder,
@@ -290,6 +298,7 @@ const partners = ref<Partner[]>([])
 const warehouses = ref<Warehouse[]>([])
 const materials = ref<Material[]>([])
 const taxRates = ref<TaxRate[]>([])
+const currencies = ref<Currency[]>([])
 const loading = ref(false)
 const saving = ref(false)
 const keyword = ref('')
@@ -305,6 +314,7 @@ const form = reactive({
   warehouse_id: '',
   order_date: today(),
   currency: 'CNY',
+  exchange_rate: '',
   price_includes_tax: true,
   remark: '',
   lines: [] as OrderFormLine[]
@@ -377,16 +387,18 @@ async function loadOrders() {
 
 async function loadOptions() {
   try {
-    const [partnerResult, warehouseResult, materialResult, taxRateResult] = await Promise.all([
+    const [partnerResult, warehouseResult, materialResult, taxRateResult, currencyResult] = await Promise.all([
       masterDataApi.partners.list({ page_size: 200 }),
       masterDataApi.warehouses.list({ page_size: 200 }),
       masterDataApi.materials.list({ page_size: 200 }),
-      masterDataApi.taxRates.list({ page_size: 200 })
+      masterDataApi.taxRates.list({ page_size: 200 }),
+      masterDataApi.currencies.list({ page_size: 200 })
     ])
     partners.value = partnerResult.items
     warehouses.value = warehouseResult.items.filter((item) => item.status === 'active')
     materials.value = materialResult.items.filter((item) => item.status === 'active')
     taxRates.value = taxRateResult.items.filter((item) => item.status === 'active')
+    currencies.value = currencyResult.items.filter((item) => item.status === 'active')
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : '加载采购选项失败')
   }
@@ -420,6 +432,7 @@ function openCreate() {
     warehouse_id: '',
     order_date: today(),
     currency: 'CNY',
+    exchange_rate: '',
     price_includes_tax: true,
     remark: '',
     lines: [factoryLine()]
@@ -434,6 +447,7 @@ function openEdit(order: PurchaseOrder) {
     warehouse_id: order.warehouse_id,
     order_date: order.order_date,
     currency: order.currency,
+    exchange_rate: order.exchange_rate,
     price_includes_tax: order.price_includes_tax,
     remark: order.remark,
     lines: order.lines.map((line) => ({
@@ -501,6 +515,13 @@ function lineGross(line: OrderFormLine) {
 const formNetTotal = computed(() => form.lines.reduce((total, line) => total + calcLine(line).net, 0).toFixed(4))
 const formTaxTotal = computed(() => form.lines.reduce((total, line) => total + calcLine(line).tax, 0).toFixed(4))
 const formGrossTotal = computed(() => form.lines.reduce((total, line) => total + calcLine(line).gross, 0).toFixed(4))
+const formBaseGrossTotal = computed(() => {
+  const rate = Number(form.exchange_rate)
+  if (!Number.isFinite(rate) || rate <= 0) {
+    return '-'
+  }
+  return (Number(formGrossTotal.value) * rate).toFixed(4)
+})
 
 async function saveOrder() {
   if (!form.supplier_id || !form.warehouse_id || !form.order_date) {
@@ -525,6 +546,7 @@ async function saveOrder() {
       warehouse_id: form.warehouse_id,
       order_date: form.order_date,
       currency: form.currency,
+      exchange_rate: form.exchange_rate || undefined,
       price_includes_tax: form.price_includes_tax,
       remark: form.remark,
       lines: form.lines.map((line) => ({

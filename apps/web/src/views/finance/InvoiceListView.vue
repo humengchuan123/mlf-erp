@@ -50,9 +50,11 @@
           </template>
         </el-table-column>
         <el-table-column prop="currency" label="币种" width="70" />
+        <el-table-column prop="exchange_rate" label="汇率" width="100" align="right" />
         <el-table-column prop="net_amount" label="不含税" width="110" align="right" />
         <el-table-column prop="tax_amount" label="税额" width="100" align="right" />
         <el-table-column prop="total_amount" label="含税总额" width="120" align="right" />
+        <el-table-column prop="base_total_amount" label="本位币总额" width="130" align="right" />
         <el-table-column prop="paid_amount" label="已核销" width="110" align="right" />
         <el-table-column prop="outstanding_amount" label="未核销" width="110" align="right" />
         <el-table-column prop="vat_invoice_no" label="增值税发票号" min-width="170">
@@ -117,10 +119,13 @@
           <el-descriptions-item label="发票日期">{{ detail.invoice_date }}</el-descriptions-item>
           <el-descriptions-item label="到期日">{{ detail.due_date }}</el-descriptions-item>
           <el-descriptions-item label="币种">{{ detail.currency }}</el-descriptions-item>
+          <el-descriptions-item label="汇率">{{ detail.exchange_rate }}</el-descriptions-item>
           <el-descriptions-item label="状态">{{ invoiceStatusLabel(detail.status) }}</el-descriptions-item>
           <el-descriptions-item label="不含税金额">{{ detail.net_amount }}</el-descriptions-item>
           <el-descriptions-item label="税额">{{ detail.tax_amount }}</el-descriptions-item>
           <el-descriptions-item label="含税总额">{{ detail.total_amount }}</el-descriptions-item>
+          <el-descriptions-item label="本位币含税总额">{{ detail.base_total_amount }}</el-descriptions-item>
+          <el-descriptions-item label="本位币已核销">{{ detail.base_paid_amount }}</el-descriptions-item>
           <el-descriptions-item label="已核销">{{ detail.paid_amount }}</el-descriptions-item>
           <el-descriptions-item label="未核销">{{ detail.outstanding_amount }}</el-descriptions-item>
           <el-descriptions-item label="开票状态">{{ vatStatusLabel(detail.vat_invoice_status) }}</el-descriptions-item>

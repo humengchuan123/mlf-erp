@@ -87,7 +87,7 @@ func (r *PeriodRepository) EnsureYear(ctx context.Context, tenantID string, year
 	return nil
 }
 
-func (r *PeriodRepository) Close(ctx context.Context, tenantID, orgID, id, userID, voucherCode string) error {
+func (r *PeriodRepository) Close(ctx context.Context, tenantID, orgID, id, userID, voucherCode, fxVoucherCode, fxReversalCode string) error {
 	tx, err := r.db.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin close period: %w", err)
@@ -121,6 +121,10 @@ func (r *PeriodRepository) Close(ctx context.Context, tenantID, orgID, id, userI
 		return domain.ErrConflict
 	}
 
+	if err := revalueForeignInvoicesTx(ctx, tx, tenantID, orgID, period, userID, fxVoucherCode, fxReversalCode); err != nil {
+		return err
+	}
+
 	if _, err := closePeriodTx(ctx, tx, tenantID, orgID, period, userID, voucherCode); err != nil {
 		return err
 	}
@@ -137,7 +141,7 @@ func (r *PeriodRepository) Close(ctx context.Context, tenantID, orgID, id, userI
 	return nil
 }
 
-func (r *PeriodRepository) Reopen(ctx context.Context, tenantID, id, userID, reversalCode string) error {
+func (r *PeriodRepository) Reopen(ctx context.Context, tenantID, orgID, id, userID, reversalCode, fxReopenCode, fxReversalReopenCode string) error {
 	tx, err := r.db.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin reopen period: %w", err)
@@ -159,6 +163,16 @@ func (r *PeriodRepository) Reopen(ctx context.Context, tenantID, id, userID, rev
 	}
 	if period.Status == domain.PeriodStatusOpen {
 		return nil
+	}
+	if _, err := tx.Exec(ctx, `
+		UPDATE erp.gl_periods
+		SET status = 'open', closed_at = NULL, closed_by = NULL
+		WHERE tenant_id = $1 AND id = $2`, tenantID, id); err != nil {
+		return fmt.Errorf("open period for FX reversal: %w", err)
+	}
+
+	if err := undoFXRevaluationTx(ctx, tx, tenantID, orgID, userID, period, fxReopenCode, fxReversalReopenCode); err != nil {
+		return err
 	}
 
 	var closeID, voucherID string
@@ -637,6 +651,341 @@ func closePeriodTx(
 		return "", fmt.Errorf("insert period close: %w", err)
 	}
 	return voucherID, nil
+}
+
+type fxRevaluationItem struct {
+	InvoiceID      string
+	InvoiceType    string
+	PartnerID      string
+	Currency       string
+	ForeignBalance decimal.Decimal
+	OldRate        decimal.Decimal
+	NewRate        decimal.Decimal
+	Adjustment     decimal.Decimal
+}
+
+func revalueForeignInvoicesTx(
+	ctx context.Context,
+	tx pgx.Tx,
+	tenantID, orgID string,
+	period *domain.Period,
+	userID, voucherCode, reversalCode string,
+) error {
+	rows, err := tx.Query(ctx, `
+		SELECT i.id::text, i.invoice_type, i.partner_id::text, i.currency,
+		       i.total_amount::text, i.paid_amount::text, i.exchange_rate::text,
+		       i.base_total_amount::text, i.base_paid_amount::text, i.base_revalued_amount::text
+		FROM erp.finance_invoices i
+		WHERE i.tenant_id = $1
+		  AND i.currency <> 'CNY'
+		  AND i.total_amount > i.paid_amount
+		  AND i.invoice_date <= $2::date
+		FOR UPDATE OF i`,
+		tenantID, period.EndDate.Format("2006-01-02"),
+	)
+	if err != nil {
+		return fmt.Errorf("list foreign invoices for revaluation: %w", err)
+	}
+
+	type invoiceRow struct {
+		id, invoiceType, partnerID, currency             string
+		foreign, rate, baseTotal, basePaid, baseRevalued decimal.Decimal
+	}
+	invoices := make([]invoiceRow, 0)
+	for rows.Next() {
+		var item invoiceRow
+		var totalRaw, paidRaw, rateRaw, baseTotalRaw, basePaidRaw, baseRevaluedRaw string
+		if err := rows.Scan(
+			&item.id, &item.invoiceType, &item.partnerID, &item.currency,
+			&totalRaw, &paidRaw, &rateRaw, &baseTotalRaw, &basePaidRaw, &baseRevaluedRaw,
+		); err != nil {
+			rows.Close()
+			return fmt.Errorf("scan foreign invoice: %w", err)
+		}
+		total := decimal.RequireFromString(totalRaw)
+		paid := decimal.RequireFromString(paidRaw)
+		item.foreign = total.Sub(paid).Round(4)
+		item.rate = decimal.RequireFromString(rateRaw)
+		item.baseTotal = decimal.RequireFromString(baseTotalRaw)
+		item.basePaid = decimal.RequireFromString(basePaidRaw)
+		item.baseRevalued = decimal.RequireFromString(baseRevaluedRaw)
+		invoices = append(invoices, item)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	rows.Close()
+
+	if len(invoices) == 0 {
+		return nil
+	}
+	if voucherCode == "" || reversalCode == "" {
+		return domain.ErrInvalidInput
+	}
+
+	rates := make(map[string]decimal.Decimal)
+	items := make([]fxRevaluationItem, 0, len(invoices))
+	for _, invoice := range invoices {
+		if invoice.foreign.IsZero() {
+			continue
+		}
+		closingRate, ok := rates[invoice.currency]
+		if !ok {
+			if err := tx.QueryRow(ctx, `
+				SELECT rate::text FROM erp.finance_exchange_rates
+				WHERE tenant_id = $1 AND currency_code = $2 AND rate_date <= $3::date
+				ORDER BY rate_date DESC LIMIT 1`,
+				tenantID, invoice.currency, period.EndDate.Format("2006-01-02"),
+			).Scan(&closingRate); err != nil {
+				if errors.Is(err, pgx.ErrNoRows) {
+					return domain.ErrFXRateNotFound
+				}
+				return fmt.Errorf("load closing rate: %w", err)
+			}
+			rates[invoice.currency] = closingRate
+		}
+		target := invoice.foreign.Mul(closingRate).Round(4)
+		book := invoice.baseTotal.Sub(invoice.basePaid).Add(invoice.baseRevalued).Round(4)
+		adjustment := target.Sub(book).Round(4)
+		if adjustment.IsZero() {
+			continue
+		}
+		items = append(items, fxRevaluationItem{
+			InvoiceID: invoice.id, InvoiceType: invoice.invoiceType,
+			PartnerID: invoice.partnerID, Currency: invoice.currency,
+			ForeignBalance: invoice.foreign, OldRate: invoice.rate,
+			NewRate: closingRate, Adjustment: adjustment,
+		})
+	}
+	if len(items) == 0 {
+		return nil
+	}
+
+	batchID := uuid.NewString()
+	nextDate := period.EndDate.AddDate(0, 0, 1)
+	nextPeriod, err := ensurePeriodTx(ctx, tx, tenantID, nextDate)
+	if err != nil {
+		return err
+	}
+	if nextPeriod.Status == domain.PeriodStatusClosed {
+		return domain.ErrPeriodClosed
+	}
+
+	if err := postFXRevaluationVoucher(ctx, tx, tenantID, orgID, period, userID,
+		voucherCode, domain.VoucherTypeFXRevaluation, domain.SourceTypeFXRevaluation,
+		batchID, period.EndDate, fxRevaluationLines(items, false)); err != nil {
+		return err
+	}
+	if err := postFXRevaluationVoucher(ctx, tx, tenantID, orgID, period, userID,
+		reversalCode, domain.VoucherTypeFXRevaluationReversal, domain.SourceTypeFXRevaluationReversal,
+		batchID, nextDate, fxRevaluationLines(items, true)); err != nil {
+		return err
+	}
+
+	voucherID, err := findVoucherIDBySourceTx(ctx, tx, tenantID, domain.SourceTypeFXRevaluation, batchID)
+	if err != nil {
+		return err
+	}
+	reversalVoucherID, err := findVoucherIDBySourceTx(ctx, tx, tenantID, domain.SourceTypeFXRevaluationReversal, batchID)
+	if err != nil {
+		return err
+	}
+
+	for _, item := range items {
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO erp.gl_fx_revaluations (
+				id, batch_id, tenant_id, period_id, invoice_id, invoice_type, partner_id,
+				currency, foreign_balance, old_rate, new_rate, base_adjustment, status,
+				voucher_id, reversal_voucher_id, created_by
+			) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'posted',$13,$14,$15)`,
+			uuid.NewString(), batchID, tenantID, period.ID, item.InvoiceID, item.InvoiceType,
+			item.PartnerID, item.Currency, item.ForeignBalance.String(), item.OldRate.String(),
+			item.NewRate.String(), item.Adjustment.String(), voucherID, reversalVoucherID, userID,
+		); err != nil {
+			return fmt.Errorf("insert FX revaluation: %w", err)
+		}
+		if _, err := tx.Exec(ctx, `
+			UPDATE erp.finance_invoices
+			SET base_revalued_amount = base_revalued_amount + $3, updated_at = now()
+			WHERE tenant_id = $1 AND id = $2`,
+			tenantID, item.InvoiceID, item.Adjustment.String(),
+		); err != nil {
+			return fmt.Errorf("update invoice revaluation: %w", err)
+		}
+	}
+	return nil
+}
+
+func undoFXRevaluationTx(
+	ctx context.Context,
+	tx pgx.Tx,
+	tenantID, orgID, userID string,
+	period *domain.Period,
+	reopenCode, reversalReopenCode string,
+) error {
+	rows, err := tx.Query(ctx, `
+		SELECT invoice_id::text, invoice_type, partner_id::text, base_adjustment::text
+		FROM erp.gl_fx_revaluations
+		WHERE tenant_id = $1 AND period_id = $2 AND status = 'posted'
+		ORDER BY created_at
+		FOR UPDATE`,
+		tenantID, period.ID,
+	)
+	if err != nil {
+		return fmt.Errorf("list FX revaluations for reopen: %w", err)
+	}
+	items := make([]fxRevaluationItem, 0)
+	for rows.Next() {
+		var item fxRevaluationItem
+		var adjustmentRaw string
+		if err := rows.Scan(&item.InvoiceID, &item.InvoiceType, &item.PartnerID, &adjustmentRaw); err != nil {
+			rows.Close()
+			return fmt.Errorf("scan FX revaluation for reopen: %w", err)
+		}
+		item.Adjustment = decimal.RequireFromString(adjustmentRaw)
+		items = append(items, item)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	rows.Close()
+	if len(items) == 0 {
+		return nil
+	}
+	if reopenCode == "" || reversalReopenCode == "" {
+		return domain.ErrInvalidInput
+	}
+
+	nextDate := period.EndDate.AddDate(0, 0, 1)
+	nextPeriod, err := ensurePeriodTx(ctx, tx, tenantID, nextDate)
+	if err != nil {
+		return err
+	}
+	if nextPeriod.Status == domain.PeriodStatusClosed {
+		return domain.ErrPeriodClosed
+	}
+	reopenBatchID := uuid.NewString()
+	if err := postFXRevaluationVoucher(ctx, tx, tenantID, orgID, period, userID,
+		reopenCode, domain.VoucherTypeFXRevaluationReopen, domain.SourceTypeFXRevaluationReopen,
+		reopenBatchID, period.EndDate, fxRevaluationLines(items, true)); err != nil {
+		return err
+	}
+	if err := postFXRevaluationVoucher(ctx, tx, tenantID, orgID, period, userID,
+		reversalReopenCode, domain.VoucherTypeFXRevaluationReopenReversal, domain.SourceTypeFXRevaluationReopenReversal,
+		reopenBatchID, nextDate, fxRevaluationLines(items, false)); err != nil {
+		return err
+	}
+	reopenVoucherID, err := findVoucherIDBySourceTx(ctx, tx, tenantID, domain.SourceTypeFXRevaluationReopen, reopenBatchID)
+	if err != nil {
+		return err
+	}
+	reversalReopenVoucherID, err := findVoucherIDBySourceTx(ctx, tx, tenantID, domain.SourceTypeFXRevaluationReopenReversal, reopenBatchID)
+	if err != nil {
+		return err
+	}
+	for _, item := range items {
+		if _, err := tx.Exec(ctx, `
+			UPDATE erp.gl_fx_revaluations
+			SET status = 'reopened', reopen_voucher_id = $3, reopen_reversal_voucher_id = $4,
+			    reversed_at = now()
+			WHERE tenant_id = $1 AND period_id = $2 AND invoice_id = $5 AND status = 'posted'`,
+			tenantID, period.ID, reopenVoucherID, reversalReopenVoucherID, item.InvoiceID,
+		); err != nil {
+			return fmt.Errorf("mark FX revaluation reopened: %w", err)
+		}
+		if _, err := tx.Exec(ctx, `
+			UPDATE erp.finance_invoices
+			SET base_revalued_amount = base_revalued_amount - $3, updated_at = now()
+			WHERE tenant_id = $1 AND id = $2`,
+			tenantID, item.InvoiceID, item.Adjustment.String(),
+		); err != nil {
+			return fmt.Errorf("reverse invoice revaluation: %w", err)
+		}
+	}
+	return nil
+}
+
+func postFXRevaluationVoucher(
+	ctx context.Context,
+	tx pgx.Tx,
+	tenantID, orgID string,
+	period *domain.Period,
+	userID, code, voucherType, sourceType, sourceID string,
+	voucherDate time.Time,
+	lines []postingLine,
+) error {
+	if len(lines) == 0 {
+		return nil
+	}
+	return postVoucherTx(ctx, tx, voucherPostingInput{
+		TenantID:    tenantID,
+		OrgID:       orgID,
+		VoucherCode: code,
+		VoucherDate: voucherDate,
+		VoucherType: voucherType,
+		SourceType:  sourceType,
+		SourceID:    sourceID,
+		SourceCode:  fmt.Sprintf("%04d-%02d", period.Year, period.Month),
+		Memo:        "外币重估 " + fmt.Sprintf("%04d-%02d", period.Year, period.Month),
+		CreatedBy:   userID,
+		Lines:       lines,
+	})
+}
+
+func fxRevaluationLines(items []fxRevaluationItem, reverse bool) []postingLine {
+	lines := make([]postingLine, 0, len(items)*2)
+	for _, item := range items {
+		adjustment := item.Adjustment.Round(4)
+		if adjustment.IsZero() {
+			continue
+		}
+		absolute := adjustment.Abs()
+		var debitKey, creditKey, debitSummary, creditSummary string
+		switch item.InvoiceType {
+		case "receivable":
+			if adjustment.IsPositive() {
+				debitKey, debitSummary = "ar", "应收汇兑调整"
+				creditKey, creditSummary = "fx_gain", "汇兑收益"
+			} else {
+				debitKey, debitSummary = "fx_loss", "汇兑损失"
+				creditKey, creditSummary = "ar", "应收汇兑调整"
+			}
+		case "payable":
+			if adjustment.IsPositive() {
+				debitKey, debitSummary = "fx_loss", "汇兑损失"
+				creditKey, creditSummary = "ap", "应付汇兑调整"
+			} else {
+				debitKey, debitSummary = "ap", "应付汇兑调整"
+				creditKey, creditSummary = "fx_gain", "汇兑收益"
+			}
+		default:
+			continue
+		}
+		lines = append(lines,
+			postingLine{AccountKey: debitKey, Summary: debitSummary, Debit: absolute, PartnerID: item.PartnerID},
+			postingLine{AccountKey: creditKey, Summary: creditSummary, Credit: absolute, PartnerID: item.PartnerID},
+		)
+	}
+	if reverse {
+		for _, line := range lines {
+			line.Debit, line.Credit = line.Credit, line.Debit
+			line.Summary = "反重估 " + line.Summary
+		}
+	}
+	return lines
+}
+
+func findVoucherIDBySourceTx(ctx context.Context, tx pgx.Tx, tenantID, sourceType, sourceID string) (string, error) {
+	var id string
+	if err := tx.QueryRow(ctx, `
+		SELECT id::text FROM erp.gl_vouchers
+		WHERE tenant_id = $1 AND source_type = $2 AND source_id = $3`,
+		tenantID, sourceType, sourceID).Scan(&id); err != nil {
+		return "", fmt.Errorf("load FX voucher: %w", err)
+	}
+	return id, nil
 }
 
 func ensurePeriodTx(ctx context.Context, tx pgx.Tx, tenantID string, date time.Time) (*domain.Period, error) {

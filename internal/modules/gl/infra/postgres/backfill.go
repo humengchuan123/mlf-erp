@@ -28,8 +28,8 @@ func Backfill(ctx context.Context, db *pgxpool.Pool, next CodeFunc) (*BackfillRe
 	rows, err := db.Query(ctx, `
 		SELECT s.tenant_id::text, s.org_id::text, s.id::text, s.code, s.shipment_date,
 		       o.customer_id::text, s.created_by::text,
-		       COALESCE(SUM(sl.amount), 0)::text, COALESCE(SUM(sl.tax_amount), 0)::text,
-		       COALESCE(SUM(sl.gross_amount), 0)::text, COALESCE(SUM(sl.cost_amount), 0)::text
+		       COALESCE(SUM(sl.base_amount), 0)::text, COALESCE(SUM(sl.base_tax_amount), 0)::text,
+		       COALESCE(SUM(sl.base_gross_amount), 0)::text, COALESCE(SUM(sl.cost_amount), 0)::text
 		FROM erp.sales_shipments s
 		JOIN erp.sales_orders o ON o.tenant_id = s.tenant_id AND o.id = s.order_id
 		JOIN erp.sales_shipment_lines sl ON sl.tenant_id = s.tenant_id AND sl.shipment_id = s.id
@@ -77,8 +77,8 @@ func Backfill(ctx context.Context, db *pgxpool.Pool, next CodeFunc) (*BackfillRe
 			TenantID: item.tenantID, OrgID: item.orgID, VoucherCode: code,
 			SourceID: item.id, SourceCode: item.code, CustomerID: item.customerID,
 			CreatedBy: item.createdBy, VoucherDate: item.shipmentDate,
-			NetAmount: item.netAmount, TaxAmount: item.taxAmount,
-			GrossAmount: item.grossAmount, CostAmount: item.costAmount,
+			BaseNetAmount: item.netAmount, BaseTaxAmount: item.taxAmount,
+			BaseGrossAmount: item.grossAmount, CostAmount: item.costAmount,
 		}); err != nil {
 			tx.Rollback(ctx)
 			return result, fmt.Errorf("backfill sales shipment %s: %w", item.code, err)
@@ -97,8 +97,8 @@ func Backfill(ctx context.Context, db *pgxpool.Pool, next CodeFunc) (*BackfillRe
 	rows, err = db.Query(ctx, `
 		SELECT r.tenant_id::text, r.org_id::text, r.id::text, r.code, r.receipt_date,
 		       o.supplier_id::text, r.created_by::text,
-		       COALESCE(SUM(rl.amount), 0)::text, COALESCE(SUM(rl.tax_amount), 0)::text,
-		       COALESCE(SUM(rl.gross_amount), 0)::text
+		       COALESCE(SUM(rl.base_amount), 0)::text, COALESCE(SUM(rl.base_tax_amount), 0)::text,
+		       COALESCE(SUM(rl.base_gross_amount), 0)::text
 		FROM erp.purchase_receipts r
 		JOIN erp.purchase_orders o ON o.tenant_id = r.tenant_id AND o.id = r.order_id
 		JOIN erp.purchase_receipt_lines rl ON rl.tenant_id = r.tenant_id AND rl.receipt_id = r.id
@@ -145,7 +145,7 @@ func Backfill(ctx context.Context, db *pgxpool.Pool, next CodeFunc) (*BackfillRe
 			TenantID: item.tenantID, OrgID: item.orgID, VoucherCode: code,
 			SourceID: item.id, SourceCode: item.code, SupplierID: item.supplierID,
 			CreatedBy: item.createdBy, VoucherDate: item.receiptDate,
-			NetAmount: item.netAmount, TaxAmount: item.taxAmount, GrossAmount: item.grossAmount,
+			BaseNetAmount: item.netAmount, BaseTaxAmount: item.taxAmount, BaseGrossAmount: item.grossAmount,
 		}); err != nil {
 			tx.Rollback(ctx)
 			return result, fmt.Errorf("backfill purchase receipt %s: %w", item.code, err)
@@ -163,7 +163,7 @@ func Backfill(ctx context.Context, db *pgxpool.Pool, next CodeFunc) (*BackfillRe
 	}
 	rows, err = db.Query(ctx, `
 		SELECT p.tenant_id::text, p.org_id::text, p.id::text, p.code, p.payment_date,
-		       p.partner_id::text, p.created_by::text, p.amount::text, p.payment_type, p.method
+		       p.partner_id::text, p.created_by::text, p.base_amount::text, p.payment_type, p.method
 		FROM erp.finance_payments p
 		WHERE NOT EXISTS (
 		    SELECT 1 FROM erp.gl_vouchers v
@@ -206,7 +206,7 @@ func Backfill(ctx context.Context, db *pgxpool.Pool, next CodeFunc) (*BackfillRe
 		if err := PostPayment(ctx, tx, PaymentPosting{
 			TenantID: item.tenantID, OrgID: item.orgID, VoucherCode: code,
 			SourceID: item.id, SourceCode: item.code, PartnerID: item.partnerID,
-			CreatedBy: item.createdBy, VoucherDate: item.paymentDate, Amount: item.amount,
+			CreatedBy: item.createdBy, VoucherDate: item.paymentDate, BaseAmount: item.amount,
 			PaymentType: item.paymentType, PaymentMethod: item.method,
 		}); err != nil {
 			tx.Rollback(ctx)

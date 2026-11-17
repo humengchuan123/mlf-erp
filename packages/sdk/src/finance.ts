@@ -13,10 +13,16 @@ export interface Invoice {
   invoice_date: string
   due_date: string
   currency: string
+  exchange_rate: string
   status: string
   net_amount: string
   tax_amount: string
   total_amount: string
+  base_net_amount: string
+  base_tax_amount: string
+  base_total_amount: string
+  base_paid_amount: string
+  base_revalued_amount: string
   paid_amount: string
   outstanding_amount: string
   vat_invoice_no: string
@@ -60,8 +66,11 @@ export interface Payment {
   partner_name: string
   payment_date: string
   currency: string
+  exchange_rate: string
   amount: string
+  base_amount: string
   allocated_amount: string
+  base_allocated_amount: string
   unallocated_amount: string
   status: string
   method: string
@@ -76,10 +85,32 @@ export interface PaymentInput {
   partner_id: string
   payment_date: string
   currency: string
+  exchange_rate?: string
   amount: string
   method?: string
   reference?: string
   remark?: string
+}
+
+export interface ExchangeRate {
+  id: string
+  currency_code: string
+  rate_date: string
+  rate: string
+  created_at: string
+  updated_at: string
+}
+
+export interface ExchangeRateInput {
+  currency_code: string
+  rate_date: string
+  rate: string
+}
+
+export interface LatestExchangeRate {
+  currency_code: string
+  date: string
+  rate: string
 }
 
 export interface AllocationInput {
@@ -137,5 +168,19 @@ export const financeApi = {
   },
   allocate(paymentId: string, allocations: AllocationInput[]): Promise<Payment> {
     return api.post<Payment>(`/finance/payments/${paymentId}/allocate`, { allocations })
+  },
+  exchangeRates: {
+    list(params: { currency?: string; start_date?: string; end_date?: string; page?: number; page_size?: number } = {}): Promise<Paged<ExchangeRate>> {
+      return api.get<Paged<ExchangeRate>>(`/finance/exchange-rates${queryString(params)}`)
+    },
+    latest(currency: string, date?: string): Promise<LatestExchangeRate> {
+      return api.get<LatestExchangeRate>(`/finance/exchange-rates/latest${queryString({ currency, date })}`)
+    },
+    upsert(input: ExchangeRateInput): Promise<ExchangeRate> {
+      return api.post<ExchangeRate>('/finance/exchange-rates', input)
+    },
+    update(id: string, input: ExchangeRateInput): Promise<ExchangeRate> {
+      return api.put<ExchangeRate>(`/finance/exchange-rates/${id}`, input)
+    }
   }
 }

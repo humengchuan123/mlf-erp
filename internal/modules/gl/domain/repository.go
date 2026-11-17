@@ -20,8 +20,8 @@ type PeriodRepository interface {
 	Get(ctx context.Context, tenantID, id string) (*Period, error)
 	Ensure(ctx context.Context, tenantID string, date time.Time) (*Period, error)
 	EnsureYear(ctx context.Context, tenantID string, year int) error
-	Close(ctx context.Context, tenantID, orgID, id, userID, voucherCode string) error
-	Reopen(ctx context.Context, tenantID, id, userID, reversalCode string) error
+	Close(ctx context.Context, tenantID, orgID, id, userID, voucherCode, fxVoucherCode, fxReversalCode string) error
+	Reopen(ctx context.Context, tenantID, orgID, id, userID, reversalCode, fxReopenCode, fxReversalReopenCode string) error
 	CloseYear(ctx context.Context, tenantID, orgID string, year int, userID, voucherCode string) error
 	YearCloseStatus(ctx context.Context, tenantID string, year int) (*YearClose, error)
 }

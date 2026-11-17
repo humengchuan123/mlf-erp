@@ -92,6 +92,12 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '财务报表', permission: 'finance.report.read' }
       },
       {
+        path: 'finance/exchange-rates',
+        name: 'finance-exchange-rates',
+        component: () => import('@/views/finance/ExchangeRateListView.vue'),
+        meta: { title: '汇率管理', permission: 'finance.exchange_rate.read' }
+      },
+      {
         path: 'finance/gl',
         redirect: '/finance/vouchers'
       },

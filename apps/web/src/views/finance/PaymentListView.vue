@@ -38,7 +38,9 @@
         <el-table-column prop="partner_name" label="往来单位" min-width="150" />
         <el-table-column prop="payment_date" label="日期" width="110" />
         <el-table-column prop="currency" label="币种" width="70" />
-        <el-table-column prop="amount" label="金额" width="120" align="right" />
+        <el-table-column prop="exchange_rate" label="汇率" width="100" align="right" />
+        <el-table-column prop="amount" label="原币金额" width="120" align="right" />
+        <el-table-column prop="base_amount" label="本位币金额" width="130" align="right" />
         <el-table-column prop="allocated_amount" label="已核销" width="120" align="right" />
         <el-table-column prop="unallocated_amount" label="未核销" width="120" align="right" />
         <el-table-column prop="status" label="状态" width="110">
@@ -103,6 +105,11 @@
                 <el-option label="CNY" value="CNY" />
                 <el-option label="USD" value="USD" />
               </el-select>
+            </el-form-item>
+          </el-col>
+          <el-col :span="8">
+            <el-form-item label="汇率">
+              <el-input v-model="form.exchange_rate" placeholder="留空自动取汇率" />
             </el-form-item>
           </el-col>
           <el-col :span="8">
@@ -209,6 +216,7 @@ const form = reactive({
   partner_id: '',
   payment_date: today(),
   currency: 'CNY',
+  exchange_rate: '',
   amount: '',
   method: 'bank',
   reference: '',
@@ -302,6 +310,7 @@ function openCreate() {
     partner_id: '',
     payment_date: today(),
     currency: 'CNY',
+    exchange_rate: '',
     amount: '',
     method: 'bank',
     reference: '',
@@ -328,6 +337,7 @@ async function savePayment() {
       partner_id: form.partner_id,
       payment_date: form.payment_date,
       currency: form.currency,
+      exchange_rate: form.exchange_rate || undefined,
       amount: form.amount,
       method: form.method,
       reference: form.reference,

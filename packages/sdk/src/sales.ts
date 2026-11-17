@@ -13,6 +13,9 @@ export interface SalesOrderLine {
   amount: string
   tax_amount: string
   gross_amount: string
+  base_amount: string
+  base_tax_amount: string
+  base_gross_amount: string
   shipped_qty: string
   remaining_qty: string
 }
@@ -26,11 +29,15 @@ export interface SalesOrder {
   warehouse_name: string
   order_date: string
   currency: string
+  exchange_rate: string
   status: string
   price_includes_tax: boolean
   net_amount: string
   tax_amount: string
   total_amount: string
+  base_net_amount: string
+  base_tax_amount: string
+  base_total_amount: string
   remark: string
   created_at: string
   updated_at: string
@@ -49,6 +56,7 @@ export interface SalesOrderInput {
   warehouse_id: string
   order_date: string
   currency: string
+  exchange_rate?: string
   price_includes_tax?: boolean
   remark?: string
   lines: SalesOrderLineInput[]
@@ -65,6 +73,9 @@ export interface ShipmentLine {
   amount: string
   tax_amount: string
   gross_amount: string
+  base_amount: string
+  base_tax_amount: string
+  base_gross_amount: string
   unit_cost: string
   cost_amount: string
 }
@@ -81,8 +92,12 @@ export interface Shipment {
   shipment_date: string
   status: string
   price_includes_tax: boolean
+  exchange_rate: string
   net_amount: string
   tax_amount: string
+  base_net_amount: string
+  base_tax_amount: string
+  base_total_amount: string
   remark: string
   invoice_id: string
   invoice_code: string
@@ -101,6 +116,7 @@ export interface ShipLineInput {
 
 export interface ShipInput {
   shipment_date: string
+  exchange_rate?: string
   remark?: string
   lines: ShipLineInput[]
 }

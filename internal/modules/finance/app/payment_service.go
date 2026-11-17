@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/mlf-erp/mlf-erp/internal/modules/finance/domain"
 	masterdomain "github.com/mlf-erp/mlf-erp/internal/modules/masterdata/domain"
+	"github.com/mlf-erp/mlf-erp/internal/platform/fx"
 	"github.com/mlf-erp/mlf-erp/internal/platform/scope"
 	"github.com/shopspring/decimal"
 )
@@ -16,21 +17,23 @@ type PaymentService struct {
 	payments domain.PaymentRepository
 	codes    CodeGenerator
 	partners PartnerReader
+	rates    fx.RateReader
 }
 
-func NewPaymentService(payments domain.PaymentRepository, codes CodeGenerator, partners PartnerReader) *PaymentService {
-	return &PaymentService{payments: payments, codes: codes, partners: partners}
+func NewPaymentService(payments domain.PaymentRepository, codes CodeGenerator, partners PartnerReader, rates fx.RateReader) *PaymentService {
+	return &PaymentService{payments: payments, codes: codes, partners: partners, rates: rates}
 }
 
 type PaymentInput struct {
-	PaymentType string
-	PartnerID   string
-	PaymentDate time.Time
-	Currency    string
-	Amount      decimal.Decimal
-	Method      string
-	Reference   string
-	Remark      string
+	PaymentType  string
+	PartnerID    string
+	PaymentDate  time.Time
+	Currency     string
+	ExchangeRate decimal.Decimal
+	Amount       decimal.Decimal
+	Method       string
+	Reference    string
+	Remark       string
 }
 
 type AllocateInput struct {
@@ -109,6 +112,14 @@ func (s *PaymentService) Create(ctx context.Context, input PaymentInput) (*domai
 	if currency == "" {
 		currency = "CNY"
 	}
+	exchangeRate, err := fx.Resolve(ctx, s.rates, tenantID, currency, paymentDate, input.ExchangeRate)
+	if err != nil {
+		return nil, err
+	}
+	baseAmount, err := fx.Convert(amount, exchangeRate)
+	if err != nil {
+		return nil, err
+	}
 	method := strings.ToLower(strings.TrimSpace(input.Method))
 	if method == "" {
 		method = "bank"
@@ -121,24 +132,27 @@ func (s *PaymentService) Create(ctx context.Context, input PaymentInput) (*domai
 	// visible to users whose data scope covers that org (for example all/admin);
 	// finance users with company/dept scope should settle invoices in their scope.
 	payment := &domain.Payment{
-		ID:              uuid.NewString(),
-		TenantID:        tenantID,
-		OrgID:           orgID,
-		Code:            code,
-		PaymentType:     paymentType,
-		PartnerID:       partner.ID,
-		PartnerName:     partner.Name,
-		PaymentDate:     paymentDate,
-		Currency:        currency,
-		Amount:          amount,
-		AllocatedAmount: decimal.Zero,
-		Status:          domain.PaymentStatusUnallocated,
-		Method:          method,
-		Reference:       strings.TrimSpace(input.Reference),
-		Remark:          strings.TrimSpace(input.Remark),
-		CreatedBy:       userID,
-		CreatedAt:       time.Now(),
-		VoucherCode:     voucherCode,
+		ID:                  uuid.NewString(),
+		TenantID:            tenantID,
+		OrgID:               orgID,
+		Code:                code,
+		PaymentType:         paymentType,
+		PartnerID:           partner.ID,
+		PartnerName:         partner.Name,
+		PaymentDate:         paymentDate,
+		Currency:            currency,
+		ExchangeRate:        exchangeRate,
+		Amount:              amount,
+		AllocatedAmount:     decimal.Zero,
+		BaseAmount:          baseAmount,
+		BaseAllocatedAmount: decimal.Zero,
+		Status:              domain.PaymentStatusUnallocated,
+		Method:              method,
+		Reference:           strings.TrimSpace(input.Reference),
+		Remark:              strings.TrimSpace(input.Remark),
+		CreatedBy:           userID,
+		CreatedAt:           time.Now(),
+		VoucherCode:         voucherCode,
 	}
 	if err := s.payments.Create(ctx, payment); err != nil {
 		return nil, err

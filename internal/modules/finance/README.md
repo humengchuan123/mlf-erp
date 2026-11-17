@@ -64,6 +64,16 @@
 - 开票状态：`pending → issued → void`；开票/作废不生成凭证，税额已在发货/收货确认。
 - 发票号租户内唯一（非空）。
 
+## 多币种与汇兑损益（Stage 3F）
+
+- `finance_exchange_rates` 按币种和生效日期维护汇率。
+- 发票/收付款保存 `exchange_rate`、原币金额和本位币金额。
+- 收付款核销按付款汇率和发票汇率差额生成 `fx_settlement` 凭证：
+  - 应收差额计入汇兑收益/损失并调整应收。
+  - 应付差额方向相反。
+- 期末关账重估未核销外币应收应付，生成 `fx_revaluation` 和次期 `fx_revaluation_reversal`。
+- 反关账撤销重估和次期反向凭证。
+
 ## 收付款
 
 - `payment_type`：`receipt` / `payment`。

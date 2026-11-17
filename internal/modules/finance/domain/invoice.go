@@ -26,35 +26,41 @@ const (
 )
 
 type Invoice struct {
-	ID               string
-	TenantID         string
-	OrgID            string
-	Code             string
-	InvoiceType      string
-	SourceType       string
-	SourceID         string
-	SourceCode       string
-	PartnerID        string
-	PartnerName      string
-	InvoiceDate      time.Time
-	DueDate          time.Time
-	Currency         string
-	Status           string
-	NetAmount        decimal.Decimal
-	TaxAmount        decimal.Decimal
-	TotalAmount      decimal.Decimal
-	PaidAmount       decimal.Decimal
-	VatInvoiceNo     string
-	VatInvoiceType   string
-	VatInvoiceDate   *time.Time
-	VatInvoiceStatus string
-	BuyerTaxNo       string
-	SellerTaxNo      string
-	Remark           string
-	CreatedBy        string
-	UpdatedBy        string
-	CreatedAt        time.Time
-	UpdatedAt        time.Time
+	ID                 string
+	TenantID           string
+	OrgID              string
+	Code               string
+	InvoiceType        string
+	SourceType         string
+	SourceID           string
+	SourceCode         string
+	PartnerID          string
+	PartnerName        string
+	InvoiceDate        time.Time
+	DueDate            time.Time
+	Currency           string
+	ExchangeRate       decimal.Decimal
+	Status             string
+	NetAmount          decimal.Decimal
+	TaxAmount          decimal.Decimal
+	TotalAmount        decimal.Decimal
+	BaseNetAmount      decimal.Decimal
+	BaseTaxAmount      decimal.Decimal
+	BaseTotalAmount    decimal.Decimal
+	BasePaidAmount     decimal.Decimal
+	BaseRevaluedAmount decimal.Decimal
+	PaidAmount         decimal.Decimal
+	VatInvoiceNo       string
+	VatInvoiceType     string
+	VatInvoiceDate     *time.Time
+	VatInvoiceStatus   string
+	BuyerTaxNo         string
+	SellerTaxNo        string
+	Remark             string
+	CreatedBy          string
+	UpdatedBy          string
+	CreatedAt          time.Time
+	UpdatedAt          time.Time
 }
 
 func (i *Invoice) Outstanding() decimal.Decimal {

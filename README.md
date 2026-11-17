@@ -2,7 +2,7 @@
 
 企业级 ERP Monorepo 骨架，支持 **SaaS 订阅** 与 **私有化安装** 两种交付形态。
 
-> 当前状态：Stage 1 平台底座 + Stage 2 主数据/编码规则/数据权限 + Stage 3A 采购/库存 + Stage 3B 销售/应收应付 + Stage 3C 总账/自动凭证/基础报表 + Stage 3D 期末结转/辅助核算 + Stage 3E 税务/发票/价税分离。
+> 当前状态：Stage 1 平台底座 + Stage 2 主数据/编码规则/数据权限 + Stage 3A 采购/库存 + Stage 3B 销售/应收应付 + Stage 3C 总账/自动凭证/基础报表 + Stage 3D 期末结转/辅助核算 + Stage 3E 税务/发票/价税分离 + Stage 3F 多币种/汇率/汇兑损益。
 > 设计参考：工作区根目录的《企业ERP应用开发指南》。
 
 ## 技术栈
@@ -267,6 +267,9 @@ pnpm test:api:stage3d
 # Stage 3E API integration test (tax, VAT invoices, price-tax separation)
 pnpm test:api:stage3e
 
+# Stage 3F API integration test (multi-currency, FX settlement and revaluation)
+pnpm test:api:stage3f
+
 # Docker
 docker build -f deploy/docker/api.Dockerfile -t mlf-erp/api:dev .
 docker build -f deploy/docker/worker.Dockerfile -t mlf-erp/worker:dev .
@@ -353,18 +356,29 @@ docker build -f deploy/docker/web.Dockerfile -t mlf-erp/web:dev .
 - 前端订单/发货/发票/报表增加税务字段和操作；SDK/OpenAPI 同步。
 - Stage 3E 真实 HTTP API 集成测试和前端完整度检查。
 
+### Stage 3F 多币种/汇率/汇兑损益
+
+- 新增汇率表，按币种和生效日期维护；单据默认取最近汇率并可覆盖。
+- 销售/采购订单、发货、收货、应收应付发票、收付款保存原币金额、汇率快照和 CNY 本位币金额。
+- 销售发货、采购收货自动凭证按本位币入账。
+- 收付款核销按付款汇率与发票汇率差额生成已实现汇兑损益凭证。
+- 期末关账自动重估未核销外币应收应付，次期初反向；反关账撤销重估。
+- 新增 660301 汇兑损失、660302 汇兑收益科目和映射。
+- 前端增加汇率管理、本位币金额和汇率字段；SDK/OpenAPI 同步。
+- Stage 3F 真实 HTTP API 集成测试和前端完整度检查。
+
 ### 工程与交付
 
 - Monorepo 工作区与共享包。
 - PostgreSQL 迁移、seed、Docker Compose。
 - Dockerfile、GitHub Actions CI、SaaS/私有化发布模板。
-- CI 包含单元测试、构建、Stage 3B/3C/3D/3E 真实 PostgreSQL API 集成测试。
+- CI 包含单元测试、构建、Stage 3B/3C/3D/3E/3F 真实 PostgreSQL API 集成测试。
 - OpenAPI 契约与模块文档。
 
 ## 下一步
 
-- Stage 3F：多币种、汇率、汇兑损益。
 - Stage 3G：现金流量表。
+- 银行/现金外币重估、跨币种核销、多本位币/合并报表折算。
 - 采购退货、销售退货、价格协议、客户信用。
 - 收付款反核销、红字发票、账龄分析。
 - 审批流引擎、导入导出、附件。

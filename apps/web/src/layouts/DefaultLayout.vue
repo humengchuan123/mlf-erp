@@ -90,6 +90,10 @@
             <el-icon><TrendCharts /></el-icon>
             <span>财务报表</span>
           </el-menu-item>
+          <el-menu-item v-if="authStore.hasPermission('finance.exchange_rate.read')" index="/finance/exchange-rates">
+            <el-icon><Coin /></el-icon>
+            <span>汇率管理</span>
+          </el-menu-item>
         </el-menu-item-group>
 
         <el-menu-item-group v-if="canSystem" title="平台">
@@ -209,6 +213,7 @@ const canFinance = computed(
     authStore.hasPermission('finance.period.read') ||
     authStore.hasPermission('finance.voucher.read') ||
     authStore.hasPermission('finance.report.read') ||
+    authStore.hasPermission('finance.exchange_rate.read') ||
     authStore.hasPermission('finance.read')
 )
 const canSystem = computed(

@@ -46,7 +46,10 @@ assertFile('apps/web/src/router/index.ts', [
   'finance.voucher.read',
   "path: 'finance/reports'",
   'ReportView.vue',
-  'finance.report.read'
+  'finance.report.read',
+  "path: 'finance/exchange-rates'",
+  'ExchangeRateListView.vue',
+  'finance.exchange_rate.read'
 ])
 
 assertFile('apps/web/src/layouts/DefaultLayout.vue', [
@@ -61,7 +64,17 @@ assertFile('apps/web/src/layouts/DefaultLayout.vue', [
   '会计科目',
   '会计期间',
   '会计凭证',
-  '财务报表'
+  '财务报表',
+  '汇率管理'
+])
+
+assertFile('apps/web/src/views/finance/ExchangeRateListView.vue', [
+  'PageHeader',
+  'el-table',
+  'el-dialog',
+  'financeApi.exchangeRates.list',
+  'financeApi.exchangeRates.upsert',
+  'financeApi.exchangeRates.update'
 ])
 
 assertFile('apps/web/src/views/sales/OrderListView.vue', [
@@ -75,6 +88,8 @@ assertFile('apps/web/src/views/sales/OrderListView.vue', [
   'tax_rate_id',
   'tax_amount',
   'gross_amount',
+  'exchange_rate',
+  'base_total_amount',
   '发货'
 ])
 
@@ -86,7 +101,9 @@ assertFile('apps/web/src/views/purchase/OrderListView.vue', [
   'price_includes_tax',
   'tax_rate_id',
   'tax_amount',
-  'gross_amount'
+  'gross_amount',
+  'exchange_rate',
+  'base_total_amount'
 ])
 
 assertFile('apps/web/src/views/sales/ShipmentListView.vue', [
@@ -111,6 +128,8 @@ assertFile('apps/web/src/views/finance/InvoiceListView.vue', [
   'vat_invoice_status',
   'net_amount',
   'tax_amount',
+  'exchange_rate',
+  'base_total_amount',
   'outstanding_amount',
   'allocations'
 ])
@@ -183,7 +202,9 @@ assertFile('packages/sdk/src/sales.ts', [
   'ship(',
   'shipments(',
   'tax_rate_id',
-  'gross_amount'
+  'gross_amount',
+  'exchange_rate',
+  'base_total_amount'
 ])
 
 assertFile('packages/sdk/src/finance.ts', [
@@ -192,6 +213,9 @@ assertFile('packages/sdk/src/finance.ts', [
   'invoice(',
   'issueInvoice(',
   'voidInvoice(',
+  'exchangeRates',
+  'exchange_rate',
+  'base_total_amount',
   'vat_invoice_status',
   'payments(',
   'payment(',
@@ -199,7 +223,7 @@ assertFile('packages/sdk/src/finance.ts', [
   'allocate('
 ])
 
-assertFile('packages/sdk/src/purchase.ts', ['purchaseApi', 'tax_rate_id', 'gross_amount'])
+assertFile('packages/sdk/src/purchase.ts', ['purchaseApi', 'tax_rate_id', 'gross_amount', 'exchange_rate', 'base_total_amount'])
 
 assertFile('packages/sdk/src/gl.ts', [
   'glApi',
@@ -215,7 +239,7 @@ assertFile('packages/sdk/src/gl.ts', [
   'vatSummary('
 ])
 
-assertFile('package.json', ['test:api:stage3b', 'test:api:stage3e', 'test:frontend'])
+assertFile('package.json', ['test:api:stage3b', 'test:api:stage3e', 'test:api:stage3f', 'test:frontend'])
 
 if (failures.length > 0) {
   console.error('Frontend completeness check failed:')

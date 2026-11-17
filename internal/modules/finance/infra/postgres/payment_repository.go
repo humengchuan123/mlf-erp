@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/mlf-erp/mlf-erp/internal/modules/finance/domain"
@@ -14,12 +16,17 @@ import (
 	"github.com/shopspring/decimal"
 )
 
-type PaymentRepository struct {
-	db *pgxpool.Pool
+type CodeGenerator interface {
+	Next(ctx context.Context, tenantID, entity string) (string, error)
 }
 
-func NewPaymentRepository(db *pgxpool.Pool) *PaymentRepository {
-	return &PaymentRepository{db: db}
+type PaymentRepository struct {
+	db    *pgxpool.Pool
+	codes CodeGenerator
+}
+
+func NewPaymentRepository(db *pgxpool.Pool, codes CodeGenerator) *PaymentRepository {
+	return &PaymentRepository{db: db, codes: codes}
 }
 
 func (r *PaymentRepository) Create(ctx context.Context, payment *domain.Payment) error {
@@ -32,11 +39,14 @@ func (r *PaymentRepository) Create(ctx context.Context, payment *domain.Payment)
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO erp.finance_payments (
 			id, tenant_id, org_id, code, payment_type, partner_id, payment_date,
-			currency, amount, allocated_amount, status, method, reference, remark, created_by
-		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
+			currency, exchange_rate, amount, base_amount, allocated_amount,
+			base_allocated_amount, status, method, reference, remark, created_by
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)`,
 		payment.ID, payment.TenantID, payment.OrgID, payment.Code, payment.PaymentType, payment.PartnerID,
-		payment.PaymentDate, payment.Currency, payment.Amount.String(), payment.AllocatedAmount.String(),
-		payment.Status, payment.Method, payment.Reference, payment.Remark, payment.CreatedBy,
+		payment.PaymentDate, payment.Currency, payment.ExchangeRate.String(),
+		payment.Amount.String(), payment.BaseAmount.String(), payment.AllocatedAmount.String(),
+		payment.BaseAllocatedAmount.String(), payment.Status, payment.Method,
+		payment.Reference, payment.Remark, payment.CreatedBy,
 	); err != nil {
 		return fmt.Errorf("insert payment: %w", mapDBError(err))
 	}
@@ -50,7 +60,7 @@ func (r *PaymentRepository) Create(ctx context.Context, payment *domain.Payment)
 		PartnerID:     payment.PartnerID,
 		CreatedBy:     payment.CreatedBy,
 		VoucherDate:   payment.PaymentDate,
-		Amount:        payment.Amount,
+		BaseAmount:    payment.BaseAmount,
 		PaymentType:   payment.PaymentType,
 		PaymentMethod: payment.Method,
 	}); err != nil {
@@ -148,14 +158,18 @@ func (r *PaymentRepository) Allocate(
 	where := "p.tenant_id = $1 AND p.id = $2"
 	appendScope(&where, &args, "p", filter)
 
-	var paymentType, partnerID, currency, status, amountRaw, allocatedRaw string
+	var paymentType, partnerID, currency, status, amountRaw, allocatedRaw, paymentRateRaw, baseAllocatedRaw string
+	var paymentOrgID, paymentCode string
+	var paymentDate time.Time
 	err = tx.QueryRow(ctx, `
 		SELECT p.payment_type, p.partner_id::text, p.currency, p.status,
-		       p.amount::text, p.allocated_amount::text
+		       p.amount::text, p.allocated_amount::text, p.exchange_rate::text,
+		       p.base_allocated_amount::text, p.org_id::text, p.code, p.payment_date
 		FROM erp.finance_payments p
 		WHERE `+where+`
 		FOR UPDATE OF p`, args...).Scan(
 		&paymentType, &partnerID, &currency, &status, &amountRaw, &allocatedRaw,
+		&paymentRateRaw, &baseAllocatedRaw, &paymentOrgID, &paymentCode, &paymentDate,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.ErrNotFound
@@ -169,6 +183,8 @@ func (r *PaymentRepository) Allocate(
 
 	amount := decimal.RequireFromString(amountRaw)
 	allocated := decimal.RequireFromString(allocatedRaw)
+	paymentRate := decimal.RequireFromString(paymentRateRaw)
+	baseAllocated := decimal.RequireFromString(baseAllocatedRaw)
 	unallocated := amount.Sub(allocated)
 	if !unallocated.IsPositive() {
 		return domain.ErrPaymentAllocated
@@ -192,10 +208,13 @@ func (r *PaymentRepository) Allocate(
 
 	total := decimal.Zero
 	type lockedInvoice struct {
-		id     string
-		status string
-		total  decimal.Decimal
-		paid   decimal.Decimal
+		id          string
+		invoiceType string
+		status      string
+		total       decimal.Decimal
+		paid        decimal.Decimal
+		rate        decimal.Decimal
+		basePaid    decimal.Decimal
 	}
 	locked := make(map[string]lockedInvoice, len(invoiceIDs))
 
@@ -207,14 +226,16 @@ func (r *PaymentRepository) Allocate(
 		appendScope(&invoiceWhere, &invoiceArgs, "i", filter)
 
 		var invoiceType, invoicePartnerID, invoiceCurrency, invoiceStatus, invoiceTotalRaw, invoicePaidRaw string
+		var invoiceRateRaw, basePaidRaw string
 		err = tx.QueryRow(ctx, `
 			SELECT i.invoice_type, i.partner_id::text, i.currency, i.status,
-			       i.total_amount::text, i.paid_amount::text
+			       i.total_amount::text, i.paid_amount::text, i.exchange_rate::text,
+			       i.base_paid_amount::text
 			FROM erp.finance_invoices i
 			WHERE `+invoiceWhere+`
 			FOR UPDATE OF i`, invoiceArgs...).Scan(
 			&invoiceType, &invoicePartnerID, &invoiceCurrency, &invoiceStatus,
-			&invoiceTotalRaw, &invoicePaidRaw,
+			&invoiceTotalRaw, &invoicePaidRaw, &invoiceRateRaw, &basePaidRaw,
 		)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return domain.ErrNotFound
@@ -247,13 +268,16 @@ func (r *PaymentRepository) Allocate(
 
 		invoiceTotal := decimal.RequireFromString(invoiceTotalRaw)
 		invoicePaid := decimal.RequireFromString(invoicePaidRaw)
+		invoiceRate := decimal.RequireFromString(invoiceRateRaw)
+		basePaid := decimal.RequireFromString(basePaidRaw)
 		outstanding := invoiceTotal.Sub(invoicePaid)
 		if allocationAmount.GreaterThan(outstanding) {
 			return domain.ErrOverAllocate
 		}
 
 		locked[invoiceID] = lockedInvoice{
-			id: invoiceID, status: invoiceStatus, total: invoiceTotal, paid: invoicePaid,
+			id: invoiceID, invoiceType: invoiceType, status: invoiceStatus,
+			total: invoiceTotal, paid: invoicePaid, rate: invoiceRate, basePaid: basePaid,
 		}
 		total = total.Add(allocationAmount)
 	}
@@ -266,6 +290,7 @@ func (r *PaymentRepository) Allocate(
 		allocationAmount := byInvoice[invoiceID]
 		invoice := locked[invoiceID]
 		newPaid := invoice.paid.Add(allocationAmount)
+		newBasePaid := invoice.basePaid.Add(allocationAmount.Mul(invoice.rate).Round(4))
 		newStatus := domain.InvoiceStatusPartiallyPaid
 		if newPaid.Equal(invoice.total) {
 			newStatus = domain.InvoiceStatusPaid
@@ -273,9 +298,9 @@ func (r *PaymentRepository) Allocate(
 
 		tag, updateErr := tx.Exec(ctx, `
 			UPDATE erp.finance_invoices
-			SET paid_amount = $3, status = $4, updated_by = $5, updated_at = now()
-			WHERE tenant_id = $1 AND id = $2 AND paid_amount + $6 <= total_amount`,
-			tenantID, invoiceID, newPaid.String(), newStatus, userID, allocationAmount.String(),
+			SET paid_amount = $3, base_paid_amount = $4, status = $5, updated_by = $6, updated_at = now()
+			WHERE tenant_id = $1 AND id = $2 AND paid_amount + $7 <= total_amount`,
+			tenantID, invoiceID, newPaid.String(), newBasePaid.String(), newStatus, userID, allocationAmount.String(),
 		)
 		if updateErr != nil {
 			return fmt.Errorf("update invoice paid amount: %w", updateErr)
@@ -287,28 +312,81 @@ func (r *PaymentRepository) Allocate(
 
 	for _, invoiceID := range invoiceIDs {
 		allocationAmount := byInvoice[invoiceID]
+		invoice := locked[invoiceID]
+		basePayment := allocationAmount.Mul(paymentRate).Round(4)
+		baseInvoice := allocationAmount.Mul(invoice.rate).Round(4)
+		fxDiff := basePayment.Sub(baseInvoice).Round(4)
+		allocationID := uuid.NewString()
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO erp.finance_payment_allocations (
-				id, tenant_id, payment_id, invoice_id, amount, created_by
-			) VALUES (gen_random_uuid(), $1, $2, $3, $4, $5)
+				id, tenant_id, payment_id, invoice_id, amount, base_amount,
+				invoice_base_amount, created_by
+			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 			ON CONFLICT (payment_id, invoice_id) DO UPDATE
-			SET amount = erp.finance_payment_allocations.amount + EXCLUDED.amount`,
-			tenantID, paymentID, invoiceID, allocationAmount.String(), userID,
+			SET amount = erp.finance_payment_allocations.amount + EXCLUDED.amount,
+			    base_amount = erp.finance_payment_allocations.base_amount + EXCLUDED.base_amount,
+			    invoice_base_amount = erp.finance_payment_allocations.invoice_base_amount + EXCLUDED.invoice_base_amount`,
+			allocationID, tenantID, paymentID, invoiceID, allocationAmount.String(),
+			basePayment.String(), baseInvoice.String(), userID,
 		); err != nil {
 			return fmt.Errorf("insert payment allocation: %w", mapDBError(err))
+		}
+		if fxDiff.IsZero() {
+			continue
+		}
+		settlementID := uuid.NewString()
+		voucherCode, codeErr := r.codes.Next(ctx, tenantID, "gl_voucher")
+		if codeErr != nil {
+			return codeErr
+		}
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO erp.finance_fx_settlements (
+				id, tenant_id, payment_id, invoice_id, amount, payment_rate,
+				invoice_rate, base_adjustment, voucher_id, created_by
+			) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+			settlementID, tenantID, paymentID, invoiceID, allocationAmount.String(),
+			paymentRate.String(), invoice.rate.String(), fxDiff.String(), nil, userID,
+		); err != nil {
+			return fmt.Errorf("insert FX settlement: %w", mapDBError(err))
+		}
+		if err := glpost.PostFXSettlement(ctx, tx, glpost.FXSettlementPosting{
+			TenantID:       tenantID,
+			OrgID:          paymentOrgID,
+			VoucherCode:    voucherCode,
+			SourceID:       settlementID,
+			SourceCode:     paymentCode,
+			PartnerID:      partnerID,
+			CreatedBy:      userID,
+			VoucherDate:    paymentDate,
+			InvoiceType:    invoice.invoiceType,
+			BaseAdjustment: fxDiff,
+		}); err != nil {
+			return fmt.Errorf("post FX settlement voucher: %w", err)
+		}
+		if _, err := tx.Exec(ctx, `
+			UPDATE erp.finance_fx_settlements s
+			SET voucher_id = v.id
+			FROM erp.gl_vouchers v
+			WHERE s.tenant_id = $1 AND s.id = $2
+			  AND v.tenant_id = s.tenant_id AND v.source_type = 'fx_settlement' AND v.source_id = s.id`,
+			tenantID, settlementID,
+		); err != nil {
+			return fmt.Errorf("link FX settlement voucher: %w", err)
 		}
 	}
 
 	newAllocated := allocated.Add(total)
+	newBaseAllocated := baseAllocated.Add(total.Mul(paymentRate).Round(4))
 	newStatus := domain.PaymentStatusPartiallyAllocated
 	if newAllocated.Equal(amount) {
 		newStatus = domain.PaymentStatusAllocated
 	}
 	tag, err := tx.Exec(ctx, `
 		UPDATE erp.finance_payments
-		SET allocated_amount = $3, status = $4
-		WHERE tenant_id = $1 AND id = $2 AND allocated_amount + $5 <= amount`,
-		tenantID, paymentID, newAllocated.String(), newStatus, total.String(),
+		SET allocated_amount = $3, base_allocated_amount = $4, status = $5
+		WHERE tenant_id = $1 AND id = $2 AND allocated_amount + $6 <= amount`,
+		tenantID, paymentID, newAllocated.String(), newBaseAllocated.String(),
+		newStatus, total.String(),
 	)
 	if err != nil {
 		return fmt.Errorf("update payment allocated amount: %w", err)
@@ -326,18 +404,21 @@ func (r *PaymentRepository) Allocate(
 const paymentSelectSQL = `
 	SELECT p.id::text, p.tenant_id::text, p.org_id::text, p.code, p.payment_type,
 	       p.partner_id::text, COALESCE(pt.name, ''), p.payment_date, p.currency,
-	       p.amount::text, p.allocated_amount::text, p.status, p.method, p.reference, p.remark,
+	       p.exchange_rate::text, p.amount::text, p.base_amount::text,
+	       p.allocated_amount::text, p.base_allocated_amount::text, p.status,
+	       p.method, p.reference, p.remark,
 	       p.created_by::text, p.created_at
 	FROM erp.finance_payments p
 	LEFT JOIN erp.partners pt ON pt.tenant_id = p.tenant_id AND pt.id = p.partner_id`
 
 func scanPayment(row rowScanner) (*domain.Payment, error) {
 	var item domain.Payment
-	var amount, allocated string
+	var exchangeRate, amount, baseAmount, allocated, baseAllocated string
 	err := row.Scan(
 		&item.ID, &item.TenantID, &item.OrgID, &item.Code, &item.PaymentType,
 		&item.PartnerID, &item.PartnerName, &item.PaymentDate, &item.Currency,
-		&amount, &allocated, &item.Status, &item.Method, &item.Reference, &item.Remark,
+		&exchangeRate, &amount, &baseAmount, &allocated, &baseAllocated, &item.Status,
+		&item.Method, &item.Reference, &item.Remark,
 		&item.CreatedBy, &item.CreatedAt,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -346,7 +427,10 @@ func scanPayment(row rowScanner) (*domain.Payment, error) {
 	if err != nil {
 		return nil, fmt.Errorf("scan payment: %w", err)
 	}
+	item.ExchangeRate = decimal.RequireFromString(exchangeRate)
 	item.Amount = decimal.RequireFromString(amount)
+	item.BaseAmount = decimal.RequireFromString(baseAmount)
 	item.AllocatedAmount = decimal.RequireFromString(allocated)
+	item.BaseAllocatedAmount = decimal.RequireFromString(baseAllocated)
 	return &item, nil
 }

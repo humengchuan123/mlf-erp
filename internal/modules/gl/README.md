@@ -109,6 +109,15 @@ go run ./cmd/glbackfill
 - `2221 应交税费` 为非末级父科目。
 - 科目映射：`input_vat=222101`、`output_vat=222102`。
 
+## 多币种与汇兑损益（Stage 3F）
+
+- 总账只记录 CNY 本位币金额。
+- `660301 汇兑损失`、`660302 汇兑收益`，`6603 财务费用` 为非末级。
+- 映射：`fx_loss=660301`、`fx_gain=660302`。
+- 收付款核销生成 `fx_settlement` 已实现汇兑损益。
+- 期末关账重估未核销外币应收应付，生成 `fx_revaluation`，次期初生成 `fx_revaluation_reversal`。
+- 反关账生成 `fx_revaluation_reopen` 和 `fx_revaluation_reversal_reopen`，并回退发票累计重估。
+
 ## 后续
 
 - 多币种、汇兑损益。

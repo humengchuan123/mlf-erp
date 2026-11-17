@@ -13,32 +13,32 @@ import (
 )
 
 type SalesShipmentPosting struct {
-	TenantID    string
-	OrgID       string
-	VoucherCode string
-	SourceID    string
-	SourceCode  string
-	CustomerID  string
-	CreatedBy   string
-	VoucherDate time.Time
-	NetAmount   decimal.Decimal
-	TaxAmount   decimal.Decimal
-	GrossAmount decimal.Decimal
-	CostAmount  decimal.Decimal
+	TenantID        string
+	OrgID           string
+	VoucherCode     string
+	SourceID        string
+	SourceCode      string
+	CustomerID      string
+	CreatedBy       string
+	VoucherDate     time.Time
+	BaseNetAmount   decimal.Decimal
+	BaseTaxAmount   decimal.Decimal
+	BaseGrossAmount decimal.Decimal
+	CostAmount      decimal.Decimal
 }
 
 type PurchaseReceiptPosting struct {
-	TenantID    string
-	OrgID       string
-	VoucherCode string
-	SourceID    string
-	SourceCode  string
-	SupplierID  string
-	CreatedBy   string
-	VoucherDate time.Time
-	NetAmount   decimal.Decimal
-	TaxAmount   decimal.Decimal
-	GrossAmount decimal.Decimal
+	TenantID        string
+	OrgID           string
+	VoucherCode     string
+	SourceID        string
+	SourceCode      string
+	SupplierID      string
+	CreatedBy       string
+	VoucherDate     time.Time
+	BaseNetAmount   decimal.Decimal
+	BaseTaxAmount   decimal.Decimal
+	BaseGrossAmount decimal.Decimal
 }
 
 type PaymentPosting struct {
@@ -50,9 +50,22 @@ type PaymentPosting struct {
 	PartnerID     string
 	CreatedBy     string
 	VoucherDate   time.Time
-	Amount        decimal.Decimal
+	BaseAmount    decimal.Decimal
 	PaymentType   string
 	PaymentMethod string
+}
+
+type FXSettlementPosting struct {
+	TenantID       string
+	OrgID          string
+	VoucherCode    string
+	SourceID       string
+	SourceCode     string
+	PartnerID      string
+	InvoiceType    string
+	CreatedBy      string
+	VoucherDate    time.Time
+	BaseAdjustment decimal.Decimal
 }
 
 type postingLine struct {
@@ -65,13 +78,13 @@ type postingLine struct {
 
 func PostSalesShipment(ctx context.Context, tx pgx.Tx, input SalesShipmentPosting) error {
 	lines := make([]postingLine, 0, 5)
-	if input.GrossAmount.IsPositive() {
+	if input.BaseGrossAmount.IsPositive() {
 		lines = append(lines,
-			postingLine{AccountKey: "ar", Summary: "销售应收", Debit: input.GrossAmount, PartnerID: input.CustomerID},
-			postingLine{AccountKey: "revenue", Summary: "销售收入", Credit: input.NetAmount, PartnerID: input.CustomerID},
+			postingLine{AccountKey: "ar", Summary: "销售应收", Debit: input.BaseGrossAmount, PartnerID: input.CustomerID},
+			postingLine{AccountKey: "revenue", Summary: "销售收入", Credit: input.BaseNetAmount, PartnerID: input.CustomerID},
 		)
-		if input.TaxAmount.IsPositive() {
-			lines = append(lines, postingLine{AccountKey: "output_vat", Summary: "销项税额", Credit: input.TaxAmount, PartnerID: input.CustomerID})
+		if input.BaseTaxAmount.IsPositive() {
+			lines = append(lines, postingLine{AccountKey: "output_vat", Summary: "销项税额", Credit: input.BaseTaxAmount, PartnerID: input.CustomerID})
 		}
 	}
 	if input.CostAmount.IsPositive() {
@@ -96,16 +109,16 @@ func PostSalesShipment(ctx context.Context, tx pgx.Tx, input SalesShipmentPostin
 }
 
 func PostPurchaseReceipt(ctx context.Context, tx pgx.Tx, input PurchaseReceiptPosting) error {
-	if !input.GrossAmount.IsPositive() {
+	if !input.BaseGrossAmount.IsPositive() {
 		return nil
 	}
 	lines := []postingLine{
-		{AccountKey: "inventory", Summary: "采购入库", Debit: input.NetAmount},
+		{AccountKey: "inventory", Summary: "采购入库", Debit: input.BaseNetAmount},
 	}
-	if input.TaxAmount.IsPositive() {
-		lines = append(lines, postingLine{AccountKey: "input_vat", Summary: "进项税额", Debit: input.TaxAmount, PartnerID: input.SupplierID})
+	if input.BaseTaxAmount.IsPositive() {
+		lines = append(lines, postingLine{AccountKey: "input_vat", Summary: "进项税额", Debit: input.BaseTaxAmount, PartnerID: input.SupplierID})
 	}
-	lines = append(lines, postingLine{AccountKey: "ap", Summary: "采购应付", Credit: input.GrossAmount, PartnerID: input.SupplierID})
+	lines = append(lines, postingLine{AccountKey: "ap", Summary: "采购应付", Credit: input.BaseGrossAmount, PartnerID: input.SupplierID})
 	return postVoucherTx(ctx, tx, voucherPostingInput{
 		TenantID:    input.TenantID,
 		OrgID:       input.OrgID,
@@ -122,7 +135,7 @@ func PostPurchaseReceipt(ctx context.Context, tx pgx.Tx, input PurchaseReceiptPo
 }
 
 func PostPayment(ctx context.Context, tx pgx.Tx, input PaymentPosting) error {
-	if !input.Amount.IsPositive() {
+	if !input.BaseAmount.IsPositive() {
 		return nil
 	}
 	cashKey := "bank"
@@ -136,16 +149,16 @@ func PostPayment(ctx context.Context, tx pgx.Tx, input PaymentPosting) error {
 	memo := "收款 " + input.SourceCode
 	if input.PaymentType == "receipt" {
 		lines = []postingLine{
-			{AccountKey: cashKey, Summary: "客户收款", Debit: input.Amount},
-			{AccountKey: "ar", Summary: "核销应收", Credit: input.Amount, PartnerID: input.PartnerID},
+			{AccountKey: cashKey, Summary: "客户收款", Debit: input.BaseAmount},
+			{AccountKey: "ar", Summary: "核销应收", Credit: input.BaseAmount, PartnerID: input.PartnerID},
 		}
 	} else {
 		voucherType = domain.VoucherTypeSupplierPayment
 		sourceType = domain.SourceTypeSupplierPayment
 		memo = "付款 " + input.SourceCode
 		lines = []postingLine{
-			{AccountKey: "ap", Summary: "核销应付", Debit: input.Amount, PartnerID: input.PartnerID},
-			{AccountKey: cashKey, Summary: "供应商付款", Credit: input.Amount},
+			{AccountKey: "ap", Summary: "核销应付", Debit: input.BaseAmount, PartnerID: input.PartnerID},
+			{AccountKey: cashKey, Summary: "供应商付款", Credit: input.BaseAmount},
 		}
 	}
 
@@ -159,6 +172,53 @@ func PostPayment(ctx context.Context, tx pgx.Tx, input PaymentPosting) error {
 		SourceID:    input.SourceID,
 		SourceCode:  input.SourceCode,
 		Memo:        memo,
+		CreatedBy:   input.CreatedBy,
+		Lines:       lines,
+	})
+}
+
+func PostFXSettlement(ctx context.Context, tx pgx.Tx, input FXSettlementPosting) error {
+	adjustment := input.BaseAdjustment.Round(4)
+	if adjustment.IsZero() {
+		return nil
+	}
+	absolute := adjustment.Abs()
+	lines := make([]postingLine, 0, 2)
+	if input.InvoiceType == "receivable" {
+		if adjustment.IsPositive() {
+			lines = append(lines,
+				postingLine{AccountKey: "ar", Summary: "应收汇兑调整", Debit: absolute, PartnerID: input.PartnerID},
+				postingLine{AccountKey: "fx_gain", Summary: "汇兑收益", Credit: absolute, PartnerID: input.PartnerID},
+			)
+		} else {
+			lines = append(lines,
+				postingLine{AccountKey: "fx_loss", Summary: "汇兑损失", Debit: absolute, PartnerID: input.PartnerID},
+				postingLine{AccountKey: "ar", Summary: "应收汇兑调整", Credit: absolute, PartnerID: input.PartnerID},
+			)
+		}
+	} else {
+		if adjustment.IsPositive() {
+			lines = append(lines,
+				postingLine{AccountKey: "fx_loss", Summary: "汇兑损失", Debit: absolute, PartnerID: input.PartnerID},
+				postingLine{AccountKey: "ap", Summary: "应付汇兑调整", Credit: absolute, PartnerID: input.PartnerID},
+			)
+		} else {
+			lines = append(lines,
+				postingLine{AccountKey: "ap", Summary: "应付汇兑调整", Debit: absolute, PartnerID: input.PartnerID},
+				postingLine{AccountKey: "fx_gain", Summary: "汇兑收益", Credit: absolute, PartnerID: input.PartnerID},
+			)
+		}
+	}
+	return postVoucherTx(ctx, tx, voucherPostingInput{
+		TenantID:    input.TenantID,
+		OrgID:       input.OrgID,
+		VoucherCode: input.VoucherCode,
+		VoucherDate: input.VoucherDate,
+		VoucherType: domain.VoucherTypeFXSettlement,
+		SourceType:  domain.SourceTypeFXSettlement,
+		SourceID:    input.SourceID,
+		SourceCode:  input.SourceCode,
+		Memo:        "汇兑损益 " + input.SourceCode,
 		CreatedBy:   input.CreatedBy,
 		Lines:       lines,
 	})

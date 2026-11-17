@@ -54,6 +54,8 @@
           <el-descriptions-item label="不含税金额">{{ detail.net_amount }}</el-descriptions-item>
           <el-descriptions-item label="税额">{{ detail.tax_amount }}</el-descriptions-item>
           <el-descriptions-item label="含税金额">{{ detail.total_amount }}</el-descriptions-item>
+          <el-descriptions-item label="汇率">{{ detail.exchange_rate }}</el-descriptions-item>
+          <el-descriptions-item label="本位币含税金额">{{ detail.base_total_amount }}</el-descriptions-item>
           <el-descriptions-item label="出库成本">{{ detail.total_cost }}</el-descriptions-item>
         </el-descriptions>
 

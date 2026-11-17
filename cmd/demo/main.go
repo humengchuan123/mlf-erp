@@ -240,6 +240,7 @@ func seedDemo(ctx context.Context, cfg *config.Config, db *pgxpool.Pool, log *sl
 	currencyService := masterapp.NewCurrencyService(currencyRepository)
 	taxRateService := masterapp.NewTaxRateService(taxRateRepository)
 
+	exchangeRateRepository := financepostgres.NewExchangeRateRepository(db)
 	purchaseRepository := purchasepostgres.NewRepository(db)
 	orderService := purchaseapp.NewOrderService(
 		purchaseRepository,
@@ -248,8 +249,9 @@ func seedDemo(ctx context.Context, cfg *config.Config, db *pgxpool.Pool, log *sl
 		materialRepository,
 		warehouseRepository,
 		taxRateRepository,
+		exchangeRateRepository,
 	)
-	receiptService := purchaseapp.NewReceiptService(purchaseRepository, codeRuleService)
+	receiptService := purchaseapp.NewReceiptService(purchaseRepository, codeRuleService, exchangeRateRepository)
 
 	salesRepository := salespostgres.NewRepository(db)
 	salesOrderService := salesapp.NewOrderService(
@@ -259,11 +261,12 @@ func seedDemo(ctx context.Context, cfg *config.Config, db *pgxpool.Pool, log *sl
 		materialRepository,
 		warehouseRepository,
 		taxRateRepository,
+		exchangeRateRepository,
 	)
-	salesShipmentService := salesapp.NewShipmentService(salesRepository, codeRuleService)
+	salesShipmentService := salesapp.NewShipmentService(salesRepository, codeRuleService, exchangeRateRepository)
 
-	paymentRepository := financepostgres.NewPaymentRepository(db)
-	paymentService := financeapp.NewPaymentService(paymentRepository, codeRuleService, partnerRepository)
+	paymentRepository := financepostgres.NewPaymentRepository(db, codeRuleService)
+	paymentService := financeapp.NewPaymentService(paymentRepository, codeRuleService, partnerRepository, exchangeRateRepository)
 	glVoucherRepository := glpostgres.NewVoucherRepository(db)
 	glVoucherService := glapp.NewVoucherService(glVoucherRepository, codeRuleService)
 

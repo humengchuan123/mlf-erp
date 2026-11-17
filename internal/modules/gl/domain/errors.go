@@ -16,4 +16,5 @@ var (
 	ErrYearClosed         = errors.New("year is already closed")
 	ErrYearOutOfOrder     = errors.New("years must be closed in chronological order")
 	ErrPeriodCloseMissing = errors.New("every closed period must have a period close record")
+	ErrFXRateNotFound     = errors.New("exchange rate not found for FX revaluation")
 )

@@ -146,6 +146,7 @@ func main() {
 	currencyHandler.Register(protected)
 	taxRateHandler.Register(protected)
 
+	exchangeRateRepository := financepostgres.NewExchangeRateRepository(db)
 	purchaseRepository := purchasepostgres.NewRepository(db)
 	orderService := app.NewOrderService(
 		purchaseRepository,
@@ -154,8 +155,9 @@ func main() {
 		materialRepository,
 		warehouseRepository,
 		taxRateRepository,
+		exchangeRateRepository,
 	)
-	receiptService := app.NewReceiptService(purchaseRepository, codeRuleService)
+	receiptService := app.NewReceiptService(purchaseRepository, codeRuleService, exchangeRateRepository)
 	purchasehttp.Register(protected, orderService, receiptService, auditService, log)
 
 	inventoryRepository := inventorypostgres.NewQueryRepository(db)
@@ -171,15 +173,17 @@ func main() {
 		materialRepository,
 		warehouseRepository,
 		taxRateRepository,
+		exchangeRateRepository,
 	)
-	salesShipmentService := salesapp.NewShipmentService(salesRepository, codeRuleService)
+	salesShipmentService := salesapp.NewShipmentService(salesRepository, codeRuleService, exchangeRateRepository)
 	saleshttp.Register(protected, salesOrderService, salesShipmentService, auditService, log)
 
 	invoiceRepository := financepostgres.NewInvoiceRepository(db)
-	paymentRepository := financepostgres.NewPaymentRepository(db)
+	paymentRepository := financepostgres.NewPaymentRepository(db, codeRuleService)
 	invoiceService := financeapp.NewInvoiceService(invoiceRepository)
-	paymentService := financeapp.NewPaymentService(paymentRepository, codeRuleService, partnerRepository)
-	financehttp.Register(protected, invoiceService, paymentService, auditService, log)
+	paymentService := financeapp.NewPaymentService(paymentRepository, codeRuleService, partnerRepository, exchangeRateRepository)
+	exchangeRateService := financeapp.NewExchangeRateService(exchangeRateRepository)
+	financehttp.Register(protected, invoiceService, paymentService, exchangeRateService, auditService, log)
 
 	glAccountRepository := glpostgres.NewAccountRepository(db)
 	glPeriodRepository := glpostgres.NewPeriodRepository(db)

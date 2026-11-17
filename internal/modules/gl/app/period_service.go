@@ -27,20 +27,20 @@ func (s *PeriodService) EnsureYear(ctx context.Context, year int) error {
 
 func (s *PeriodService) Close(ctx context.Context, id string) error {
 	tenantID, orgID, userID := tenantActor(ctx)
-	code, err := s.codes.Next(ctx, tenantID, "gl_voucher")
+	codes, err := s.nextVoucherCodes(ctx, tenantID, 3)
 	if err != nil {
 		return err
 	}
-	return s.periods.Close(ctx, tenantID, orgID, id, userID, code)
+	return s.periods.Close(ctx, tenantID, orgID, id, userID, codes[0], codes[1], codes[2])
 }
 
 func (s *PeriodService) Reopen(ctx context.Context, id string) error {
-	tenantID, _, userID := tenantActor(ctx)
-	code, err := s.codes.Next(ctx, tenantID, "gl_voucher")
+	tenantID, orgID, userID := tenantActor(ctx)
+	codes, err := s.nextVoucherCodes(ctx, tenantID, 3)
 	if err != nil {
 		return err
 	}
-	return s.periods.Reopen(ctx, tenantID, id, userID, code)
+	return s.periods.Reopen(ctx, tenantID, orgID, id, userID, codes[0], codes[1], codes[2])
 }
 
 func (s *PeriodService) CloseYear(ctx context.Context, year int) error {
@@ -55,4 +55,16 @@ func (s *PeriodService) CloseYear(ctx context.Context, year int) error {
 func (s *PeriodService) YearCloseStatus(ctx context.Context, year int) (*domain.YearClose, error) {
 	tenantID, _, _ := tenantActor(ctx)
 	return s.periods.YearCloseStatus(ctx, tenantID, year)
+}
+
+func (s *PeriodService) nextVoucherCodes(ctx context.Context, tenantID string, count int) ([]string, error) {
+	codes := make([]string, 0, count)
+	for i := 0; i < count; i++ {
+		code, err := s.codes.Next(ctx, tenantID, "gl_voucher")
+		if err != nil {
+			return nil, err
+		}
+		codes = append(codes, code)
+	}
+	return codes, nil
 }

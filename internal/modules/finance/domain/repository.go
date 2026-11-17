@@ -2,8 +2,10 @@ package domain
 
 import (
 	"context"
+	"time"
 
 	"github.com/mlf-erp/mlf-erp/internal/platform/scope"
+	"github.com/shopspring/decimal"
 )
 
 type InvoiceRepository interface {
@@ -19,4 +21,12 @@ type PaymentRepository interface {
 	Get(ctx context.Context, filter scope.Filter, tenantID, id string) (*Payment, error)
 	List(ctx context.Context, filter scope.Filter, tenantID, paymentType, status, partnerID, keyword string, offset, limit int) ([]*Payment, int, error)
 	Allocate(ctx context.Context, filter scope.Filter, tenantID, paymentID, userID string, allocations []*AllocationInput) error
+}
+
+type ExchangeRateRepository interface {
+	List(ctx context.Context, tenantID, currency string, startDate, endDate time.Time, offset, limit int) ([]*ExchangeRate, int, error)
+	Get(ctx context.Context, tenantID, id string) (*ExchangeRate, error)
+	Upsert(ctx context.Context, tenantID, userID string, input ExchangeRateInput) (*ExchangeRate, error)
+	Update(ctx context.Context, tenantID, id, userID string, input ExchangeRateInput) (*ExchangeRate, error)
+	Latest(ctx context.Context, tenantID, currency string, date time.Time) (decimal.Decimal, error)
 }

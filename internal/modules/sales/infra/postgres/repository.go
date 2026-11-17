@@ -35,12 +35,13 @@ func (r *Repository) Create(ctx context.Context, order *domain.Order) error {
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO erp.sales_orders (
 			id, tenant_id, org_id, code, customer_id, warehouse_id, order_date,
-			currency, status, price_includes_tax, net_amount, tax_amount, total_amount,
-			remark, created_by, updated_by
-		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`,
+			currency, exchange_rate, status, price_includes_tax, net_amount, tax_amount, total_amount,
+			base_net_amount, base_tax_amount, base_total_amount, remark, created_by, updated_by
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)`,
 		order.ID, order.TenantID, order.OrgID, order.Code, order.CustomerID, order.WarehouseID,
-		order.OrderDate, order.Currency, string(order.Status), order.PriceIncludesTax,
+		order.OrderDate, order.Currency, order.ExchangeRate.String(), string(order.Status), order.PriceIncludesTax,
 		order.NetAmount.String(), order.TaxAmount.String(), order.TotalAmount.String(),
+		order.BaseNetAmount.String(), order.BaseTaxAmount.String(), order.BaseTotalAmount.String(),
 		order.Remark, order.CreatedBy, order.UpdatedBy,
 	); err != nil {
 		return fmt.Errorf("insert sales order: %w", mapDBError(err))
@@ -63,8 +64,10 @@ func (r *Repository) UpdateDraft(ctx context.Context, filter scope.Filter, order
 
 	args := []any{
 		order.TenantID, order.ID, order.CustomerID, order.WarehouseID, order.OrderDate,
-		order.Currency, order.PriceIncludesTax, order.NetAmount.String(), order.TaxAmount.String(),
-		order.TotalAmount.String(), order.Remark, order.UpdatedBy,
+		order.Currency, order.ExchangeRate.String(), order.PriceIncludesTax,
+		order.NetAmount.String(), order.TaxAmount.String(), order.TotalAmount.String(),
+		order.BaseNetAmount.String(), order.BaseTaxAmount.String(), order.BaseTotalAmount.String(),
+		order.Remark, order.UpdatedBy,
 	}
 	where := "o.tenant_id = $1 AND o.id = $2 AND o.status = 'draft'"
 	appendScope(&where, &args, "o", filter)
@@ -72,8 +75,10 @@ func (r *Repository) UpdateDraft(ctx context.Context, filter scope.Filter, order
 	tag, err := tx.Exec(ctx, `
 		UPDATE erp.sales_orders AS o
 		SET customer_id = $3, warehouse_id = $4, order_date = $5,
-		    currency = $6, price_includes_tax = $7, net_amount = $8, tax_amount = $9,
-		    total_amount = $10, remark = $11, updated_by = $12, updated_at = now()
+		    currency = $6, exchange_rate = $7, price_includes_tax = $8,
+		    net_amount = $9, tax_amount = $10, total_amount = $11,
+		    base_net_amount = $12, base_tax_amount = $13, base_total_amount = $14,
+		    remark = $15, updated_by = $16, updated_at = now()
 		WHERE `+where, args...)
 	if err != nil {
 		return fmt.Errorf("update sales order: %w", mapDBError(err))
@@ -288,12 +293,15 @@ func (r *Repository) Ship(ctx context.Context, filter scope.Filter, shipment *do
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO erp.sales_shipments (
 			id, tenant_id, org_id, code, order_id, warehouse_id, shipment_date, status,
-			price_includes_tax, net_amount, tax_amount, total_amount, remark, created_by
-		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
+			price_includes_tax, exchange_rate, net_amount, tax_amount, total_amount,
+			base_net_amount, base_tax_amount, base_total_amount, remark, created_by
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)`,
 		shipment.ID, shipment.TenantID, shipment.OrgID, shipment.Code, shipment.OrderID,
 		shipment.WarehouseID, shipment.ShipmentDate, shipment.Status,
-		shipment.PriceIncludesTax, shipment.NetAmount.String(), shipment.TaxAmount.String(),
-		shipment.GrossAmount.String(), shipment.Remark, shipment.CreatedBy,
+		shipment.PriceIncludesTax, shipment.ExchangeRate.String(),
+		shipment.NetAmount.String(), shipment.TaxAmount.String(), shipment.GrossAmount.String(),
+		shipment.BaseNetAmount.String(), shipment.BaseTaxAmount.String(), shipment.BaseTotalAmount.String(),
+		shipment.Remark, shipment.CreatedBy,
 	); err != nil {
 		return fmt.Errorf("insert shipment: %w", mapDBError(err))
 	}
@@ -316,12 +324,13 @@ func (r *Repository) Ship(ctx context.Context, filter scope.Filter, shipment *do
 			INSERT INTO erp.sales_shipment_lines (
 				id, tenant_id, shipment_id, order_line_id, material_id,
 				quantity, unit_price, tax_rate_id, tax_rate, amount, tax_amount, gross_amount,
-				unit_cost, cost_amount
-			) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
+				base_amount, base_tax_amount, base_gross_amount, unit_cost, cost_amount
+			) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)`,
 			line.ID, line.TenantID, shipment.ID, line.OrderLineID, line.MaterialID,
 			line.Quantity.String(), line.UnitPrice.String(), nullableUUID(line.TaxRateID),
 			line.TaxRate.String(), line.Amount.String(), line.TaxAmount.String(),
-			line.GrossAmount.String(), line.UnitCost.String(), line.CostAmount.String(),
+			line.GrossAmount.String(), line.BaseAmount.String(), line.BaseTaxAmount.String(),
+			line.BaseGrossAmount.String(), line.UnitCost.String(), line.CostAmount.String(),
 		); err != nil {
 			return fmt.Errorf("insert shipment line: %w", mapDBError(err))
 		}
@@ -379,30 +388,35 @@ func (r *Repository) Ship(ctx context.Context, filter scope.Filter, shipment *do
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO erp.finance_invoices (
 			id, tenant_id, org_id, code, invoice_type, source_type, source_id, source_code,
-			partner_id, invoice_date, due_date, currency, status, net_amount, tax_amount,
-			total_amount, paid_amount, vat_invoice_status, remark, created_by, updated_by
-		) VALUES ($1,$2,$3,$4,'receivable','sales_shipment',$5,$6,$7,$8,$9,$10,$13,$14,$15,$11,0,'pending','',$12,$12)`,
+			partner_id, invoice_date, due_date, currency, exchange_rate, status,
+			net_amount, tax_amount, total_amount, base_net_amount, base_tax_amount,
+			base_total_amount, base_paid_amount, paid_amount, vat_invoice_status, remark,
+			created_by, updated_by
+		) VALUES ($1,$2,$3,$4,'receivable','sales_shipment',$5,$6,$7,$8,$9,$10,$11,$12,
+		          $13,$14,$15,$16,$17,$18,0,0,'pending','',$19,$19)`,
 		shipment.InvoiceID, shipment.TenantID, shipment.OrgID, shipment.InvoiceCode,
 		shipment.ID, shipment.Code, order.CustomerID, shipment.ShipmentDate,
-		shipment.InvoiceDueDate, order.Currency, invoiceTotal.String(),
-		shipment.CreatedBy, invoiceStatus, netTotal.String(), taxTotal.String(),
+		shipment.InvoiceDueDate, order.Currency, shipment.ExchangeRate.String(), invoiceStatus,
+		netTotal.String(), taxTotal.String(), invoiceTotal.String(),
+		shipment.BaseNetAmount.String(), shipment.BaseTaxAmount.String(), shipment.BaseTotalAmount.String(),
+		shipment.CreatedBy,
 	); err != nil {
 		return fmt.Errorf("insert receivable invoice: %w", mapDBError(err))
 	}
 
 	if err := glpost.PostSalesShipment(ctx, tx, glpost.SalesShipmentPosting{
-		TenantID:    shipment.TenantID,
-		OrgID:       shipment.OrgID,
-		VoucherCode: shipment.VoucherCode,
-		SourceID:    shipment.ID,
-		SourceCode:  shipment.Code,
-		CustomerID:  order.CustomerID,
-		CreatedBy:   shipment.CreatedBy,
-		VoucherDate: shipment.ShipmentDate,
-		NetAmount:   netTotal,
-		TaxAmount:   taxTotal,
-		GrossAmount: invoiceTotal,
-		CostAmount:  costTotal,
+		TenantID:        shipment.TenantID,
+		OrgID:           shipment.OrgID,
+		VoucherCode:     shipment.VoucherCode,
+		SourceID:        shipment.ID,
+		SourceCode:      shipment.Code,
+		CustomerID:      order.CustomerID,
+		CreatedBy:       shipment.CreatedBy,
+		VoucherDate:     shipment.ShipmentDate,
+		BaseNetAmount:   shipment.BaseNetAmount,
+		BaseTaxAmount:   shipment.BaseTaxAmount,
+		BaseGrossAmount: shipment.BaseTotalAmount,
+		CostAmount:      costTotal,
 	}); err != nil {
 		return fmt.Errorf("post sales shipment voucher: %w", err)
 	}
@@ -483,8 +497,9 @@ func (r *Repository) ListShipments(
 const orderSelectSQL = `
 	SELECT o.id::text, o.tenant_id::text, o.org_id::text, o.code,
 	       o.customer_id::text, COALESCE(p.name, ''), o.warehouse_id::text, COALESCE(w.name, ''),
-	       o.order_date, o.currency, o.status, o.price_includes_tax,
-	       o.net_amount::text, o.tax_amount::text, o.total_amount::text, o.remark,
+	       o.order_date, o.currency, o.exchange_rate::text, o.status, o.price_includes_tax,
+	       o.net_amount::text, o.tax_amount::text, o.total_amount::text,
+	       o.base_net_amount::text, o.base_tax_amount::text, o.base_total_amount::text, o.remark,
 	       o.created_by::text, o.updated_by::text, o.created_at, o.updated_at
 	FROM erp.sales_orders o
 	LEFT JOIN erp.partners p ON p.tenant_id = o.tenant_id AND p.id = o.customer_id
@@ -494,7 +509,9 @@ const shipmentSelectSQL = `
 	SELECT s.id::text, s.tenant_id::text, s.org_id::text, s.code,
 	       s.order_id::text, o.code, o.customer_id::text, COALESCE(p.name, ''),
 	       s.warehouse_id::text, COALESCE(w.name, ''), s.shipment_date, s.status,
-	       s.price_includes_tax, s.net_amount::text, s.tax_amount::text, s.total_amount::text,
+	       s.price_includes_tax, s.exchange_rate::text,
+	       s.net_amount::text, s.tax_amount::text, s.total_amount::text,
+	       s.base_net_amount::text, s.base_tax_amount::text, s.base_total_amount::text,
 	       s.remark, s.created_by::text, s.created_at,
 	       COALESCE(i.id::text, ''), COALESCE(i.code, ''), i.due_date
 	FROM erp.sales_shipments s
@@ -509,12 +526,14 @@ func insertLines(ctx context.Context, tx pgx.Tx, order *domain.Order) error {
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO erp.sales_order_lines (
 				id, tenant_id, order_id, line_no, material_id, quantity, unit_price,
-				tax_rate_id, tax_rate, amount, tax_amount, gross_amount, shipped_qty
-			) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+				tax_rate_id, tax_rate, amount, tax_amount, gross_amount,
+				base_amount, base_tax_amount, base_gross_amount, shipped_qty
+			) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`,
 			line.ID, line.TenantID, order.ID, line.LineNo, line.MaterialID,
 			line.Quantity.String(), line.UnitPrice.String(), nullableUUID(line.TaxRateID),
 			line.TaxRate.String(), line.Amount.String(), line.TaxAmount.String(),
-			line.GrossAmount.String(), line.ShippedQty.String(),
+			line.GrossAmount.String(), line.BaseAmount.String(), line.BaseTaxAmount.String(),
+			line.BaseGrossAmount.String(), line.ShippedQty.String(),
 		); err != nil {
 			return fmt.Errorf("insert sales order line: %w", mapDBError(err))
 		}
@@ -527,7 +546,8 @@ func loadOrderLines(ctx context.Context, q querier, tenantID, orderID string) ([
 		SELECT l.id::text, l.tenant_id::text, l.order_id::text, l.line_no,
 		       l.material_id::text, COALESCE(m.name, ''), l.quantity::text,
 		       l.unit_price::text, COALESCE(l.tax_rate_id::text, ''), l.tax_rate::text,
-		       l.amount::text, l.tax_amount::text, l.gross_amount::text, l.shipped_qty::text
+		       l.amount::text, l.tax_amount::text, l.gross_amount::text,
+		       l.base_amount::text, l.base_tax_amount::text, l.base_gross_amount::text, l.shipped_qty::text
 		FROM erp.sales_order_lines l
 		LEFT JOIN erp.materials m ON m.tenant_id = l.tenant_id AND m.id = l.material_id
 		WHERE l.tenant_id = $1 AND l.order_id = $2
@@ -553,7 +573,8 @@ func loadOrderLinesForUpdate(ctx context.Context, tx pgx.Tx, tenantID, orderID s
 		SELECT l.id::text, l.tenant_id::text, l.order_id::text, l.line_no,
 		       l.material_id::text, COALESCE(m.name, ''), l.quantity::text,
 		       l.unit_price::text, COALESCE(l.tax_rate_id::text, ''), l.tax_rate::text,
-		       l.amount::text, l.tax_amount::text, l.gross_amount::text, l.shipped_qty::text
+		       l.amount::text, l.tax_amount::text, l.gross_amount::text,
+		       l.base_amount::text, l.base_tax_amount::text, l.base_gross_amount::text, l.shipped_qty::text
 		FROM erp.sales_order_lines l
 		LEFT JOIN erp.materials m ON m.tenant_id = l.tenant_id AND m.id = l.material_id
 		WHERE l.tenant_id = $1 AND l.order_id = $2
@@ -581,6 +602,7 @@ func loadShipmentLines(ctx context.Context, q querier, tenantID, shipmentID stri
 		       sl.material_id::text, COALESCE(m.name, ''), sl.quantity::text,
 		       sl.unit_price::text, COALESCE(sl.tax_rate_id::text, ''), sl.tax_rate::text,
 		       sl.amount::text, sl.tax_amount::text, sl.gross_amount::text,
+		       sl.base_amount::text, sl.base_tax_amount::text, sl.base_gross_amount::text,
 		       sl.unit_cost::text, sl.cost_amount::text
 		FROM erp.sales_shipment_lines sl
 		LEFT JOIN erp.materials m ON m.tenant_id = sl.tenant_id AND m.id = sl.material_id
@@ -609,13 +631,15 @@ type rowScanner interface {
 func scanOrderHeader(row rowScanner) (*domain.Order, error) {
 	var order domain.Order
 	var status string
-	var netAmount, taxAmount, totalAmount string
+	var exchangeRate, netAmount, taxAmount, totalAmount string
+	var baseNet, baseTax, baseTotal string
 
 	err := row.Scan(
 		&order.ID, &order.TenantID, &order.OrgID, &order.Code,
 		&order.CustomerID, &order.CustomerName, &order.WarehouseID, &order.WarehouseName,
-		&order.OrderDate, &order.Currency, &status, &order.PriceIncludesTax,
-		&netAmount, &taxAmount, &totalAmount, &order.Remark,
+		&order.OrderDate, &order.Currency, &exchangeRate, &status, &order.PriceIncludesTax,
+		&netAmount, &taxAmount, &totalAmount,
+		&baseNet, &baseTax, &baseTotal, &order.Remark,
 		&order.CreatedBy, &order.UpdatedBy, &order.CreatedAt, &order.UpdatedAt,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -625,20 +649,26 @@ func scanOrderHeader(row rowScanner) (*domain.Order, error) {
 		return nil, fmt.Errorf("scan sales order: %w", err)
 	}
 	order.Status = domain.Status(status)
+	order.ExchangeRate = decimal.RequireFromString(exchangeRate)
 	order.NetAmount = decimal.RequireFromString(netAmount)
 	order.TaxAmount = decimal.RequireFromString(taxAmount)
 	order.TotalAmount = decimal.RequireFromString(totalAmount)
+	order.BaseNetAmount = decimal.RequireFromString(baseNet)
+	order.BaseTaxAmount = decimal.RequireFromString(baseTax)
+	order.BaseTotalAmount = decimal.RequireFromString(baseTotal)
 	return &order, nil
 }
 
 func scanOrderLine(row rowScanner) (*domain.OrderLine, error) {
 	var line domain.OrderLine
-	var quantity, unitPrice, taxRate, amount, taxAmount, grossAmount, shippedQty string
+	var quantity, unitPrice, taxRate, amount, taxAmount, grossAmount string
+	var baseAmount, baseTax, baseGross, shippedQty string
 
 	err := row.Scan(
 		&line.ID, &line.TenantID, &line.OrderID, &line.LineNo,
 		&line.MaterialID, &line.MaterialName, &quantity, &unitPrice,
-		&line.TaxRateID, &taxRate, &amount, &taxAmount, &grossAmount, &shippedQty,
+		&line.TaxRateID, &taxRate, &amount, &taxAmount, &grossAmount,
+		&baseAmount, &baseTax, &baseGross, &shippedQty,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, domain.ErrNotFound
@@ -652,6 +682,9 @@ func scanOrderLine(row rowScanner) (*domain.OrderLine, error) {
 	line.Amount = decimal.RequireFromString(amount)
 	line.TaxAmount = decimal.RequireFromString(taxAmount)
 	line.GrossAmount = decimal.RequireFromString(grossAmount)
+	line.BaseAmount = decimal.RequireFromString(baseAmount)
+	line.BaseTaxAmount = decimal.RequireFromString(baseTax)
+	line.BaseGrossAmount = decimal.RequireFromString(baseGross)
 	line.ShippedQty = decimal.RequireFromString(shippedQty)
 	return &line, nil
 }
@@ -659,12 +692,14 @@ func scanOrderLine(row rowScanner) (*domain.OrderLine, error) {
 func scanShipment(row rowScanner) (*domain.Shipment, error) {
 	var shipment domain.Shipment
 	var invoiceDueDate sql.NullTime
-	var netAmount, taxAmount, totalAmount string
+	var exchangeRate, netAmount, taxAmount, totalAmount string
+	var baseNet, baseTax, baseTotal string
 	err := row.Scan(
 		&shipment.ID, &shipment.TenantID, &shipment.OrgID, &shipment.Code,
 		&shipment.OrderID, &shipment.OrderCode, &shipment.CustomerID, &shipment.CustomerName,
 		&shipment.WarehouseID, &shipment.WarehouseName, &shipment.ShipmentDate,
-		&shipment.Status, &shipment.PriceIncludesTax, &netAmount, &taxAmount, &totalAmount,
+		&shipment.Status, &shipment.PriceIncludesTax, &exchangeRate,
+		&netAmount, &taxAmount, &totalAmount, &baseNet, &baseTax, &baseTotal,
 		&shipment.Remark, &shipment.CreatedBy, &shipment.CreatedAt,
 		&shipment.InvoiceID, &shipment.InvoiceCode, &invoiceDueDate,
 	)
@@ -674,9 +709,13 @@ func scanShipment(row rowScanner) (*domain.Shipment, error) {
 	if err != nil {
 		return nil, fmt.Errorf("scan shipment: %w", err)
 	}
+	shipment.ExchangeRate = decimal.RequireFromString(exchangeRate)
 	shipment.NetAmount = decimal.RequireFromString(netAmount)
 	shipment.TaxAmount = decimal.RequireFromString(taxAmount)
 	shipment.GrossAmount = decimal.RequireFromString(totalAmount)
+	shipment.BaseNetAmount = decimal.RequireFromString(baseNet)
+	shipment.BaseTaxAmount = decimal.RequireFromString(baseTax)
+	shipment.BaseTotalAmount = decimal.RequireFromString(baseTotal)
 	if invoiceDueDate.Valid {
 		shipment.InvoiceDueDate = invoiceDueDate.Time
 	}
@@ -685,12 +724,13 @@ func scanShipment(row rowScanner) (*domain.Shipment, error) {
 
 func scanShipmentLine(row rowScanner) (*domain.ShipmentLine, error) {
 	var line domain.ShipmentLine
-	var quantity, unitPrice, taxRate, amount, taxAmount, grossAmount, unitCost, costAmount string
+	var quantity, unitPrice, taxRate, amount, taxAmount, grossAmount string
+	var baseAmount, baseTax, baseGross, unitCost, costAmount string
 	err := row.Scan(
 		&line.ID, &line.TenantID, &line.ShipmentID, &line.OrderLineID,
 		&line.MaterialID, &line.MaterialName, &quantity, &unitPrice,
 		&line.TaxRateID, &taxRate, &amount, &taxAmount, &grossAmount,
-		&unitCost, &costAmount,
+		&baseAmount, &baseTax, &baseGross, &unitCost, &costAmount,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, domain.ErrNotFound
@@ -704,6 +744,9 @@ func scanShipmentLine(row rowScanner) (*domain.ShipmentLine, error) {
 	line.Amount = decimal.RequireFromString(amount)
 	line.TaxAmount = decimal.RequireFromString(taxAmount)
 	line.GrossAmount = decimal.RequireFromString(grossAmount)
+	line.BaseAmount = decimal.RequireFromString(baseAmount)
+	line.BaseTaxAmount = decimal.RequireFromString(baseTax)
+	line.BaseGrossAmount = decimal.RequireFromString(baseGross)
 	line.UnitCost = decimal.RequireFromString(unitCost)
 	line.CostAmount = decimal.RequireFromString(costAmount)
 	return &line, nil

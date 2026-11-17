@@ -197,8 +197,10 @@ const invoiceSelectSQL = `
 	SELECT i.id::text, i.tenant_id::text, i.org_id::text, i.code, i.invoice_type,
 	       i.source_type, i.source_id::text, i.source_code,
 	       i.partner_id::text, COALESCE(p.name, ''), i.invoice_date, i.due_date,
-	       i.currency, i.status, i.net_amount::text, i.tax_amount::text,
-	       i.total_amount::text, i.paid_amount::text,
+	       i.currency, i.exchange_rate::text, i.status, i.net_amount::text, i.tax_amount::text,
+	       i.total_amount::text, i.base_net_amount::text, i.base_tax_amount::text,
+	       i.base_total_amount::text, i.base_paid_amount::text, i.base_revalued_amount::text,
+	       i.paid_amount::text,
 	       i.vat_invoice_no, i.vat_invoice_type, i.vat_invoice_date, i.vat_invoice_status,
 	       i.buyer_tax_no, i.seller_tax_no,
 	       i.remark, i.created_by::text, i.updated_by::text, i.created_at, i.updated_at
@@ -211,14 +213,15 @@ type rowScanner interface {
 
 func scanInvoice(row rowScanner) (*domain.Invoice, error) {
 	var item domain.Invoice
-	var netAmount, taxAmount, total, paid string
+	var exchangeRate, netAmount, taxAmount, total, baseNet, baseTax, baseTotal, basePaid, baseRevalued, paid string
 	var vatInvoiceDate sql.NullTime
 
 	err := row.Scan(
 		&item.ID, &item.TenantID, &item.OrgID, &item.Code, &item.InvoiceType,
 		&item.SourceType, &item.SourceID, &item.SourceCode,
 		&item.PartnerID, &item.PartnerName, &item.InvoiceDate, &item.DueDate,
-		&item.Currency, &item.Status, &netAmount, &taxAmount, &total, &paid,
+		&item.Currency, &exchangeRate, &item.Status, &netAmount, &taxAmount,
+		&total, &baseNet, &baseTax, &baseTotal, &basePaid, &baseRevalued, &paid,
 		&item.VatInvoiceNo, &item.VatInvoiceType, &vatInvoiceDate, &item.VatInvoiceStatus,
 		&item.BuyerTaxNo, &item.SellerTaxNo,
 		&item.Remark, &item.CreatedBy, &item.UpdatedBy, &item.CreatedAt, &item.UpdatedAt,
@@ -229,9 +232,15 @@ func scanInvoice(row rowScanner) (*domain.Invoice, error) {
 	if err != nil {
 		return nil, fmt.Errorf("scan invoice: %w", err)
 	}
+	item.ExchangeRate = decimal.RequireFromString(exchangeRate)
 	item.NetAmount = decimal.RequireFromString(netAmount)
 	item.TaxAmount = decimal.RequireFromString(taxAmount)
 	item.TotalAmount = decimal.RequireFromString(total)
+	item.BaseNetAmount = decimal.RequireFromString(baseNet)
+	item.BaseTaxAmount = decimal.RequireFromString(baseTax)
+	item.BaseTotalAmount = decimal.RequireFromString(baseTotal)
+	item.BasePaidAmount = decimal.RequireFromString(basePaid)
+	item.BaseRevaluedAmount = decimal.RequireFromString(baseRevalued)
 	item.PaidAmount = decimal.RequireFromString(paid)
 	if vatInvoiceDate.Valid {
 		item.VatInvoiceDate = &vatInvoiceDate.Time

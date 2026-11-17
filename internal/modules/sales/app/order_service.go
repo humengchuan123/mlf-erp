@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 	masterdomain "github.com/mlf-erp/mlf-erp/internal/modules/masterdata/domain"
 	"github.com/mlf-erp/mlf-erp/internal/modules/sales/domain"
+	"github.com/mlf-erp/mlf-erp/internal/platform/fx"
 	"github.com/mlf-erp/mlf-erp/internal/platform/scope"
 	"github.com/shopspring/decimal"
 )
@@ -19,6 +20,7 @@ type OrderService struct {
 	materials  MaterialReader
 	warehouses WarehouseReader
 	taxRates   TaxRateReader
+	rates      fx.RateReader
 }
 
 func NewOrderService(
@@ -28,9 +30,11 @@ func NewOrderService(
 	materials MaterialReader,
 	warehouses WarehouseReader,
 	taxRates TaxRateReader,
+	rates fx.RateReader,
 ) *OrderService {
 	return &OrderService{
-		orders: orders, codes: codes, partners: partners, materials: materials, warehouses: warehouses, taxRates: taxRates,
+		orders: orders, codes: codes, partners: partners, materials: materials,
+		warehouses: warehouses, taxRates: taxRates, rates: rates,
 	}
 }
 
@@ -46,6 +50,7 @@ type OrderInput struct {
 	WarehouseID      string
 	OrderDate        time.Time
 	Currency         string
+	ExchangeRate     decimal.Decimal
 	PriceIncludesTax bool
 	Remark           string
 	Lines            []OrderLineInput
@@ -83,6 +88,10 @@ func (s *OrderService) Create(ctx context.Context, input OrderInput) (*domain.Or
 	if currency == "" {
 		currency = "CNY"
 	}
+	exchangeRate, err := fx.Resolve(ctx, s.rates, tenantID, currency, orderDate, input.ExchangeRate)
+	if err != nil {
+		return nil, err
+	}
 
 	order := &domain.Order{
 		ID:               uuid.NewString(),
@@ -95,6 +104,7 @@ func (s *OrderService) Create(ctx context.Context, input OrderInput) (*domain.Or
 		WarehouseName:    warehouse.Name,
 		OrderDate:        orderDate,
 		Currency:         currency,
+		ExchangeRate:     exchangeRate,
 		Status:           domain.StatusDraft,
 		PriceIncludesTax: input.PriceIncludesTax,
 		Remark:           strings.TrimSpace(input.Remark),
@@ -140,6 +150,14 @@ func (s *OrderService) UpdateDraft(ctx context.Context, id string, input OrderIn
 	if currency == "" {
 		currency = order.Currency
 	}
+	override := input.ExchangeRate
+	if override.IsZero() && currency == order.Currency && order.ExchangeRate.IsPositive() {
+		override = order.ExchangeRate
+	}
+	exchangeRate, err := fx.Resolve(ctx, s.rates, tenantID, currency, orderDate, override)
+	if err != nil {
+		return nil, err
+	}
 
 	order.OrgID = warehouse.OrgID
 	order.CustomerID = partner.ID
@@ -148,6 +166,7 @@ func (s *OrderService) UpdateDraft(ctx context.Context, id string, input OrderIn
 	order.WarehouseName = warehouse.Name
 	order.OrderDate = orderDate
 	order.Currency = currency
+	order.ExchangeRate = exchangeRate
 	order.PriceIncludesTax = input.PriceIncludesTax
 	order.Remark = strings.TrimSpace(input.Remark)
 	order.UpdatedBy = userID

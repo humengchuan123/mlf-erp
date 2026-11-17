@@ -724,11 +724,12 @@ func TestStage3B(t *testing.T) {
 		}, http.StatusBadRequest, "OVER_ALLOCATE")
 
 		usdPayment := admin.mustPost("/finance/payments", map[string]any{
-			"payment_type": "receipt",
-			"partner_id":   customerID,
-			"payment_date": time.Now().Format("2006-01-02"),
-			"currency":     "USD",
-			"amount":       "10.00",
+			"payment_type":  "receipt",
+			"partner_id":    customerID,
+			"payment_date":  time.Now().Format("2006-01-02"),
+			"currency":      "USD",
+			"exchange_rate": "7.2",
+			"amount":        "10.00",
 		}, http.StatusCreated)
 		admin.expectError(http.MethodPost, "/finance/payments/"+text(usdPayment, "id")+"/allocate", map[string]any{
 			"allocations": []map[string]any{

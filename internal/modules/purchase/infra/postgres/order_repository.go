@@ -35,12 +35,13 @@ func (r *Repository) Create(ctx context.Context, order *domain.Order) error {
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO erp.purchase_orders (
 			id, tenant_id, org_id, code, supplier_id, warehouse_id, order_date,
-			currency, status, price_includes_tax, net_amount, tax_amount, total_amount,
-			remark, created_by, updated_by
-		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`,
+			currency, exchange_rate, status, price_includes_tax, net_amount, tax_amount, total_amount,
+			base_net_amount, base_tax_amount, base_total_amount, remark, created_by, updated_by
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)`,
 		order.ID, order.TenantID, order.OrgID, order.Code, order.SupplierID, order.WarehouseID,
-		order.OrderDate, order.Currency, string(order.Status), order.PriceIncludesTax,
+		order.OrderDate, order.Currency, order.ExchangeRate.String(), string(order.Status), order.PriceIncludesTax,
 		order.NetAmount.String(), order.TaxAmount.String(), order.TotalAmount.String(),
+		order.BaseNetAmount.String(), order.BaseTaxAmount.String(), order.BaseTotalAmount.String(),
 		order.Remark, order.CreatedBy, order.UpdatedBy,
 	); err != nil {
 		return fmt.Errorf("insert order: %w", mapDBError(err))
@@ -63,8 +64,10 @@ func (r *Repository) UpdateDraft(ctx context.Context, filter scope.Filter, order
 
 	args := []any{
 		order.TenantID, order.ID, order.SupplierID, order.WarehouseID, order.OrderDate,
-		order.Currency, order.PriceIncludesTax, order.NetAmount.String(), order.TaxAmount.String(),
-		order.TotalAmount.String(), order.Remark, order.UpdatedBy,
+		order.Currency, order.ExchangeRate.String(), order.PriceIncludesTax,
+		order.NetAmount.String(), order.TaxAmount.String(), order.TotalAmount.String(),
+		order.BaseNetAmount.String(), order.BaseTaxAmount.String(), order.BaseTotalAmount.String(),
+		order.Remark, order.UpdatedBy,
 	}
 	where := "o.tenant_id = $1 AND o.id = $2 AND o.status = 'draft'"
 	appendScope(&where, &args, "o", filter)
@@ -72,8 +75,10 @@ func (r *Repository) UpdateDraft(ctx context.Context, filter scope.Filter, order
 	tag, err := tx.Exec(ctx, `
 		UPDATE erp.purchase_orders AS o
 		SET supplier_id = $3, warehouse_id = $4, order_date = $5,
-		    currency = $6, price_includes_tax = $7, net_amount = $8, tax_amount = $9,
-		    total_amount = $10, remark = $11, updated_by = $12, updated_at = now()
+		    currency = $6, exchange_rate = $7, price_includes_tax = $8,
+		    net_amount = $9, tax_amount = $10, total_amount = $11,
+		    base_net_amount = $12, base_tax_amount = $13, base_total_amount = $14,
+		    remark = $15, updated_by = $16, updated_at = now()
 		WHERE `+where, args...)
 	if err != nil {
 		return fmt.Errorf("update order: %w", mapDBError(err))
@@ -257,12 +262,15 @@ func (r *Repository) Receive(ctx context.Context, filter scope.Filter, receipt *
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO erp.purchase_receipts (
 			id, tenant_id, org_id, code, order_id, warehouse_id, receipt_date, status,
-			price_includes_tax, net_amount, tax_amount, total_amount, remark, created_by
-		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
+			price_includes_tax, exchange_rate, net_amount, tax_amount, total_amount,
+			base_net_amount, base_tax_amount, base_total_amount, remark, created_by
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)`,
 		receipt.ID, receipt.TenantID, receipt.OrgID, receipt.Code, receipt.OrderID,
 		receipt.WarehouseID, receipt.ReceiptDate, receipt.Status,
-		receipt.PriceIncludesTax, receipt.NetAmount.String(), receipt.TaxAmount.String(),
-		receipt.GrossAmount.String(), receipt.Remark, receipt.CreatedBy,
+		receipt.PriceIncludesTax, receipt.ExchangeRate.String(),
+		receipt.NetAmount.String(), receipt.TaxAmount.String(), receipt.GrossAmount.String(),
+		receipt.BaseNetAmount.String(), receipt.BaseTaxAmount.String(), receipt.BaseTotalAmount.String(),
+		receipt.Remark, receipt.CreatedBy,
 	); err != nil {
 		return fmt.Errorf("insert receipt: %w", mapDBError(err))
 	}
@@ -274,15 +282,17 @@ func (r *Repository) Receive(ctx context.Context, filter scope.Filter, receipt *
 		netTotal = netTotal.Add(line.Amount)
 		taxTotal = taxTotal.Add(line.TaxAmount)
 		invoiceTotal = invoiceTotal.Add(line.GrossAmount)
-		unitCost := line.Amount.Div(line.Quantity).Round(6)
+		unitCost := line.BaseAmount.Div(line.Quantity).Round(6)
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO erp.purchase_receipt_lines (
 				id, tenant_id, receipt_id, order_line_id, material_id, quantity, unit_price,
-				tax_rate_id, tax_rate, amount, tax_amount, gross_amount
-			) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+				tax_rate_id, tax_rate, amount, tax_amount, gross_amount,
+				base_amount, base_tax_amount, base_gross_amount
+			) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
 			line.ID, line.TenantID, receipt.ID, line.OrderLineID, line.MaterialID,
 			line.Quantity.String(), line.UnitPrice.String(), nullableUUID(line.TaxRateID),
 			line.TaxRate.String(), line.Amount.String(), line.TaxAmount.String(), line.GrossAmount.String(),
+			line.BaseAmount.String(), line.BaseTaxAmount.String(), line.BaseGrossAmount.String(),
 		); err != nil {
 			return fmt.Errorf("insert receipt line: %w", mapDBError(err))
 		}
@@ -342,29 +352,34 @@ func (r *Repository) Receive(ctx context.Context, filter scope.Filter, receipt *
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO erp.finance_invoices (
 			id, tenant_id, org_id, code, invoice_type, source_type, source_id, source_code,
-			partner_id, invoice_date, due_date, currency, status, net_amount, tax_amount,
-			total_amount, paid_amount, vat_invoice_status, remark, created_by, updated_by
-		) VALUES ($1,$2,$3,$4,'payable','purchase_receipt',$5,$6,$7,$8,$9,$10,$13,$14,$15,$11,0,'pending','',$12,$12)`,
+			partner_id, invoice_date, due_date, currency, exchange_rate, status,
+			net_amount, tax_amount, total_amount, base_net_amount, base_tax_amount,
+			base_total_amount, base_paid_amount, paid_amount, vat_invoice_status, remark,
+			created_by, updated_by
+		) VALUES ($1,$2,$3,$4,'payable','purchase_receipt',$5,$6,$7,$8,$9,$10,$11,$12,
+		          $13,$14,$15,$16,$17,$18,0,0,'pending','',$19,$19)`,
 		receipt.PayableID, receipt.TenantID, receipt.OrgID, receipt.PayableCode,
 		receipt.ID, receipt.Code, order.SupplierID, receipt.ReceiptDate,
-		receipt.PayableDueDate, order.Currency, invoiceTotal.String(),
-		receipt.CreatedBy, invoiceStatus, netTotal.String(), taxTotal.String(),
+		receipt.PayableDueDate, order.Currency, receipt.ExchangeRate.String(), invoiceStatus,
+		netTotal.String(), taxTotal.String(), invoiceTotal.String(),
+		receipt.BaseNetAmount.String(), receipt.BaseTaxAmount.String(), receipt.BaseTotalAmount.String(),
+		receipt.CreatedBy,
 	); err != nil {
 		return fmt.Errorf("insert payable invoice: %w", mapDBError(err))
 	}
 
 	if err := glpost.PostPurchaseReceipt(ctx, tx, glpost.PurchaseReceiptPosting{
-		TenantID:    receipt.TenantID,
-		OrgID:       receipt.OrgID,
-		VoucherCode: receipt.VoucherCode,
-		SourceID:    receipt.ID,
-		SourceCode:  receipt.Code,
-		SupplierID:  order.SupplierID,
-		CreatedBy:   receipt.CreatedBy,
-		VoucherDate: receipt.ReceiptDate,
-		NetAmount:   netTotal,
-		TaxAmount:   taxTotal,
-		GrossAmount: invoiceTotal,
+		TenantID:        receipt.TenantID,
+		OrgID:           receipt.OrgID,
+		VoucherCode:     receipt.VoucherCode,
+		SourceID:        receipt.ID,
+		SourceCode:      receipt.Code,
+		SupplierID:      order.SupplierID,
+		CreatedBy:       receipt.CreatedBy,
+		VoucherDate:     receipt.ReceiptDate,
+		BaseNetAmount:   receipt.BaseNetAmount,
+		BaseTaxAmount:   receipt.BaseTaxAmount,
+		BaseGrossAmount: receipt.BaseTotalAmount,
 	}); err != nil {
 		return fmt.Errorf("post purchase receipt voucher: %w", err)
 	}
@@ -445,8 +460,9 @@ func (r *Repository) ListReceipts(
 const orderSelectSQL = `
 	SELECT o.id::text, o.tenant_id::text, o.org_id::text, o.code,
 	       o.supplier_id::text, COALESCE(p.name, ''), o.warehouse_id::text, COALESCE(w.name, ''),
-	       o.order_date, o.currency, o.status, o.price_includes_tax,
-	       o.net_amount::text, o.tax_amount::text, o.total_amount::text, o.remark,
+	       o.order_date, o.currency, o.exchange_rate::text, o.status, o.price_includes_tax,
+	       o.net_amount::text, o.tax_amount::text, o.total_amount::text,
+	       o.base_net_amount::text, o.base_tax_amount::text, o.base_total_amount::text, o.remark,
 	       o.created_by::text, o.updated_by::text, o.created_at, o.updated_at
 	FROM erp.purchase_orders o
 	LEFT JOIN erp.partners p ON p.tenant_id = o.tenant_id AND p.id = o.supplier_id
@@ -455,8 +471,10 @@ const orderSelectSQL = `
 const receiptSelectSQL = `
 	SELECT r.id::text, r.tenant_id::text, r.org_id::text, r.code,
 	       r.order_id::text, o.code, COALESCE(p.name, ''), r.warehouse_id::text, COALESCE(w.name, ''),
-	       r.receipt_date, r.status, r.price_includes_tax, r.net_amount::text, r.tax_amount::text,
-	       r.total_amount::text, r.remark, r.created_by::text, r.created_at,
+	       r.receipt_date, r.status, r.price_includes_tax, r.exchange_rate::text,
+	       r.net_amount::text, r.tax_amount::text, r.total_amount::text,
+	       r.base_net_amount::text, r.base_tax_amount::text, r.base_total_amount::text,
+	       r.remark, r.created_by::text, r.created_at,
 	       COALESCE(i.code, ''), i.due_date
 	FROM erp.purchase_receipts r
 	JOIN erp.purchase_orders o ON o.tenant_id = r.tenant_id AND o.id = r.order_id
@@ -470,12 +488,14 @@ func insertLines(ctx context.Context, tx pgx.Tx, order *domain.Order) error {
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO erp.purchase_order_lines (
 				id, tenant_id, order_id, line_no, material_id, quantity, unit_price,
-				tax_rate_id, tax_rate, amount, tax_amount, gross_amount, received_qty
-			) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+				tax_rate_id, tax_rate, amount, tax_amount, gross_amount,
+				base_amount, base_tax_amount, base_gross_amount, received_qty
+			) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`,
 			line.ID, line.TenantID, order.ID, line.LineNo, line.MaterialID,
 			line.Quantity.String(), line.UnitPrice.String(), nullableUUID(line.TaxRateID),
 			line.TaxRate.String(), line.Amount.String(), line.TaxAmount.String(),
-			line.GrossAmount.String(), line.ReceivedQty.String(),
+			line.GrossAmount.String(), line.BaseAmount.String(), line.BaseTaxAmount.String(),
+			line.BaseGrossAmount.String(), line.ReceivedQty.String(),
 		); err != nil {
 			return fmt.Errorf("insert order line: %w", mapDBError(err))
 		}
@@ -488,7 +508,8 @@ func loadOrderLines(ctx context.Context, q querier, tenantID, orderID string) ([
 		SELECT l.id::text, l.tenant_id::text, l.order_id::text, l.line_no,
 		       l.material_id::text, COALESCE(m.name, ''), l.quantity::text,
 		       l.unit_price::text, COALESCE(l.tax_rate_id::text, ''), l.tax_rate::text,
-		       l.amount::text, l.tax_amount::text, l.gross_amount::text, l.received_qty::text
+		       l.amount::text, l.tax_amount::text, l.gross_amount::text,
+		       l.base_amount::text, l.base_tax_amount::text, l.base_gross_amount::text, l.received_qty::text
 		FROM erp.purchase_order_lines l
 		LEFT JOIN erp.materials m ON m.tenant_id = l.tenant_id AND m.id = l.material_id
 		WHERE l.tenant_id = $1 AND l.order_id = $2
@@ -514,7 +535,8 @@ func loadOrderLinesForUpdate(ctx context.Context, tx pgx.Tx, tenantID, orderID s
 		SELECT l.id::text, l.tenant_id::text, l.order_id::text, l.line_no,
 		       l.material_id::text, COALESCE(m.name, ''), l.quantity::text,
 		       l.unit_price::text, COALESCE(l.tax_rate_id::text, ''), l.tax_rate::text,
-		       l.amount::text, l.tax_amount::text, l.gross_amount::text, l.received_qty::text
+		       l.amount::text, l.tax_amount::text, l.gross_amount::text,
+		       l.base_amount::text, l.base_tax_amount::text, l.base_gross_amount::text, l.received_qty::text
 		FROM erp.purchase_order_lines l
 		LEFT JOIN erp.materials m ON m.tenant_id = l.tenant_id AND m.id = l.material_id
 		WHERE l.tenant_id = $1 AND l.order_id = $2
@@ -541,7 +563,8 @@ func loadReceiptLines(ctx context.Context, q querier, tenantID, receiptID string
 		SELECT rl.id::text, rl.tenant_id::text, rl.receipt_id::text, rl.order_line_id::text,
 		       rl.material_id::text, COALESCE(m.name, ''), rl.quantity::text,
 		       rl.unit_price::text, COALESCE(rl.tax_rate_id::text, ''), rl.tax_rate::text,
-		       rl.amount::text, rl.tax_amount::text, rl.gross_amount::text
+		       rl.amount::text, rl.tax_amount::text, rl.gross_amount::text,
+		       rl.base_amount::text, rl.base_tax_amount::text, rl.base_gross_amount::text
 		FROM erp.purchase_receipt_lines rl
 		LEFT JOIN erp.materials m ON m.tenant_id = rl.tenant_id AND m.id = rl.material_id
 		WHERE rl.tenant_id = $1 AND rl.receipt_id = $2
@@ -569,13 +592,14 @@ type rowScanner interface {
 func scanOrderHeader(row rowScanner) (*domain.Order, error) {
 	var order domain.Order
 	var status string
-	var netAmount, taxAmount, totalAmount string
+	var exchangeRate, netAmount, taxAmount, totalAmount string
+	var baseNet, baseTax, baseTotal string
 
 	err := row.Scan(
 		&order.ID, &order.TenantID, &order.OrgID, &order.Code,
 		&order.SupplierID, &order.SupplierName, &order.WarehouseID, &order.WarehouseName,
-		&order.OrderDate, &order.Currency, &status, &order.PriceIncludesTax,
-		&netAmount, &taxAmount, &totalAmount, &order.Remark,
+		&order.OrderDate, &order.Currency, &exchangeRate, &status, &order.PriceIncludesTax,
+		&netAmount, &taxAmount, &totalAmount, &baseNet, &baseTax, &baseTotal, &order.Remark,
 		&order.CreatedBy, &order.UpdatedBy, &order.CreatedAt, &order.UpdatedAt,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -585,20 +609,26 @@ func scanOrderHeader(row rowScanner) (*domain.Order, error) {
 		return nil, fmt.Errorf("scan order: %w", err)
 	}
 	order.Status = domain.Status(status)
+	order.ExchangeRate = decimal.RequireFromString(exchangeRate)
 	order.NetAmount = decimal.RequireFromString(netAmount)
 	order.TaxAmount = decimal.RequireFromString(taxAmount)
 	order.TotalAmount = decimal.RequireFromString(totalAmount)
+	order.BaseNetAmount = decimal.RequireFromString(baseNet)
+	order.BaseTaxAmount = decimal.RequireFromString(baseTax)
+	order.BaseTotalAmount = decimal.RequireFromString(baseTotal)
 	return &order, nil
 }
 
 func scanOrderLine(row rowScanner) (*domain.OrderLine, error) {
 	var line domain.OrderLine
-	var quantity, unitPrice, taxRate, amount, taxAmount, grossAmount, receivedQty string
+	var quantity, unitPrice, taxRate, amount, taxAmount, grossAmount string
+	var baseAmount, baseTax, baseGross, receivedQty string
 
 	err := row.Scan(
 		&line.ID, &line.TenantID, &line.OrderID, &line.LineNo,
 		&line.MaterialID, &line.MaterialName, &quantity, &unitPrice,
-		&line.TaxRateID, &taxRate, &amount, &taxAmount, &grossAmount, &receivedQty,
+		&line.TaxRateID, &taxRate, &amount, &taxAmount, &grossAmount,
+		&baseAmount, &baseTax, &baseGross, &receivedQty,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, domain.ErrNotFound
@@ -612,6 +642,9 @@ func scanOrderLine(row rowScanner) (*domain.OrderLine, error) {
 	line.Amount = decimal.RequireFromString(amount)
 	line.TaxAmount = decimal.RequireFromString(taxAmount)
 	line.GrossAmount = decimal.RequireFromString(grossAmount)
+	line.BaseAmount = decimal.RequireFromString(baseAmount)
+	line.BaseTaxAmount = decimal.RequireFromString(baseTax)
+	line.BaseGrossAmount = decimal.RequireFromString(baseGross)
 	line.ReceivedQty = decimal.RequireFromString(receivedQty)
 	return &line, nil
 }
@@ -619,12 +652,14 @@ func scanOrderLine(row rowScanner) (*domain.OrderLine, error) {
 func scanReceipt(row rowScanner) (*domain.Receipt, error) {
 	var receipt domain.Receipt
 	var payableDueDate sql.NullTime
-	var netAmount, taxAmount, totalAmount string
+	var exchangeRate, netAmount, taxAmount, totalAmount string
+	var baseNet, baseTax, baseTotal string
 	err := row.Scan(
 		&receipt.ID, &receipt.TenantID, &receipt.OrgID, &receipt.Code,
 		&receipt.OrderID, &receipt.OrderCode, &receipt.SupplierName,
 		&receipt.WarehouseID, &receipt.WarehouseName, &receipt.ReceiptDate,
-		&receipt.Status, &receipt.PriceIncludesTax, &netAmount, &taxAmount, &totalAmount,
+		&receipt.Status, &receipt.PriceIncludesTax, &exchangeRate,
+		&netAmount, &taxAmount, &totalAmount, &baseNet, &baseTax, &baseTotal,
 		&receipt.Remark, &receipt.CreatedBy, &receipt.CreatedAt,
 		&receipt.PayableCode, &payableDueDate,
 	)
@@ -634,9 +669,13 @@ func scanReceipt(row rowScanner) (*domain.Receipt, error) {
 	if err != nil {
 		return nil, fmt.Errorf("scan receipt: %w", err)
 	}
+	receipt.ExchangeRate = decimal.RequireFromString(exchangeRate)
 	receipt.NetAmount = decimal.RequireFromString(netAmount)
 	receipt.TaxAmount = decimal.RequireFromString(taxAmount)
 	receipt.GrossAmount = decimal.RequireFromString(totalAmount)
+	receipt.BaseNetAmount = decimal.RequireFromString(baseNet)
+	receipt.BaseTaxAmount = decimal.RequireFromString(baseTax)
+	receipt.BaseTotalAmount = decimal.RequireFromString(baseTotal)
 	if payableDueDate.Valid {
 		receipt.PayableDueDate = payableDueDate.Time
 	}
@@ -646,10 +685,12 @@ func scanReceipt(row rowScanner) (*domain.Receipt, error) {
 func scanReceiptLine(row rowScanner) (*domain.ReceiptLine, error) {
 	var line domain.ReceiptLine
 	var quantity, unitPrice, taxRate, amount, taxAmount, grossAmount string
+	var baseAmount, baseTax, baseGross string
 	err := row.Scan(
 		&line.ID, &line.TenantID, &line.ReceiptID, &line.OrderLineID,
 		&line.MaterialID, &line.MaterialName, &quantity, &unitPrice,
 		&line.TaxRateID, &taxRate, &amount, &taxAmount, &grossAmount,
+		&baseAmount, &baseTax, &baseGross,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, domain.ErrNotFound
@@ -663,6 +704,9 @@ func scanReceiptLine(row rowScanner) (*domain.ReceiptLine, error) {
 	line.Amount = decimal.RequireFromString(amount)
 	line.TaxAmount = decimal.RequireFromString(taxAmount)
 	line.GrossAmount = decimal.RequireFromString(grossAmount)
+	line.BaseAmount = decimal.RequireFromString(baseAmount)
+	line.BaseTaxAmount = decimal.RequireFromString(baseTax)
+	line.BaseGrossAmount = decimal.RequireFromString(baseGross)
 	return &line, nil
 }
 

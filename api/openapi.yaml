@@ -1,9 +1,9 @@
 openapi: 3.1.0
 info:
   title: MLF ERP API
-  version: 0.6.0
+  version: 0.7.0
   description: |
-    MLF ERP Stage 1 + Stage 2 + Stage 3A/3B/3C/3D/3E API contract.
+    MLF ERP Stage 1 + Stage 2 + Stage 3A/3B/3C/3D/3E/3F API contract.
     Master data uses a generic CRUD surface under /masterdata/{entity}.
     Purchase, sales, inventory, receivables/payables, payments, general ledger and reports are included.
 servers:
@@ -630,6 +630,115 @@ paths:
                               $ref: '#/components/schemas/InventoryTransaction'
                           total:
                             type: integer
+  /finance/exchange-rates:
+    get:
+      summary: List exchange rates
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+        - in: query
+          name: currency
+          schema:
+            type: string
+        - in: query
+          name: start_date
+          schema:
+            type: string
+            format: date
+        - in: query
+          name: end_date
+          schema:
+            type: string
+            format: date
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          items:
+                            type: array
+                            items:
+                              $ref: '#/components/schemas/ExchangeRate'
+                          total:
+                            type: integer
+    post:
+      summary: Create or update an exchange rate
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ExchangeRateInput'
+      responses:
+        '201':
+          description: Saved
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/ExchangeRate'
+  /finance/exchange-rates/latest:
+    get:
+      summary: Get the latest exchange rate on or before a date
+      parameters:
+        - in: query
+          name: currency
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: date
+          schema:
+            type: string
+            format: date
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+        '400':
+          description: Rate not found or invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+  /finance/exchange-rates/{id}:
+    put:
+      summary: Update an exchange rate
+      parameters:
+        - $ref: '#/components/parameters/ID'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ExchangeRateInput'
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/ExchangeRate'
   /finance/invoices:
     get:
       summary: List receivable and payable invoices
@@ -1652,6 +1761,12 @@ components:
           type: string
         gross_amount:
           type: string
+        base_amount:
+          type: string
+        base_tax_amount:
+          type: string
+        base_gross_amount:
+          type: string
         received_qty:
           type: string
         remaining_qty:
@@ -1676,6 +1791,8 @@ components:
           format: date
         currency:
           type: string
+        exchange_rate:
+          type: string
         status:
           type: string
           enum: [draft, submitted, approved, partially_received, received, closed, cancelled]
@@ -1686,6 +1803,12 @@ components:
         tax_amount:
           type: string
         total_amount:
+          type: string
+        base_net_amount:
+          type: string
+        base_tax_amount:
+          type: string
+        base_total_amount:
           type: string
         remark:
           type: string
@@ -1732,6 +1855,8 @@ components:
         currency:
           type: string
           default: CNY
+        exchange_rate:
+          type: string
         price_includes_tax:
           type: boolean
           default: true
@@ -1764,6 +1889,12 @@ components:
           type: string
         gross_amount:
           type: string
+        base_amount:
+          type: string
+        base_tax_amount:
+          type: string
+        base_gross_amount:
+          type: string
     PurchaseReceipt:
       type: object
       properties:
@@ -1788,11 +1919,19 @@ components:
           type: string
         price_includes_tax:
           type: boolean
+        exchange_rate:
+          type: string
         net_amount:
           type: string
         tax_amount:
           type: string
         total_amount:
+          type: string
+        base_net_amount:
+          type: string
+        base_tax_amount:
+          type: string
+        base_total_amount:
           type: string
         remark:
           type: string
@@ -1863,6 +2002,12 @@ components:
           type: string
         gross_amount:
           type: string
+        base_amount:
+          type: string
+        base_tax_amount:
+          type: string
+        base_gross_amount:
+          type: string
         shipped_qty:
           type: string
         remaining_qty:
@@ -1887,6 +2032,8 @@ components:
           format: date
         currency:
           type: string
+        exchange_rate:
+          type: string
         status:
           type: string
           enum: [draft, submitted, approved, partially_shipped, shipped, cancelled]
@@ -1897,6 +2044,12 @@ components:
         tax_amount:
           type: string
         total_amount:
+          type: string
+        base_net_amount:
+          type: string
+        base_tax_amount:
+          type: string
+        base_total_amount:
           type: string
         remark:
           type: string
@@ -1943,6 +2096,8 @@ components:
         currency:
           type: string
           default: CNY
+        exchange_rate:
+          type: string
         price_includes_tax:
           type: boolean
           default: true
@@ -1975,6 +2130,12 @@ components:
           type: string
         gross_amount:
           type: string
+        base_amount:
+          type: string
+        base_tax_amount:
+          type: string
+        base_gross_amount:
+          type: string
         unit_cost:
           type: string
         cost_amount:
@@ -2005,9 +2166,17 @@ components:
           type: string
         price_includes_tax:
           type: boolean
+        exchange_rate:
+          type: string
         net_amount:
           type: string
         tax_amount:
+          type: string
+        base_net_amount:
+          type: string
+        base_tax_amount:
+          type: string
+        base_total_amount:
           type: string
         remark:
           type: string
@@ -2118,6 +2287,35 @@ components:
           format: date-time
         created_by:
           type: string
+    ExchangeRate:
+      type: object
+      properties:
+        id:
+          type: string
+        currency_code:
+          type: string
+        rate_date:
+          type: string
+          format: date
+        rate:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    ExchangeRateInput:
+      type: object
+      required: [currency_code, rate_date, rate]
+      properties:
+        currency_code:
+          type: string
+        rate_date:
+          type: string
+          format: date
+        rate:
+          type: string
     Invoice:
       type: object
       properties:
@@ -2147,6 +2345,8 @@ components:
           format: date
         currency:
           type: string
+        exchange_rate:
+          type: string
         status:
           type: string
           enum: [open, partially_paid, paid]
@@ -2155,6 +2355,16 @@ components:
         tax_amount:
           type: string
         total_amount:
+          type: string
+        base_net_amount:
+          type: string
+        base_tax_amount:
+          type: string
+        base_total_amount:
+          type: string
+        base_paid_amount:
+          type: string
+        base_revalued_amount:
           type: string
         paid_amount:
           type: string
@@ -2231,9 +2441,15 @@ components:
           format: date
         currency:
           type: string
+        exchange_rate:
+          type: string
         amount:
           type: string
+        base_amount:
+          type: string
         allocated_amount:
+          type: string
+        base_allocated_amount:
           type: string
         unallocated_amount:
           type: string
@@ -2272,6 +2488,8 @@ components:
         currency:
           type: string
           default: CNY
+        exchange_rate:
+          type: string
         amount:
           type: string
         method:
@@ -2410,6 +2628,11 @@ components:
             - period_close
             - period_close_reversal
             - year_close
+            - fx_settlement
+            - fx_revaluation
+            - fx_revaluation_reversal
+            - fx_revaluation_reopen
+            - fx_revaluation_reversal_reopen
         source_type:
           type: string
         source_id:

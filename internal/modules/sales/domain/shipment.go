@@ -20,9 +20,13 @@ type Shipment struct {
 	ShipmentDate     time.Time
 	Status           string
 	PriceIncludesTax bool
+	ExchangeRate     decimal.Decimal
 	NetAmount        decimal.Decimal
 	TaxAmount        decimal.Decimal
 	GrossAmount      decimal.Decimal
+	BaseNetAmount    decimal.Decimal
+	BaseTaxAmount    decimal.Decimal
+	BaseTotalAmount  decimal.Decimal
 	Remark           string
 	CreatedBy        string
 	CreatedAt        time.Time
@@ -34,21 +38,24 @@ type Shipment struct {
 }
 
 type ShipmentLine struct {
-	ID           string
-	TenantID     string
-	ShipmentID   string
-	OrderLineID  string
-	MaterialID   string
-	MaterialName string
-	Quantity     decimal.Decimal
-	UnitPrice    decimal.Decimal
-	TaxRateID    string
-	TaxRate      decimal.Decimal
-	Amount       decimal.Decimal
-	TaxAmount    decimal.Decimal
-	GrossAmount  decimal.Decimal
-	UnitCost     decimal.Decimal
-	CostAmount   decimal.Decimal
+	ID              string
+	TenantID        string
+	ShipmentID      string
+	OrderLineID     string
+	MaterialID      string
+	MaterialName    string
+	Quantity        decimal.Decimal
+	UnitPrice       decimal.Decimal
+	TaxRateID       string
+	TaxRate         decimal.Decimal
+	Amount          decimal.Decimal
+	TaxAmount       decimal.Decimal
+	GrossAmount     decimal.Decimal
+	BaseAmount      decimal.Decimal
+	BaseTaxAmount   decimal.Decimal
+	BaseGrossAmount decimal.Decimal
+	UnitCost        decimal.Decimal
+	CostAmount      decimal.Decimal
 }
 
 func (s *Shipment) TotalAmount() decimal.Decimal {

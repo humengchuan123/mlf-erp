@@ -16,24 +16,27 @@ const (
 )
 
 type Payment struct {
-	ID              string
-	TenantID        string
-	OrgID           string
-	Code            string
-	PaymentType     string
-	PartnerID       string
-	PartnerName     string
-	PaymentDate     time.Time
-	Currency        string
-	Amount          decimal.Decimal
-	AllocatedAmount decimal.Decimal
-	Status          string
-	Method          string
-	Reference       string
-	Remark          string
-	CreatedBy       string
-	CreatedAt       time.Time
-	VoucherCode     string
+	ID                  string
+	TenantID            string
+	OrgID               string
+	Code                string
+	PaymentType         string
+	PartnerID           string
+	PartnerName         string
+	PaymentDate         time.Time
+	Currency            string
+	ExchangeRate        decimal.Decimal
+	Amount              decimal.Decimal
+	AllocatedAmount     decimal.Decimal
+	BaseAmount          decimal.Decimal
+	BaseAllocatedAmount decimal.Decimal
+	Status              string
+	Method              string
+	Reference           string
+	Remark              string
+	CreatedBy           string
+	CreatedAt           time.Time
+	VoucherCode         string
 }
 
 func (p *Payment) Unallocated() decimal.Decimal {

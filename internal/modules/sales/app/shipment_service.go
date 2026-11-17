@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/mlf-erp/mlf-erp/internal/modules/sales/domain"
+	"github.com/mlf-erp/mlf-erp/internal/platform/fx"
 	"github.com/mlf-erp/mlf-erp/internal/platform/scope"
 	"github.com/mlf-erp/mlf-erp/internal/platform/taxcalc"
 	"github.com/shopspring/decimal"
@@ -16,10 +17,11 @@ import (
 type ShipmentService struct {
 	orders domain.OrderRepository
 	codes  CodeGenerator
+	rates  fx.RateReader
 }
 
-func NewShipmentService(orders domain.OrderRepository, codes CodeGenerator) *ShipmentService {
-	return &ShipmentService{orders: orders, codes: codes}
+func NewShipmentService(orders domain.OrderRepository, codes CodeGenerator, rates fx.RateReader) *ShipmentService {
+	return &ShipmentService{orders: orders, codes: codes, rates: rates}
 }
 
 type ShipLineInput struct {
@@ -29,6 +31,7 @@ type ShipLineInput struct {
 
 type ShipInput struct {
 	ShipmentDate time.Time
+	ExchangeRate decimal.Decimal
 	Remark       string
 	Lines        []ShipLineInput
 }
@@ -69,11 +72,23 @@ func (s *ShipmentService) Ship(ctx context.Context, orderID string, input ShipIn
 	}
 	sort.Strings(lineIDs)
 
+	shipmentDate := input.ShipmentDate
+	if shipmentDate.IsZero() {
+		shipmentDate = time.Now()
+	}
+	exchangeRate, err := fx.Resolve(ctx, s.rates, tenantID, order.Currency, shipmentDate, input.ExchangeRate)
+	if err != nil {
+		return nil, err
+	}
+
 	shipmentID := uuid.NewString()
 	shipmentLines := make([]*domain.ShipmentLine, 0, len(lineIDs))
 	netTotal := decimal.Zero
 	taxTotal := decimal.Zero
 	grossTotal := decimal.Zero
+	baseNetTotal := decimal.Zero
+	baseTaxTotal := decimal.Zero
+	baseGrossTotal := decimal.Zero
 	for _, lineID := range lineIDs {
 		orderLine := lineByID[lineID]
 		quantity := requested[lineID]
@@ -84,23 +99,32 @@ func (s *ShipmentService) Ship(ctx context.Context, orderID string, input ShipIn
 		if err != nil {
 			return nil, domain.ErrInvalidInput
 		}
+		baseNet := result.Net.Mul(exchangeRate).Round(4)
+		baseGross := result.Gross.Mul(exchangeRate).Round(4)
+		baseTax := baseGross.Sub(baseNet).Round(4)
 		netTotal = netTotal.Add(result.Net)
 		taxTotal = taxTotal.Add(result.Tax)
 		grossTotal = grossTotal.Add(result.Gross)
+		baseNetTotal = baseNetTotal.Add(baseNet)
+		baseTaxTotal = baseTaxTotal.Add(baseTax)
+		baseGrossTotal = baseGrossTotal.Add(baseGross)
 		shipmentLines = append(shipmentLines, &domain.ShipmentLine{
-			ID:           uuid.NewString(),
-			TenantID:     tenantID,
-			ShipmentID:   shipmentID,
-			OrderLineID:  orderLine.ID,
-			MaterialID:   orderLine.MaterialID,
-			MaterialName: orderLine.MaterialName,
-			Quantity:     quantity,
-			UnitPrice:    orderLine.UnitPrice,
-			TaxRateID:    orderLine.TaxRateID,
-			TaxRate:      orderLine.TaxRate,
-			Amount:       result.Net,
-			TaxAmount:    result.Tax,
-			GrossAmount:  result.Gross,
+			ID:              uuid.NewString(),
+			TenantID:        tenantID,
+			ShipmentID:      shipmentID,
+			OrderLineID:     orderLine.ID,
+			MaterialID:      orderLine.MaterialID,
+			MaterialName:    orderLine.MaterialName,
+			Quantity:        quantity,
+			UnitPrice:       orderLine.UnitPrice,
+			TaxRateID:       orderLine.TaxRateID,
+			TaxRate:         orderLine.TaxRate,
+			Amount:          result.Net,
+			TaxAmount:       result.Tax,
+			GrossAmount:     result.Gross,
+			BaseAmount:      baseNet,
+			BaseTaxAmount:   baseTax,
+			BaseGrossAmount: baseGross,
 		})
 	}
 
@@ -116,11 +140,6 @@ func (s *ShipmentService) Ship(ctx context.Context, orderID string, input ShipIn
 	if err != nil {
 		return nil, err
 	}
-	shipmentDate := input.ShipmentDate
-	if shipmentDate.IsZero() {
-		shipmentDate = time.Now()
-	}
-
 	shipment := &domain.Shipment{
 		ID:               shipmentID,
 		TenantID:         tenantID,
@@ -135,9 +154,13 @@ func (s *ShipmentService) Ship(ctx context.Context, orderID string, input ShipIn
 		ShipmentDate:     shipmentDate,
 		Status:           "posted",
 		PriceIncludesTax: order.PriceIncludesTax,
+		ExchangeRate:     exchangeRate,
 		NetAmount:        netTotal.Round(4),
 		TaxAmount:        taxTotal.Round(4),
 		GrossAmount:      grossTotal.Round(4),
+		BaseNetAmount:    baseNetTotal.Round(4),
+		BaseTaxAmount:    baseTaxTotal.Round(4),
+		BaseTotalAmount:  baseGrossTotal.Round(4),
 		Remark:           strings.TrimSpace(input.Remark),
 		CreatedBy:        userID,
 		CreatedAt:        time.Now(),

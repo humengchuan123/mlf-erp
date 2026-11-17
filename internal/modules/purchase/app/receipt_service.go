@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/mlf-erp/mlf-erp/internal/modules/purchase/domain"
+	"github.com/mlf-erp/mlf-erp/internal/platform/fx"
 	"github.com/mlf-erp/mlf-erp/internal/platform/scope"
 	"github.com/mlf-erp/mlf-erp/internal/platform/taxcalc"
 	"github.com/shopspring/decimal"
@@ -16,10 +17,11 @@ import (
 type ReceiptService struct {
 	orders domain.OrderRepository
 	codes  CodeGenerator
+	rates  fx.RateReader
 }
 
-func NewReceiptService(orders domain.OrderRepository, codes CodeGenerator) *ReceiptService {
-	return &ReceiptService{orders: orders, codes: codes}
+func NewReceiptService(orders domain.OrderRepository, codes CodeGenerator, rates fx.RateReader) *ReceiptService {
+	return &ReceiptService{orders: orders, codes: codes, rates: rates}
 }
 
 type ReceiveLineInput struct {
@@ -28,9 +30,10 @@ type ReceiveLineInput struct {
 }
 
 type ReceiveInput struct {
-	ReceiptDate time.Time
-	Remark      string
-	Lines       []ReceiveLineInput
+	ReceiptDate  time.Time
+	ExchangeRate decimal.Decimal
+	Remark       string
+	Lines        []ReceiveLineInput
 }
 
 func (s *ReceiptService) Receive(ctx context.Context, orderID string, input ReceiveInput) (*domain.Receipt, error) {
@@ -69,11 +72,23 @@ func (s *ReceiptService) Receive(ctx context.Context, orderID string, input Rece
 	}
 	sort.Strings(lineIDs)
 
+	receiptDate := input.ReceiptDate
+	if receiptDate.IsZero() {
+		receiptDate = time.Now()
+	}
+	exchangeRate, err := fx.Resolve(ctx, s.rates, tenantID, order.Currency, receiptDate, input.ExchangeRate)
+	if err != nil {
+		return nil, err
+	}
+
 	receiptID := uuid.NewString()
 	receiptLines := make([]*domain.ReceiptLine, 0, len(lineIDs))
 	netTotal := decimal.Zero
 	taxTotal := decimal.Zero
 	grossTotal := decimal.Zero
+	baseNetTotal := decimal.Zero
+	baseTaxTotal := decimal.Zero
+	baseGrossTotal := decimal.Zero
 	for _, lineID := range lineIDs {
 		orderLine := lineByID[lineID]
 		quantity := requested[lineID]
@@ -84,23 +99,32 @@ func (s *ReceiptService) Receive(ctx context.Context, orderID string, input Rece
 		if err != nil {
 			return nil, domain.ErrInvalidInput
 		}
+		baseNet := result.Net.Mul(exchangeRate).Round(4)
+		baseGross := result.Gross.Mul(exchangeRate).Round(4)
+		baseTax := baseGross.Sub(baseNet).Round(4)
 		netTotal = netTotal.Add(result.Net)
 		taxTotal = taxTotal.Add(result.Tax)
 		grossTotal = grossTotal.Add(result.Gross)
+		baseNetTotal = baseNetTotal.Add(baseNet)
+		baseTaxTotal = baseTaxTotal.Add(baseTax)
+		baseGrossTotal = baseGrossTotal.Add(baseGross)
 		receiptLines = append(receiptLines, &domain.ReceiptLine{
-			ID:           uuid.NewString(),
-			TenantID:     tenantID,
-			ReceiptID:    receiptID,
-			OrderLineID:  orderLine.ID,
-			MaterialID:   orderLine.MaterialID,
-			MaterialName: orderLine.MaterialName,
-			Quantity:     quantity,
-			UnitPrice:    orderLine.UnitPrice,
-			TaxRateID:    orderLine.TaxRateID,
-			TaxRate:      orderLine.TaxRate,
-			Amount:       result.Net,
-			TaxAmount:    result.Tax,
-			GrossAmount:  result.Gross,
+			ID:              uuid.NewString(),
+			TenantID:        tenantID,
+			ReceiptID:       receiptID,
+			OrderLineID:     orderLine.ID,
+			MaterialID:      orderLine.MaterialID,
+			MaterialName:    orderLine.MaterialName,
+			Quantity:        quantity,
+			UnitPrice:       orderLine.UnitPrice,
+			TaxRateID:       orderLine.TaxRateID,
+			TaxRate:         orderLine.TaxRate,
+			Amount:          result.Net,
+			TaxAmount:       result.Tax,
+			GrossAmount:     result.Gross,
+			BaseAmount:      baseNet,
+			BaseTaxAmount:   baseTax,
+			BaseGrossAmount: baseGross,
 		})
 	}
 
@@ -116,11 +140,6 @@ func (s *ReceiptService) Receive(ctx context.Context, orderID string, input Rece
 	if err != nil {
 		return nil, err
 	}
-	receiptDate := input.ReceiptDate
-	if receiptDate.IsZero() {
-		receiptDate = time.Now()
-	}
-
 	receipt := &domain.Receipt{
 		ID:               receiptID,
 		TenantID:         tenantID,
@@ -134,9 +153,13 @@ func (s *ReceiptService) Receive(ctx context.Context, orderID string, input Rece
 		ReceiptDate:      receiptDate,
 		Status:           "posted",
 		PriceIncludesTax: order.PriceIncludesTax,
+		ExchangeRate:     exchangeRate,
 		NetAmount:        netTotal.Round(4),
 		TaxAmount:        taxTotal.Round(4),
 		GrossAmount:      grossTotal.Round(4),
+		BaseNetAmount:    baseNetTotal.Round(4),
+		BaseTaxAmount:    baseTaxTotal.Round(4),
+		BaseTotalAmount:  baseGrossTotal.Round(4),
 		Remark:           strings.TrimSpace(input.Remark),
 		CreatedBy:        userID,
 		CreatedAt:        time.Now(),
