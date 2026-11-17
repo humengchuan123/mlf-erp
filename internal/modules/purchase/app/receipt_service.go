@@ -97,6 +97,10 @@ func (s *ReceiptService) Receive(ctx context.Context, orderID string, input Rece
 	if err != nil {
 		return nil, err
 	}
+	voucherCode, err := s.codes.Next(ctx, tenantID, "gl_voucher")
+	if err != nil {
+		return nil, err
+	}
 	receiptDate := input.ReceiptDate
 	if receiptDate.IsZero() {
 		receiptDate = time.Now()
@@ -120,6 +124,7 @@ func (s *ReceiptService) Receive(ctx context.Context, orderID string, input Rece
 		PayableID:      uuid.NewString(),
 		PayableCode:    payableCode,
 		PayableDueDate: receiptDate.AddDate(0, 0, 30),
+		VoucherCode:    voucherCode,
 		Lines:          receiptLines,
 	}
 

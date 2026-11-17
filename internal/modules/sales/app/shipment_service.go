@@ -97,6 +97,10 @@ func (s *ShipmentService) Ship(ctx context.Context, orderID string, input ShipIn
 	if err != nil {
 		return nil, err
 	}
+	voucherCode, err := s.codes.Next(ctx, tenantID, "gl_voucher")
+	if err != nil {
+		return nil, err
+	}
 	shipmentDate := input.ShipmentDate
 	if shipmentDate.IsZero() {
 		shipmentDate = time.Now()
@@ -121,6 +125,7 @@ func (s *ShipmentService) Ship(ctx context.Context, orderID string, input ShipIn
 		InvoiceID:      uuid.NewString(),
 		InvoiceCode:    invoiceCode,
 		InvoiceDueDate: shipmentDate.AddDate(0, 0, 30),
+		VoucherCode:    voucherCode,
 		Lines:          shipmentLines,
 	}
 

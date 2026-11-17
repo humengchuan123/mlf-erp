@@ -786,6 +786,366 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ApiResponse'
+  /finance/accounts:
+    get:
+      summary: List chart of accounts
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/GlAccount'
+    post:
+      summary: Create a GL account
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GlAccountInput'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/GlAccount'
+  /finance/accounts/{id}:
+    parameters:
+      - $ref: '#/components/parameters/ID'
+    put:
+      summary: Update a GL account
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GlAccountInput'
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/GlAccount'
+  /finance/periods:
+    get:
+      summary: List accounting periods
+      parameters:
+        - in: query
+          name: year
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/GlPeriod'
+  /finance/periods/{id}/close:
+    parameters:
+      - $ref: '#/components/parameters/ID'
+    post:
+      summary: Close an accounting period
+      responses:
+        '200':
+          description: Closed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+        '409':
+          description: Period has draft vouchers or is already closed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+  /finance/periods/{id}/reopen:
+    parameters:
+      - $ref: '#/components/parameters/ID'
+    post:
+      summary: Reopen an accounting period
+      responses:
+        '200':
+          description: Reopened
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+  /finance/vouchers:
+    get:
+      summary: List GL vouchers
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+        - $ref: '#/components/parameters/Keyword'
+        - in: query
+          name: status
+          schema:
+            type: string
+            enum: [draft, posted, reversed]
+        - in: query
+          name: voucher_type
+          schema:
+            type: string
+        - in: query
+          name: start_date
+          schema:
+            type: string
+            format: date
+        - in: query
+          name: end_date
+          schema:
+            type: string
+            format: date
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          items:
+                            type: array
+                            items:
+                              $ref: '#/components/schemas/GlVoucher'
+                          total:
+                            type: integer
+    post:
+      summary: Create a draft manual voucher
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GlVoucherInput'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/GlVoucher'
+        '400':
+          description: Invalid or unbalanced voucher
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+  /finance/vouchers/{id}:
+    parameters:
+      - $ref: '#/components/parameters/ID'
+    get:
+      summary: Get a GL voucher with lines
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/GlVoucher'
+    put:
+      summary: Update a draft manual voucher
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GlVoucherInput'
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/GlVoucher'
+  /finance/vouchers/{id}/post:
+    parameters:
+      - $ref: '#/components/parameters/ID'
+    post:
+      summary: Post a draft voucher
+      responses:
+        '200':
+          description: Posted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+        '409':
+          description: Period closed or invalid status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+  /finance/vouchers/{id}/reverse:
+    parameters:
+      - $ref: '#/components/parameters/ID'
+    post:
+      summary: Reverse a posted voucher and create a reversal voucher
+      responses:
+        '201':
+          description: Reversal voucher created
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/GlVoucher'
+  /finance/reports/trial-balance:
+    get:
+      summary: Trial balance report
+      parameters:
+        - in: query
+          name: start_date
+          schema:
+            type: string
+            format: date
+        - in: query
+          name: end_date
+          schema:
+            type: string
+            format: date
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/GlTrialBalance'
+  /finance/reports/general-ledger:
+    get:
+      summary: General ledger report for one account
+      parameters:
+        - in: query
+          name: account_id
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - in: query
+          name: start_date
+          schema:
+            type: string
+            format: date
+        - in: query
+          name: end_date
+          schema:
+            type: string
+            format: date
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/GlGeneralLedger'
+  /finance/reports/balance-sheet:
+    get:
+      summary: Balance sheet report
+      parameters:
+        - in: query
+          name: as_of
+          schema:
+            type: string
+            format: date
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/GlBalanceSheet'
+  /finance/reports/income-statement:
+    get:
+      summary: Income statement report
+      parameters:
+        - in: query
+          name: start_date
+          schema:
+            type: string
+            format: date
+        - in: query
+          name: end_date
+          schema:
+            type: string
+            format: date
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/GlIncomeStatement'
 components:
   securitySchemes:
     bearerAuth:
@@ -1628,4 +1988,310 @@ components:
         invoice_id:
           type: string
         amount:
+          type: string
+    GlAccount:
+      type: object
+      properties:
+        id:
+          type: string
+        code:
+          type: string
+        name:
+          type: string
+        type:
+          type: string
+          enum: [asset, liability, equity, revenue, expense]
+        direction:
+          type: string
+          enum: [debit, credit]
+        parent_id:
+          type: string
+        level:
+          type: integer
+        is_leaf:
+          type: boolean
+        status:
+          type: string
+          enum: [active, disabled]
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    GlAccountInput:
+      type: object
+      required: [code, name, type, direction]
+      properties:
+        code:
+          type: string
+        name:
+          type: string
+        type:
+          type: string
+          enum: [asset, liability, equity, revenue, expense]
+        direction:
+          type: string
+          enum: [debit, credit]
+        parent_id:
+          type: string
+        status:
+          type: string
+          enum: [active, disabled]
+    GlPeriod:
+      type: object
+      properties:
+        id:
+          type: string
+        year:
+          type: integer
+        month:
+          type: integer
+        start_date:
+          type: string
+          format: date
+        end_date:
+          type: string
+          format: date
+        status:
+          type: string
+          enum: [open, closed]
+        closed_at:
+          type: string
+          format: date-time
+        closed_by:
+          type: string
+    GlVoucherLine:
+      type: object
+      properties:
+        id:
+          type: string
+        line_no:
+          type: integer
+        account_id:
+          type: string
+        account_code:
+          type: string
+        account_name:
+          type: string
+        summary:
+          type: string
+        debit:
+          type: string
+        credit:
+          type: string
+        partner_id:
+          type: string
+        department_id:
+          type: string
+    GlVoucher:
+      type: object
+      properties:
+        id:
+          type: string
+        code:
+          type: string
+        voucher_date:
+          type: string
+          format: date
+        period_id:
+          type: string
+        voucher_type:
+          type: string
+          enum: [manual, sales_shipment, purchase_receipt, receipt_payment, supplier_payment, reversal]
+        source_type:
+          type: string
+        source_id:
+          type: string
+        source_code:
+          type: string
+        status:
+          type: string
+          enum: [draft, posted, reversed]
+        memo:
+          type: string
+        created_by:
+          type: string
+        posted_by:
+          type: string
+        posted_at:
+          type: string
+          format: date-time
+        reversal_of_voucher_id:
+          type: string
+        total_amount:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        lines:
+          type: array
+          items:
+            $ref: '#/components/schemas/GlVoucherLine'
+    GlVoucherLineInput:
+      type: object
+      required: [account_id]
+      properties:
+        account_id:
+          type: string
+        summary:
+          type: string
+        debit:
+          type: string
+        credit:
+          type: string
+        partner_id:
+          type: string
+        department_id:
+          type: string
+    GlVoucherInput:
+      type: object
+      required: [voucher_date, lines]
+      properties:
+        voucher_date:
+          type: string
+          format: date
+        memo:
+          type: string
+        lines:
+          type: array
+          items:
+            $ref: '#/components/schemas/GlVoucherLineInput'
+    GlTrialBalanceRow:
+      type: object
+      properties:
+        account_id:
+          type: string
+        code:
+          type: string
+        name:
+          type: string
+        type:
+          type: string
+        direction:
+          type: string
+        opening:
+          type: string
+        period_debit:
+          type: string
+        period_credit:
+          type: string
+        closing:
+          type: string
+    GlTrialBalance:
+      type: object
+      properties:
+        start_date:
+          type: string
+          format: date
+        end_date:
+          type: string
+          format: date
+        rows:
+          type: array
+          items:
+            $ref: '#/components/schemas/GlTrialBalanceRow'
+        total_debit:
+          type: string
+        total_credit:
+          type: string
+    GlGeneralLedgerEntry:
+      type: object
+      properties:
+        voucher_id:
+          type: string
+        voucher_code:
+          type: string
+        voucher_date:
+          type: string
+          format: date
+        summary:
+          type: string
+        debit:
+          type: string
+        credit:
+          type: string
+        balance:
+          type: string
+    GlGeneralLedger:
+      type: object
+      properties:
+        account:
+          $ref: '#/components/schemas/GlAccount'
+        start_date:
+          type: string
+          format: date
+        end_date:
+          type: string
+          format: date
+        opening:
+          type: string
+        entries:
+          type: array
+          items:
+            $ref: '#/components/schemas/GlGeneralLedgerEntry'
+        closing:
+          type: string
+    GlReportLine:
+      type: object
+      properties:
+        code:
+          type: string
+        name:
+          type: string
+        amount:
+          type: string
+    GlBalanceSheet:
+      type: object
+      properties:
+        as_of:
+          type: string
+          format: date
+        assets:
+          type: array
+          items:
+            $ref: '#/components/schemas/GlReportLine'
+        liabilities:
+          type: array
+          items:
+            $ref: '#/components/schemas/GlReportLine'
+        equity:
+          type: array
+          items:
+            $ref: '#/components/schemas/GlReportLine'
+        total_assets:
+          type: string
+        total_liabilities:
+          type: string
+        total_equity:
+          type: string
+        current_profit:
+          type: string
+        total_liabilities_and_equity:
+          type: string
+    GlIncomeStatement:
+      type: object
+      properties:
+        start_date:
+          type: string
+          format: date
+        end_date:
+          type: string
+          format: date
+        revenue:
+          type: array
+          items:
+            $ref: '#/components/schemas/GlReportLine'
+        expenses:
+          type: array
+          items:
+            $ref: '#/components/schemas/GlReportLine'
+        total_revenue:
+          type: string
+        total_expenses:
+          type: string
+        net_profit:
           type: string

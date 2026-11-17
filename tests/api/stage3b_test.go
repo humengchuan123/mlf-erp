@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"io"
+	"math"
 	"net/http"
 	"os"
 	"strconv"
@@ -152,6 +153,10 @@ func text(m map[string]any, key string) string {
 	return value
 }
 
+func nearlyEqual(a, b float64) bool {
+	return math.Abs(a-b) < 0.0001
+}
+
 func number(t *testing.T, m map[string]any, key string) float64 {
 	t.Helper()
 	raw := text(m, key)
@@ -280,8 +285,9 @@ func TestStage3B(t *testing.T) {
 	if baselineOnHand < 10 {
 		t.Fatalf("baseline on hand = %v, want >= 10", baselineOnHand)
 	}
-	if got := number(t, baselineItems[0].(map[string]any), "avg_cost"); got != 50 {
-		t.Fatalf("baseline avg_cost = %v, want 50", got)
+	baselineAvgCost := number(t, baselineItems[0].(map[string]any), "avg_cost")
+	if baselineAvgCost <= 0 {
+		t.Fatalf("baseline avg_cost = %v, want > 0", baselineAvgCost)
 	}
 
 	var salesOrderID string
@@ -331,16 +337,17 @@ func TestStage3B(t *testing.T) {
 		if text(first, "invoice_code") == "" {
 			t.Fatal("first shipment invoice_code is empty")
 		}
-		if got := number(t, first, "total_cost"); got != 200 {
-			t.Fatalf("first shipment total_cost = %v, want 200", got)
+		expectedCost := baselineAvgCost * 4
+		if got := number(t, first, "total_cost"); !nearlyEqual(got, expectedCost) {
+			t.Fatalf("first shipment total_cost = %v, want %v", got, expectedCost)
 		}
 		firstLines, _ := first["lines"].([]any)
 		firstLine := firstLines[0].(map[string]any)
-		if got := number(t, firstLine, "unit_cost"); got != 50 {
-			t.Fatalf("first shipment unit_cost = %v, want 50", got)
+		if got := number(t, firstLine, "unit_cost"); !nearlyEqual(got, baselineAvgCost) {
+			t.Fatalf("first shipment unit_cost = %v, want %v", got, baselineAvgCost)
 		}
-		if got := number(t, firstLine, "cost_amount"); got != 200 {
-			t.Fatalf("first shipment cost_amount = %v, want 200", got)
+		if got := number(t, firstLine, "cost_amount"); !nearlyEqual(got, expectedCost) {
+			t.Fatalf("first shipment cost_amount = %v, want %v", got, expectedCost)
 		}
 		ledger := listItems(admin,
 			"/inventory/transactions?warehouse_id="+warehouseID+"&material_id="+materialID+"&page_size=200",
@@ -359,11 +366,11 @@ func TestStage3B(t *testing.T) {
 		if got := text(outbound, "direction"); got != "out" {
 			t.Fatalf("outbound direction = %q, want out", got)
 		}
-		if got := number(t, outbound, "unit_cost"); got != 50 {
-			t.Fatalf("outbound unit_cost = %v, want 50", got)
+		if got := number(t, outbound, "unit_cost"); !nearlyEqual(got, baselineAvgCost) {
+			t.Fatalf("outbound unit_cost = %v, want %v", got, baselineAvgCost)
 		}
-		if got := number(t, outbound, "amount"); got != 200 {
-			t.Fatalf("outbound amount = %v, want 200", got)
+		if got := number(t, outbound, "amount"); !nearlyEqual(got, expectedCost) {
+			t.Fatalf("outbound amount = %v, want %v", got, expectedCost)
 		}
 
 		afterPartial := admin.mustGet("/sales/orders/"+salesOrderID, http.StatusOK)

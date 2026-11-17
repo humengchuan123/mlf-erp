@@ -34,7 +34,19 @@ assertFile('apps/web/src/router/index.ts', [
   'finance.invoice.read',
   "path: 'finance/payments'",
   'PaymentListView.vue',
-  'finance.payment.read'
+  'finance.payment.read',
+  "path: 'finance/accounts'",
+  'AccountListView.vue',
+  'finance.account.read',
+  "path: 'finance/periods'",
+  'PeriodListView.vue',
+  'finance.period.read',
+  "path: 'finance/vouchers'",
+  'VoucherListView.vue',
+  'finance.voucher.read',
+  "path: 'finance/reports'",
+  'ReportView.vue',
+  'finance.report.read'
 ])
 
 assertFile('apps/web/src/layouts/DefaultLayout.vue', [
@@ -45,7 +57,11 @@ assertFile('apps/web/src/layouts/DefaultLayout.vue', [
   '销售订单',
   '发货单',
   '应收应付',
-  '收付款'
+  '收付款',
+  '会计科目',
+  '会计期间',
+  '会计凭证',
+  '财务报表'
 ])
 
 assertFile('apps/web/src/views/sales/OrderListView.vue', [
@@ -86,7 +102,44 @@ assertFile('apps/web/src/views/finance/PaymentListView.vue', [
   'unallocated_amount'
 ])
 
-assertFile('packages/sdk/src/index.ts', ["./sales", "./finance"])
+assertFile('packages/sdk/src/index.ts', ["./sales", "./finance", "./gl"])
+
+assertFile('apps/web/src/views/finance/AccountListView.vue', [
+  'PageHeader',
+  'el-table',
+  'el-dialog',
+  'glApi.accounts.list',
+  'glApi.accounts.create',
+  'glApi.accounts.update'
+])
+
+assertFile('apps/web/src/views/finance/PeriodListView.vue', [
+  'PageHeader',
+  'el-table',
+  'glApi.periods.list',
+  'glApi.periods.close',
+  'glApi.periods.reopen'
+])
+
+assertFile('apps/web/src/views/finance/VoucherListView.vue', [
+  'PageHeader',
+  'el-table',
+  'el-dialog',
+  'el-drawer',
+  'glApi.vouchers.list',
+  'glApi.vouchers.create',
+  'glApi.vouchers.post',
+  'glApi.vouchers.reverse'
+])
+
+assertFile('apps/web/src/views/finance/ReportView.vue', [
+  'PageHeader',
+  'el-tabs',
+  'glApi.reports.trialBalance',
+  'glApi.reports.generalLedger',
+  'glApi.reports.balanceSheet',
+  'glApi.reports.incomeStatement'
+])
 
 assertFile('packages/sdk/src/sales.ts', [
   'salesApi',
@@ -109,6 +162,17 @@ assertFile('packages/sdk/src/finance.ts', [
   'payment(',
   'createPayment(',
   'allocate('
+])
+
+assertFile('packages/sdk/src/gl.ts', [
+  'glApi',
+  'accounts',
+  'periods',
+  'vouchers',
+  'trialBalance(',
+  'generalLedger(',
+  'balanceSheet(',
+  'incomeStatement('
 ])
 
 assertFile('package.json', ['test:api:stage3b', 'test:frontend'])

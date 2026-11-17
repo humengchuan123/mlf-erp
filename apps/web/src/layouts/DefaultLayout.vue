@@ -68,9 +68,21 @@
             <el-icon><Money /></el-icon>
             <span>收付款</span>
           </el-menu-item>
-          <el-menu-item v-if="authStore.hasPermission('finance.read')" index="/finance/gl">
+          <el-menu-item v-if="authStore.hasPermission('finance.account.read')" index="/finance/accounts">
             <el-icon><Money /></el-icon>
-            <span>总账</span>
+            <span>会计科目</span>
+          </el-menu-item>
+          <el-menu-item v-if="authStore.hasPermission('finance.period.read')" index="/finance/periods">
+            <el-icon><Money /></el-icon>
+            <span>会计期间</span>
+          </el-menu-item>
+          <el-menu-item v-if="authStore.hasPermission('finance.voucher.read')" index="/finance/vouchers">
+            <el-icon><Document /></el-icon>
+            <span>会计凭证</span>
+          </el-menu-item>
+          <el-menu-item v-if="authStore.hasPermission('finance.report.read')" index="/finance/reports">
+            <el-icon><Document /></el-icon>
+            <span>财务报表</span>
           </el-menu-item>
         </el-menu-item-group>
 
@@ -173,6 +185,10 @@ const canFinance = computed(
   () =>
     authStore.hasPermission('finance.invoice.read') ||
     authStore.hasPermission('finance.payment.read') ||
+    authStore.hasPermission('finance.account.read') ||
+    authStore.hasPermission('finance.period.read') ||
+    authStore.hasPermission('finance.voucher.read') ||
+    authStore.hasPermission('finance.report.read') ||
     authStore.hasPermission('finance.read')
 )
 const canSystem = computed(

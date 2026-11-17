@@ -33,6 +33,7 @@ type Payment struct {
 	Remark          string
 	CreatedBy       string
 	CreatedAt       time.Time
+	VoucherCode     string
 }
 
 func (p *Payment) Unallocated() decimal.Decimal {

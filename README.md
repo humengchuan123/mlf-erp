@@ -2,7 +2,7 @@
 
 企业级 ERP Monorepo 骨架，支持 **SaaS 订阅** 与 **私有化安装** 两种交付形态。
 
-> 当前状态：Stage 1 平台底座 + Stage 2 主数据/编码规则/数据权限 + Stage 3A 采购与库存闭环 + Stage 3B 销售/发货/应收应付。
+> 当前状态：Stage 1 平台底座 + Stage 2 主数据/编码规则/数据权限 + Stage 3A 采购/库存 + Stage 3B 销售/应收应付 + Stage 3C 总账/自动凭证/基础报表。
 > 设计参考：工作区根目录的《企业ERP应用开发指南》。
 
 ## 技术栈
@@ -126,7 +126,7 @@ demo_company / Demo@123456   数据范围 company
 demo_dept    / Demo@123456   数据范围 dept
 ```
 
-演示数据包含：4 个计量单位、2 个币种、4 个税率、4 个仓库、12 个客商、20 个物料、2 个部门组织、3 张采购订单、2 张销售订单、发货单、应收/应付发票、收付款和库存余额/流水。
+演示数据包含：4 个计量单位、2 个币种、4 个税率、4 个仓库、12 个客商、20 个物料、2 个部门组织、3 张采购订单、2 张销售订单、发货单、应收/应付发票、收付款、库存余额/流水，以及自动生成的会计凭证和财务报表数据。
 
 > Stage 1 起 API 要求 PostgreSQL 可用；`DB_REQUIRED=true`。
 
@@ -217,6 +217,15 @@ curl -H "Authorization: Bearer <access_token>" \
 
 curl -H "Authorization: Bearer <access_token>" \
   "http://localhost:8080/api/v1/finance/payments"
+
+curl -H "Authorization: Bearer <access_token>" \
+  http://localhost:8080/api/v1/finance/accounts
+
+curl -H "Authorization: Bearer <access_token>" \
+  http://localhost:8080/api/v1/finance/vouchers
+
+curl -H "Authorization: Bearer <access_token>" \
+  http://localhost:8080/api/v1/finance/reports/trial-balance
 ```
 
 采购、销售、库存和财务均使用 PostgreSQL 持久化。
@@ -232,6 +241,7 @@ go run ./cmd/migrate -direction up
 go run ./cmd/migrate -direction down -steps 1
 go run ./cmd/seed
 go run ./cmd/demo
+go run ./cmd/glbackfill
 
 # Local development
 pnpm install
@@ -247,6 +257,9 @@ pnpm test:frontend
 
 # Stage 3B API integration test (starts Postgres, migrates, seeds, starts API)
 pnpm test:api:stage3b
+
+# Stage 3C API integration test (GL, auto vouchers, reports)
+pnpm test:api:stage3c
 
 # Docker
 docker build -f deploy/docker/api.Dockerfile -t mlf-erp/api:dev .
@@ -302,6 +315,17 @@ docker build -f deploy/docker/web.Dockerfile -t mlf-erp/web:dev .
 - 销售订单、发货单、应收应付、收付款前端页面。
 - Stage 3B 真实 HTTP API 集成测试和前端完整度检查。
 
+### Stage 3C 总账与基础报表
+
+- 会计科目表、会计期间、关账/反关账。
+- 手工凭证录入、过账、反过账。
+- 销售发货、采购收货、客户收款、供应商付款自动生成凭证。
+- 自动凭证按来源幂等，业务事务内同步入账。
+- 科目余额表、总账/明细账、资产负债表、利润表。
+- 科目、期间、凭证、报表前端页面。
+- `cmd/glbackfill` 为历史业务单据补生成凭证。
+- Stage 3C 真实 HTTP API 集成测试和前端完整度检查。
+
 ### 工程与交付
 
 - Monorepo 工作区与共享包。
@@ -312,7 +336,7 @@ docker build -f deploy/docker/web.Dockerfile -t mlf-erp/web:dev .
 
 ## 下一步
 
-- Stage 3C：总账、凭证、三大报表、业务单据生成凭证。
+- Stage 3D：现金流量表、期末损益结转、辅助核算、税务/发票。
 - 采购退货、销售退货、价格协议、客户信用。
 - 收付款反核销、发票红冲、账龄分析。
 - 审批流引擎、导入导出、附件。

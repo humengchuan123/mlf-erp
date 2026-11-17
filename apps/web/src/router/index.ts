@@ -68,14 +68,32 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '收付款', permission: 'finance.payment.read' }
       },
       {
+        path: 'finance/accounts',
+        name: 'finance-accounts',
+        component: () => import('@/views/finance/AccountListView.vue'),
+        meta: { title: '会计科目', permission: 'finance.account.read' }
+      },
+      {
+        path: 'finance/periods',
+        name: 'finance-periods',
+        component: () => import('@/views/finance/PeriodListView.vue'),
+        meta: { title: '会计期间', permission: 'finance.period.read' }
+      },
+      {
+        path: 'finance/vouchers',
+        name: 'finance-vouchers',
+        component: () => import('@/views/finance/VoucherListView.vue'),
+        meta: { title: '会计凭证', permission: 'finance.voucher.read' }
+      },
+      {
+        path: 'finance/reports',
+        name: 'finance-reports',
+        component: () => import('@/views/finance/ReportView.vue'),
+        meta: { title: '财务报表', permission: 'finance.report.read' }
+      },
+      {
         path: 'finance/gl',
-        name: 'finance-gl',
-        component: () => import('@/views/PlaceholderView.vue'),
-        meta: {
-          title: '总账',
-          description: '财务模块骨架，待接入科目、凭证、期间与报表。',
-          permission: 'finance.read'
-        }
+        redirect: '/finance/vouchers'
       },
       {
         path: 'masterdata/partners',

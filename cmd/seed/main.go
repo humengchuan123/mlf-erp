@@ -72,6 +72,15 @@ var permissions = []struct {
 	{"finance.invoice.read", "查看应收应付", "finance", "api"},
 	{"finance.payment.read", "查看收付款", "finance", "api"},
 	{"finance.payment.write", "管理收付款", "finance", "api"},
+	{"finance.account.read", "查看会计科目", "finance", "api"},
+	{"finance.account.write", "管理会计科目", "finance", "api"},
+	{"finance.period.read", "查看会计期间", "finance", "api"},
+	{"finance.period.close", "关账/反关账", "finance", "api"},
+	{"finance.voucher.read", "查看凭证", "finance", "api"},
+	{"finance.voucher.write", "管理凭证", "finance", "api"},
+	{"finance.voucher.post", "过账凭证", "finance", "api"},
+	{"finance.voucher.reverse", "反过账凭证", "finance", "api"},
+	{"finance.report.read", "查看财务报表", "finance", "api"},
 }
 
 var defaultCodeRules = []struct {
@@ -93,6 +102,7 @@ var defaultCodeRules = []struct {
 	{"purchase_payable", "AP", "yyyyMMdd", "-", 4, "day"},
 	{"finance_receipt", "RCPT", "yyyyMMdd", "-", 4, "day"},
 	{"finance_payment", "PAY", "yyyyMMdd", "-", 4, "day"},
+	{"gl_voucher", "GL", "yyyyMM", "-", 4, "month"},
 }
 
 func main() {
@@ -235,6 +245,10 @@ func main() {
 		}
 	}
 
+	if err := seedGL(ctx, tx, defaultTenantID); err != nil {
+		fail("seed general ledger", err)
+	}
+
 	if err := tx.Commit(ctx); err != nil {
 		fail("commit seed transaction", err)
 	}
@@ -245,6 +259,91 @@ func main() {
 	} else {
 		fmt.Println("seed completed: tenant=default username=admin password=unchanged")
 	}
+}
+
+func seedGL(ctx context.Context, tx pgx.Tx, tenantID string) error {
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO erp.gl_accounts (
+			id, tenant_id, code, name, type, direction, level, is_leaf, status
+		)
+		SELECT gen_random_uuid(), $1, seed.code, seed.name, seed.type, seed.direction,
+		       seed.level, seed.is_leaf, 'active'
+		FROM (
+			VALUES
+				('1000', '资产', 'asset', 'debit', 1, false),
+				('1001', '库存现金', 'asset', 'debit', 2, true),
+				('1002', '银行存款', 'asset', 'debit', 2, true),
+				('1122', '应收账款', 'asset', 'debit', 2, true),
+				('1405', '库存商品', 'asset', 'debit', 2, true),
+				('1601', '固定资产', 'asset', 'debit', 2, true),
+				('2000', '负债', 'liability', 'credit', 1, false),
+				('2202', '应付账款', 'liability', 'credit', 2, true),
+				('2211', '应付职工薪酬', 'liability', 'credit', 2, true),
+				('2221', '应交税费', 'liability', 'credit', 2, true),
+				('4000', '所有者权益', 'equity', 'credit', 1, false),
+				('4001', '实收资本', 'equity', 'credit', 2, true),
+				('4103', '本年利润', 'equity', 'credit', 2, true),
+				('4104', '利润分配', 'equity', 'credit', 2, true),
+				('6000', '收入', 'revenue', 'credit', 1, false),
+				('6001', '主营业务收入', 'revenue', 'credit', 2, true),
+				('6051', '其他业务收入', 'revenue', 'credit', 2, true),
+				('6400', '成本费用', 'expense', 'debit', 1, false),
+				('6401', '主营业务成本', 'expense', 'debit', 2, true),
+				('6601', '销售费用', 'expense', 'debit', 2, true),
+				('6602', '管理费用', 'expense', 'debit', 2, true),
+				('6603', '财务费用', 'expense', 'debit', 2, true),
+				('6801', '所得税费用', 'expense', 'debit', 2, true)
+		) AS seed(code, name, type, direction, level, is_leaf)
+		ON CONFLICT (tenant_id, code) DO NOTHING`, tenantID); err != nil {
+		return err
+	}
+
+	if _, err := tx.Exec(ctx, `
+		UPDATE erp.gl_accounts child
+		SET parent_id = parent.id
+		FROM erp.gl_accounts parent
+		WHERE child.tenant_id = parent.tenant_id
+		  AND (
+		      (parent.code = '1000' AND child.code IN ('1001', '1002', '1122', '1405', '1601')) OR
+		      (parent.code = '2000' AND child.code IN ('2202', '2211', '2221')) OR
+		      (parent.code = '4000' AND child.code IN ('4001', '4103', '4104')) OR
+		      (parent.code = '6000' AND child.code IN ('6001', '6051')) OR
+		      (parent.code = '6400' AND child.code IN ('6401', '6601', '6602', '6603', '6801'))
+		  )
+		  AND child.parent_id IS NULL
+		  AND child.tenant_id = $1`, tenantID); err != nil {
+		return err
+	}
+
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO erp.gl_account_mappings (tenant_id, key, account_code)
+		SELECT $1, mapping.key, mapping.account_code
+		FROM (
+			VALUES
+				('ar', '1122'),
+				('ap', '2202'),
+				('revenue', '6001'),
+				('inventory', '1405'),
+				('cogs', '6401'),
+				('bank', '1002'),
+				('cash', '1001')
+		) AS mapping(key, account_code)
+		ON CONFLICT DO NOTHING`, tenantID); err != nil {
+		return err
+	}
+
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO erp.gl_periods (id, tenant_id, year, month, start_date, end_date, status)
+		SELECT gen_random_uuid(), $1, y.year, m.month,
+		       make_date(y.year, m.month, 1),
+		       (make_date(y.year, m.month, 1) + interval '1 month - 1 day')::date,
+		       'open'
+		FROM (SELECT extract(year FROM current_date)::int AS year) y
+		CROSS JOIN generate_series(1, 12) AS m(month)
+		ON CONFLICT (tenant_id, year, month) DO NOTHING`, tenantID); err != nil {
+		return err
+	}
+	return nil
 }
 
 func fail(message string, err error) {

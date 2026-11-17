@@ -15,6 +15,7 @@ import (
 	financeapp "github.com/mlf-erp/mlf-erp/internal/modules/finance/app"
 	financedomain "github.com/mlf-erp/mlf-erp/internal/modules/finance/domain"
 	financepostgres "github.com/mlf-erp/mlf-erp/internal/modules/finance/infra/postgres"
+	glpostgres "github.com/mlf-erp/mlf-erp/internal/modules/gl/infra/postgres"
 	masterapp "github.com/mlf-erp/mlf-erp/internal/modules/masterdata/app"
 	masterdomain "github.com/mlf-erp/mlf-erp/internal/modules/masterdata/domain"
 	masterpostgres "github.com/mlf-erp/mlf-erp/internal/modules/masterdata/infra/postgres"
@@ -160,6 +161,10 @@ var demoViewerPermissions = []string{
 	"sales.read",
 	"finance.invoice.read",
 	"finance.payment.read",
+	"finance.account.read",
+	"finance.period.read",
+	"finance.voucher.read",
+	"finance.report.read",
 	"finance.read",
 }
 
@@ -378,6 +383,12 @@ func seedDemo(ctx context.Context, cfg *config.Config, db *pgxpool.Pool, log *sl
 	if err := ensureDemoSales(baseCtx, db, tenantID, salesOrderService, salesShipmentService, paymentService, partnerService, materialService, warehouseService); err != nil {
 		return err
 	}
+	glResult, err := glpostgres.Backfill(baseCtx, db, codeRuleService.Next)
+	if err != nil {
+		return err
+	}
+	log.Info("demo GL backfill", "sales_shipments", glResult.SalesShipments,
+		"purchase_receipts", glResult.PurchaseReceipts, "payments", glResult.Payments)
 
 	log.Info("demo data ready",
 		"units", len(demoUnits),

@@ -96,6 +96,10 @@ func (s *PaymentService) Create(ctx context.Context, input PaymentInput) (*domai
 	if err != nil {
 		return nil, err
 	}
+	voucherCode, err := s.codes.Next(ctx, tenantID, "gl_voucher")
+	if err != nil {
+		return nil, err
+	}
 
 	paymentDate := input.PaymentDate
 	if paymentDate.IsZero() {
@@ -134,6 +138,7 @@ func (s *PaymentService) Create(ctx context.Context, input PaymentInput) (*domai
 		Remark:          strings.TrimSpace(input.Remark),
 		CreatedBy:       userID,
 		CreatedAt:       time.Now(),
+		VoucherCode:     voucherCode,
 	}
 	if err := s.payments.Create(ctx, payment); err != nil {
 		return nil, err

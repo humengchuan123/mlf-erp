@@ -12,6 +12,7 @@
 - `000010_legacy_payables`：为 Stage 3B 之前的采购收货单补建应付发票（`AP-LEGACY-*`）。Down 为 no-op。
 - `000011_sales_finance_permission_backfill`：把旧 `sales.read/write`、`finance.read/write` 授权映射到新的销售/财务权限。Down 为 no-op。
 - `000012_order_line_guards`：订单/发货/收货行数量必须为正、单价/成本非负的数据库检查约束。
+- `000013_general_ledger`：会计科目、期间、科目映射、凭证/分录、总账权限、`gl_voucher` 编码规则，并为现有租户初始化标准科目、映射和当前年度期间。
 - 迁移由 `cmd/migrate` 执行，使用 `golang-migrate`，SQL 文件通过 `embed` 打进二进制。
 - 所有业务表遵循 `tenant_id` 非空、唯一键带租户、外键尽量带租户的原则。
 

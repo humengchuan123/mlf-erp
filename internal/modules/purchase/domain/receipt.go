@@ -24,6 +24,7 @@ type Receipt struct {
 	PayableID      string
 	PayableCode    string
 	PayableDueDate time.Time
+	VoucherCode    string
 	Lines          []*ReceiptLine
 }
 

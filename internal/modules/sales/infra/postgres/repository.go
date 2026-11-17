@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
+	glpost "github.com/mlf-erp/mlf-erp/internal/modules/gl/infra/postgres"
 	"github.com/mlf-erp/mlf-erp/internal/modules/sales/domain"
 	"github.com/mlf-erp/mlf-erp/internal/platform/scope"
 	"github.com/shopspring/decimal"
@@ -291,12 +292,14 @@ func (r *Repository) Ship(ctx context.Context, filter scope.Filter, shipment *do
 	}
 
 	invoiceTotal := decimal.Zero
+	costTotal := decimal.Zero
 	for _, line := range shipment.Lines {
 		key := balanceKey{warehouseID: shipment.WarehouseID, materialID: line.MaterialID}
 		unitCost := balances[key]
 		line.UnitCost = unitCost
 		line.CostAmount = line.Quantity.Mul(unitCost).Round(4)
 		invoiceTotal = invoiceTotal.Add(line.Amount)
+		costTotal = costTotal.Add(line.CostAmount)
 
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO erp.sales_shipment_lines (
@@ -370,6 +373,21 @@ func (r *Repository) Ship(ctx context.Context, filter scope.Filter, shipment *do
 		invoiceStatus,
 	); err != nil {
 		return fmt.Errorf("insert receivable invoice: %w", mapDBError(err))
+	}
+
+	if err := glpost.PostSalesShipment(ctx, tx, glpost.SalesShipmentPosting{
+		TenantID:    shipment.TenantID,
+		OrgID:       shipment.OrgID,
+		VoucherCode: shipment.VoucherCode,
+		SourceID:    shipment.ID,
+		SourceCode:  shipment.Code,
+		CustomerID:  order.CustomerID,
+		CreatedBy:   shipment.CreatedBy,
+		VoucherDate: shipment.ShipmentDate,
+		SalesAmount: invoiceTotal,
+		CostAmount:  costTotal,
+	}); err != nil {
+		return fmt.Errorf("post sales shipment voucher: %w", err)
 	}
 
 	allShipped := true

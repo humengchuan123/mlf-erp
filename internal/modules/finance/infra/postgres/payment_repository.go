@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/mlf-erp/mlf-erp/internal/modules/finance/domain"
+	glpost "github.com/mlf-erp/mlf-erp/internal/modules/gl/infra/postgres"
 	"github.com/mlf-erp/mlf-erp/internal/platform/scope"
 	"github.com/shopspring/decimal"
 )
@@ -22,7 +23,13 @@ func NewPaymentRepository(db *pgxpool.Pool) *PaymentRepository {
 }
 
 func (r *PaymentRepository) Create(ctx context.Context, payment *domain.Payment) error {
-	_, err := r.db.Exec(ctx, `
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin create payment: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	if _, err := tx.Exec(ctx, `
 		INSERT INTO erp.finance_payments (
 			id, tenant_id, org_id, code, payment_type, partner_id, payment_date,
 			currency, amount, allocated_amount, status, method, reference, remark, created_by
@@ -30,9 +37,28 @@ func (r *PaymentRepository) Create(ctx context.Context, payment *domain.Payment)
 		payment.ID, payment.TenantID, payment.OrgID, payment.Code, payment.PaymentType, payment.PartnerID,
 		payment.PaymentDate, payment.Currency, payment.Amount.String(), payment.AllocatedAmount.String(),
 		payment.Status, payment.Method, payment.Reference, payment.Remark, payment.CreatedBy,
-	)
-	if err != nil {
+	); err != nil {
 		return fmt.Errorf("insert payment: %w", mapDBError(err))
+	}
+
+	if err := glpost.PostPayment(ctx, tx, glpost.PaymentPosting{
+		TenantID:      payment.TenantID,
+		OrgID:         payment.OrgID,
+		VoucherCode:   payment.VoucherCode,
+		SourceID:      payment.ID,
+		SourceCode:    payment.Code,
+		PartnerID:     payment.PartnerID,
+		CreatedBy:     payment.CreatedBy,
+		VoucherDate:   payment.PaymentDate,
+		Amount:        payment.Amount,
+		PaymentType:   payment.PaymentType,
+		PaymentMethod: payment.Method,
+	}); err != nil {
+		return fmt.Errorf("post payment voucher: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit create payment: %w", err)
 	}
 	return nil
 }

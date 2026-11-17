@@ -14,6 +14,9 @@ import (
 	financeapp "github.com/mlf-erp/mlf-erp/internal/modules/finance/app"
 	financehttp "github.com/mlf-erp/mlf-erp/internal/modules/finance/http"
 	financepostgres "github.com/mlf-erp/mlf-erp/internal/modules/finance/infra/postgres"
+	glapp "github.com/mlf-erp/mlf-erp/internal/modules/gl/app"
+	glhttp "github.com/mlf-erp/mlf-erp/internal/modules/gl/http"
+	glpostgres "github.com/mlf-erp/mlf-erp/internal/modules/gl/infra/postgres"
 	inventoryapp "github.com/mlf-erp/mlf-erp/internal/modules/inventory/app"
 	inventoryhttp "github.com/mlf-erp/mlf-erp/internal/modules/inventory/http"
 	inventorypostgres "github.com/mlf-erp/mlf-erp/internal/modules/inventory/infra/postgres"
@@ -175,6 +178,16 @@ func main() {
 	invoiceService := financeapp.NewInvoiceService(invoiceRepository)
 	paymentService := financeapp.NewPaymentService(paymentRepository, codeRuleService, partnerRepository)
 	financehttp.Register(protected, invoiceService, paymentService, auditService, log)
+
+	glAccountRepository := glpostgres.NewAccountRepository(db)
+	glPeriodRepository := glpostgres.NewPeriodRepository(db)
+	glVoucherRepository := glpostgres.NewVoucherRepository(db)
+	glReportRepository := glpostgres.NewReportRepository(db)
+	glAccountService := glapp.NewAccountService(glAccountRepository)
+	glPeriodService := glapp.NewPeriodService(glPeriodRepository)
+	glVoucherService := glapp.NewVoucherService(glVoucherRepository, codeRuleService)
+	glReportService := glapp.NewReportService(glReportRepository)
+	glhttp.Register(protected, glAccountService, glPeriodService, glVoucherService, glReportService, auditService, log)
 
 	server := &http.Server{
 		Addr:              cfg.HTTP.Addr,

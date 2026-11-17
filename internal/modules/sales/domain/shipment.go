@@ -25,6 +25,7 @@ type Shipment struct {
 	InvoiceID      string
 	InvoiceCode    string
 	InvoiceDueDate time.Time
+	VoucherCode    string
 	Lines          []*ShipmentLine
 }
 

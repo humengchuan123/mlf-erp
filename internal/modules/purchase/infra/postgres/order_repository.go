@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
+	glpost "github.com/mlf-erp/mlf-erp/internal/modules/gl/infra/postgres"
 	"github.com/mlf-erp/mlf-erp/internal/modules/purchase/domain"
 	"github.com/mlf-erp/mlf-erp/internal/platform/scope"
 	"github.com/shopspring/decimal"
@@ -334,6 +335,20 @@ func (r *Repository) Receive(ctx context.Context, filter scope.Filter, receipt *
 		invoiceStatus,
 	); err != nil {
 		return fmt.Errorf("insert payable invoice: %w", mapDBError(err))
+	}
+
+	if err := glpost.PostPurchaseReceipt(ctx, tx, glpost.PurchaseReceiptPosting{
+		TenantID:    receipt.TenantID,
+		OrgID:       receipt.OrgID,
+		VoucherCode: receipt.VoucherCode,
+		SourceID:    receipt.ID,
+		SourceCode:  receipt.Code,
+		SupplierID:  order.SupplierID,
+		CreatedBy:   receipt.CreatedBy,
+		VoucherDate: receipt.ReceiptDate,
+		Amount:      invoiceTotal,
+	}); err != nil {
+		return fmt.Errorf("post purchase receipt voucher: %w", err)
 	}
 
 	allReceived := true
