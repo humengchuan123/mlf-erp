@@ -80,6 +80,7 @@ export interface PurchaseReceipt {
   price_includes_tax: boolean
   net_amount: string
   tax_amount: string
+  total_amount: string
   remark: string
   payable_id: string
   payable_code: string

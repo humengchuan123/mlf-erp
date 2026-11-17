@@ -1,0 +1,2 @@
+-- Data repair migration: no-op down. The repaired totals are derived from
+-- immutable shipment/receipt lines and may be recomputed if needed.

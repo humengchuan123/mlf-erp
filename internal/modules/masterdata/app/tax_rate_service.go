@@ -41,7 +41,7 @@ func (s *TaxRateService) Create(ctx context.Context, input TaxRateInput) (domain
 	code := strings.TrimSpace(input.Code)
 	name := strings.TrimSpace(input.Name)
 	rate, err := decimal.NewFromString(strings.TrimSpace(input.Rate))
-	if err != nil || rate.IsNegative() {
+	if err != nil || rate.IsNegative() || rate.GreaterThanOrEqual(decimal.NewFromInt(1)) {
 		return domain.TaxRate{}, domain.ErrInvalidInput
 	}
 	taxType := input.Type
@@ -81,7 +81,7 @@ func (s *TaxRateService) Update(ctx context.Context, id string, input TaxRateInp
 	code := strings.TrimSpace(input.Code)
 	name := strings.TrimSpace(input.Name)
 	rate, err := decimal.NewFromString(strings.TrimSpace(input.Rate))
-	if err != nil || rate.IsNegative() {
+	if err != nil || rate.IsNegative() || rate.GreaterThanOrEqual(decimal.NewFromInt(1)) {
 		return domain.TaxRate{}, domain.ErrInvalidInput
 	}
 	taxType := input.Type

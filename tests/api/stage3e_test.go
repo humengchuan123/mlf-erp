@@ -37,6 +37,10 @@ func TestStage3E(t *testing.T) {
 		admin.mustPost("/finance/periods/"+text(currentPeriod, "id")+"/reopen", nil, http.StatusOK)
 	}
 
+	baselineVAT := admin.mustGet("/finance/reports/vat-summary?start_date="+startDate+"&end_date="+endDate, http.StatusOK)
+	baselineOutputTax := number(t, baselineVAT, "total_output_tax")
+	baselineInputTax := number(t, baselineVAT, "total_input_tax")
+
 	taxRates := listItems(admin, "/masterdata/tax-rates?page_size=100", http.StatusOK)
 	vat13 := findItem(taxRates, "code", "VAT13")
 	vat9 := findItem(taxRates, "code", "VAT9")
@@ -230,6 +234,53 @@ func TestStage3E(t *testing.T) {
 		}
 	})
 
+	t.Run("inclusive purchase receipt uses net inventory cost", func(t *testing.T) {
+		order := admin.mustPost("/purchase/orders", map[string]any{
+			"supplier_id":        supplierID,
+			"warehouse_id":       warehouseID,
+			"order_date":         endDate,
+			"currency":           "CNY",
+			"price_includes_tax": true,
+			"remark":             "stage3e-purchase-inclusive",
+			"lines": []map[string]any{
+				{"material_id": materialID, "quantity": "1", "unit_price": "113.00", "tax_rate_id": vat13ID},
+			},
+		}, http.StatusCreated)
+		if got := text(order, "net_amount"); got != "100.0000" {
+			t.Fatalf("inclusive purchase net = %s, want 100.0000", got)
+		}
+		orderID := text(order, "id")
+		admin.mustPost("/purchase/orders/"+orderID+"/submit", nil, http.StatusOK)
+		admin.mustPost("/purchase/orders/"+orderID+"/approve", nil, http.StatusOK)
+		detail := admin.mustGet("/purchase/orders/"+orderID, http.StatusOK)
+		lines, _ := detail["lines"].([]any)
+		receipt := admin.mustPost("/purchase/orders/"+orderID+"/receive", map[string]any{
+			"receipt_date": today,
+			"remark":       "stage3e-purchase-inclusive-receive",
+			"lines": []map[string]any{
+				{"order_line_id": text(lines[0].(map[string]any), "id"), "quantity": "1"},
+			},
+		}, http.StatusCreated)
+		if got := text(receipt, "total_amount"); got != "113.0000" {
+			t.Fatalf("inclusive receipt total = %s, want 113.0000", got)
+		}
+		voucher := findVoucherBySource(admin, text(receipt, "code"))
+		if voucher == nil {
+			t.Fatal("inclusive purchase voucher not found")
+		}
+		voucherDetail := admin.mustGet("/finance/vouchers/"+text(voucher, "id"), http.StatusOK)
+		voucherLines, _ := voucherDetail["lines"].([]any)
+		if got := number(t, findLineByAccount(t, voucherLines, "1405"), "debit"); !nearlyEqual(got, 100) {
+			t.Fatalf("inclusive inventory debit = %v, want 100", got)
+		}
+		if got := number(t, findLineByAccount(t, voucherLines, "222101"), "debit"); !nearlyEqual(got, 13) {
+			t.Fatalf("inclusive input VAT debit = %v, want 13", got)
+		}
+		if got := number(t, findLineByAccount(t, voucherLines, "2202"), "credit"); !nearlyEqual(got, 113) {
+			t.Fatalf("inclusive AP credit = %v, want 113", got)
+		}
+	})
+
 	t.Run("invoice issue void duplicate and permissions", func(t *testing.T) {
 		invoiceNo := fmt.Sprintf("VAT-%d", now.UnixNano())
 		issued := admin.mustPost("/finance/invoices/"+salesInvoiceID+"/issue", map[string]any{
@@ -241,6 +292,10 @@ func TestStage3E(t *testing.T) {
 		}, http.StatusOK)
 		if got := text(issued, "vat_invoice_status"); got != "issued" {
 			t.Fatalf("issued status = %s, want issued", got)
+		}
+		issuedList := listItems(admin, "/finance/invoices?vat_invoice_status=issued&keyword="+invoiceNo+"&page_size=20", http.StatusOK)
+		if findItem(issuedList, "vat_invoice_no", invoiceNo) == nil {
+			t.Fatal("issued VAT invoice not found by status/keyword filter")
 		}
 		admin.expectError(http.MethodPost, "/finance/invoices/"+salesInvoiceID+"/issue", map[string]any{
 			"vat_invoice_no":   invoiceNo + "-2",
@@ -271,6 +326,10 @@ func TestStage3E(t *testing.T) {
 			"vat_invoice_type": "special",
 			"vat_invoice_date": today,
 		}, http.StatusForbidden, "FORBIDDEN")
+		dept.expectError(http.MethodPost, "/finance/invoices/"+purchaseInvoiceID+"/void", nil, http.StatusForbidden, "FORBIDDEN")
+		admin.expectError(http.MethodPost, "/masterdata/tax-rates", map[string]any{
+			"code": "VAT-INVALID", "name": "非法税率", "rate": "1.0", "type": "vat_output",
+		}, http.StatusBadRequest, "BAD_REQUEST")
 		unauthorized := newClient(t)
 		unauthorized.expectError(http.MethodGet, "/finance/reports/vat-summary?start_date="+startDate+"&end_date="+endDate, nil, http.StatusUnauthorized, "UNAUTHORIZED")
 	})
@@ -283,11 +342,11 @@ func TestStage3E(t *testing.T) {
 		}
 		totalOutput := number(t, report, "total_output_tax")
 		totalInput := number(t, report, "total_input_tax")
-		if totalOutput < salesTax {
-			t.Fatalf("VAT output = %v, want >= %v", totalOutput, salesTax)
+		if got := totalOutput - baselineOutputTax; !nearlyEqual(got, salesTax) {
+			t.Fatalf("VAT output delta = %v, want %v", got, salesTax)
 		}
-		if totalInput < purchaseTax {
-			t.Fatalf("VAT input = %v, want >= %v", totalInput, purchaseTax)
+		if got := totalInput - baselineInputTax; !nearlyEqual(got, purchaseTax+13) {
+			t.Fatalf("VAT input delta = %v, want %v", got, purchaseTax+13)
 		}
 		if got := number(t, report, "total_net_payable"); !nearlyEqual(got, totalOutput-totalInput) {
 			t.Fatalf("VAT net payable = %v, want %v", got, totalOutput-totalInput)

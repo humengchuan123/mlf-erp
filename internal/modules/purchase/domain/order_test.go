@@ -13,7 +13,9 @@ func TestOrderRecalculate(t *testing.T) {
 			{Quantity: decimal.RequireFromString("3"), UnitPrice: decimal.RequireFromString("4.2")},
 		},
 	}
-	order.Recalculate()
+	if err := order.Recalculate(); err != nil {
+		t.Fatalf("recalculate: %v", err)
+	}
 
 	if !order.Lines[0].Amount.Equal(decimal.RequireFromString("21")) {
 		t.Fatalf("line 1 amount = %s, want 21", order.Lines[0].Amount)

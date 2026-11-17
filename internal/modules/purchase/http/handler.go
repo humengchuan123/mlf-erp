@@ -137,6 +137,7 @@ type receiptResponse struct {
 	PriceIncludesTax bool                  `json:"price_includes_tax"`
 	NetAmount        string                `json:"net_amount"`
 	TaxAmount        string                `json:"tax_amount"`
+	TotalAmount      string                `json:"total_amount"`
 	Remark           string                `json:"remark"`
 	PayableID        string                `json:"payable_id"`
 	PayableCode      string                `json:"payable_code"`
@@ -416,7 +417,8 @@ func toReceiptResponse(receipt *domain.Receipt) receiptResponse {
 		SupplierName: receipt.SupplierName, WarehouseID: receipt.WarehouseID, WarehouseName: receipt.WarehouseName,
 		ReceiptDate: receipt.ReceiptDate.Format("2006-01-02"), Status: receipt.Status,
 		PriceIncludesTax: receipt.PriceIncludesTax, NetAmount: receipt.NetAmount.StringFixed(4),
-		TaxAmount: receipt.TaxAmount.StringFixed(4), Remark: receipt.Remark,
+		TaxAmount: receipt.TaxAmount.StringFixed(4), TotalAmount: receipt.TotalAmount().StringFixed(4),
+		Remark:    receipt.Remark,
 		PayableID: receipt.PayableID, PayableCode: receipt.PayableCode, PayableDueDate: payableDueDate, VoucherCode: receipt.VoucherCode,
 		CreatedAt: receipt.CreatedAt, Lines: lines,
 	}

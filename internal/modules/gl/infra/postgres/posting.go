@@ -103,7 +103,7 @@ func PostPurchaseReceipt(ctx context.Context, tx pgx.Tx, input PurchaseReceiptPo
 		{AccountKey: "inventory", Summary: "采购入库", Debit: input.NetAmount},
 	}
 	if input.TaxAmount.IsPositive() {
-		lines = append(lines, postingLine{AccountKey: "input_vat", Summary: "进项税额", Debit: input.TaxAmount})
+		lines = append(lines, postingLine{AccountKey: "input_vat", Summary: "进项税额", Debit: input.TaxAmount, PartnerID: input.SupplierID})
 	}
 	lines = append(lines, postingLine{AccountKey: "ap", Summary: "采购应付", Credit: input.GrossAmount, PartnerID: input.SupplierID})
 	return postVoucherTx(ctx, tx, voucherPostingInput{

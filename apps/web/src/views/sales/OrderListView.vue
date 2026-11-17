@@ -457,9 +457,7 @@ function openEdit(order: SalesOrder) {
 
 function onMaterialChange(line: OrderFormLine) {
   const material = materials.value.find((item) => item.id === line.material_id)
-  if (material?.tax_rate_id) {
-    line.tax_rate_id = material.tax_rate_id
-  }
+  line.tax_rate_id = material?.tax_rate_id ?? ''
 }
 
 function taxRateValue(line: OrderFormLine) {

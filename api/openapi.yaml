@@ -1792,6 +1792,8 @@ components:
           type: string
         tax_amount:
           type: string
+        total_amount:
+          type: string
         remark:
           type: string
         payable_id:

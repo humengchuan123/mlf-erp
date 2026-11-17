@@ -19,6 +19,12 @@ ALTER TABLE erp.finance_invoices
     DROP COLUMN IF EXISTS tax_amount,
     DROP COLUMN IF EXISTS net_amount;
 
+-- Restore the pre-3E amount semantics: old code treats line amount as gross.
+UPDATE erp.sales_order_lines SET amount = gross_amount WHERE gross_amount <> 0;
+UPDATE erp.sales_shipment_lines SET amount = gross_amount WHERE gross_amount <> 0;
+UPDATE erp.purchase_order_lines SET amount = gross_amount WHERE gross_amount <> 0;
+UPDATE erp.purchase_receipt_lines SET amount = gross_amount WHERE gross_amount <> 0;
+
 ALTER TABLE erp.purchase_receipt_lines
     DROP COLUMN IF EXISTS gross_amount,
     DROP COLUMN IF EXISTS tax_amount,
