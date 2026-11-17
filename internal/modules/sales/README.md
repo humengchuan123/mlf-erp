@@ -82,6 +82,15 @@ draft → submitted → approved → partially_shipped → shipped
 - `/sales/orders`：销售订单列表、新建/编辑、详情、提交、审批、取消、发货。
 - `/sales/shipments`：发货单列表和详情。
 
+## 价税分离（Stage 3E）
+
+- 订单头支持 `price_includes_tax`，默认含税。
+- 行支持 `tax_rate_id`，默认取物料税率，可覆盖；保存 `tax_rate` 快照。
+- 行金额：`amount` 不含税、`tax_amount` 税额、`gross_amount` 含税金额。
+- 订单头：`net_amount`、`tax_amount`、`total_amount`（含税）。
+- 发货行从订单行复制税率并重新按发货数量计算；应收发票使用含税总额。
+- 自动凭证：借应收（含税）/ 贷收入（不含税）/ 贷销项税（`output_vat`）。
+
 ## 后续
 
 - 销售退货、报价、价格协议、折扣、客户信用。

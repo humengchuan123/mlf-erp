@@ -61,6 +61,14 @@
 
 金额和数量在 API 中使用字符串，领域层使用 `shopspring/decimal`，数据库使用 `numeric`，禁止 float。
 
+## 价税分离（Stage 3E）
+
+- 订单头支持 `price_includes_tax`，默认含税。
+- 行支持 `tax_rate_id`，默认取物料税率，可覆盖；保存 `tax_rate` 快照。
+- 行金额：`amount` 不含税、`tax_amount` 税额、`gross_amount` 含税金额。
+- 采购收货按不含税金额更新库存平均成本和库存流水；应付发票使用含税总额。
+- 自动凭证：借库存（不含税）/ 借进项税（`input_vat`）/ 贷应付（含税）。
+
 ## 状态机
 
 ```text

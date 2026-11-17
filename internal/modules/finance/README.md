@@ -59,6 +59,10 @@
 - 状态：`open → partially_paid → paid`。
 - 应收由销售发货自动生成，应付由采购收货自动生成。
 - 来源唯一约束：`(tenant_id, invoice_type, source_type, source_id)`，防止重复开票。
+- 净额/税额/含税总额：`net_amount`、`tax_amount`、`total_amount`。
+- 增值税发票：`vat_invoice_no`、`vat_invoice_type`、`vat_invoice_date`、`vat_invoice_status`、购销方税号。
+- 开票状态：`pending → issued → void`；开票/作废不生成凭证，税额已在发货/收货确认。
+- 发票号租户内唯一（非空）。
 
 ## 收付款
 
@@ -70,12 +74,12 @@
 
 ## 前端
 
-- `/finance/invoices`：应收/应付列表、筛选、到期/逾期提示、发票详情、核销记录。
+- `/finance/invoices`：应收/应付列表、筛选、到期/逾期提示、发票详情、核销记录、开票/作废。
 - `/finance/payments`：收付款列表、新建、按往来单位加载未付清发票、批量核销。
 
 ## 后续
 
-- 反核销、红冲、发票作废。
+- 反核销、红字发票、完整红冲流程。
 - 账龄分析、对账单、信用额度。
 - 多币种汇率和本位币折算。
 - 总账凭证自动生成。

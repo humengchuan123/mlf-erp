@@ -2,7 +2,7 @@
 
 企业级 ERP Monorepo 骨架，支持 **SaaS 订阅** 与 **私有化安装** 两种交付形态。
 
-> 当前状态：Stage 1 平台底座 + Stage 2 主数据/编码规则/数据权限 + Stage 3A 采购/库存 + Stage 3B 销售/应收应付 + Stage 3C 总账/自动凭证/基础报表 + Stage 3D 期末结转/辅助核算。
+> 当前状态：Stage 1 平台底座 + Stage 2 主数据/编码规则/数据权限 + Stage 3A 采购/库存 + Stage 3B 销售/应收应付 + Stage 3C 总账/自动凭证/基础报表 + Stage 3D 期末结转/辅助核算 + Stage 3E 税务/发票/价税分离。
 > 设计参考：工作区根目录的《企业ERP应用开发指南》。
 
 ## 技术栈
@@ -264,6 +264,9 @@ pnpm test:api:stage3c
 # Stage 3D API integration test (period close, auxiliary accounting)
 pnpm test:api:stage3d
 
+# Stage 3E API integration test (tax, VAT invoices, price-tax separation)
+pnpm test:api:stage3e
+
 # Docker
 docker build -f deploy/docker/api.Dockerfile -t mlf-erp/api:dev .
 docker build -f deploy/docker/worker.Dockerfile -t mlf-erp/worker:dev .
@@ -340,19 +343,30 @@ docker build -f deploy/docker/web.Dockerfile -t mlf-erp/web:dev .
 - 期间页面增加创建年度期间、年度结转状态；凭证页面增加辅助字段；报表增加辅助余额表。
 - Stage 3D 真实 HTTP API 集成测试和前端完整度检查。
 
+### Stage 3E 税务/发票与价税分离
+
+- 销售订单、销售发货、采购订单、采购收货支持含税/不含税录入和行级税率，默认取物料税率。
+- 单据行保存不含税金额、税额、含税金额和税率快照；表头保存净额、税额、含税总额。
+- 销售发货自动凭证拆分收入与销项税；采购收货拆分库存与进项税。
+- 应收/应付发票增加净额、税额、增值税发票号、开票状态和购销方税号，支持开票/作废。
+- 新增增值税汇总表（按月销项、进项、应纳税额）。
+- 前端订单/发货/发票/报表增加税务字段和操作；SDK/OpenAPI 同步。
+- Stage 3E 真实 HTTP API 集成测试和前端完整度检查。
+
 ### 工程与交付
 
 - Monorepo 工作区与共享包。
 - PostgreSQL 迁移、seed、Docker Compose。
 - Dockerfile、GitHub Actions CI、SaaS/私有化发布模板。
-- CI 包含单元测试、构建、Stage 3B/3C/3D 真实 PostgreSQL API 集成测试。
+- CI 包含单元测试、构建、Stage 3B/3C/3D/3E 真实 PostgreSQL API 集成测试。
 - OpenAPI 契约与模块文档。
 
 ## 下一步
 
-- Stage 3E：现金流量表、税务/发票、多币种/汇率。
+- Stage 3F：多币种、汇率、汇兑损益。
+- Stage 3G：现金流量表。
 - 采购退货、销售退货、价格协议、客户信用。
-- 收付款反核销、发票红冲、账龄分析。
+- 收付款反核销、红字发票、账龄分析。
 - 审批流引擎、导入导出、附件。
 - 数据范围管理 API/UI。
 - 登录限流、token version、httpOnly Cookie 评估。
