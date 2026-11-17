@@ -57,6 +57,19 @@ func findVoucherBySource(c *client, sourceCode string) map[string]any {
 	return nil
 }
 
+func findTrialRow(t *testing.T, report map[string]any, accountCode string) map[string]any {
+	t.Helper()
+	rows, _ := report["rows"].([]any)
+	for _, item := range rows {
+		row, ok := item.(map[string]any)
+		if ok && text(row, "code") == accountCode {
+			return row
+		}
+	}
+	t.Fatalf("trial balance row for account %s not found", accountCode)
+	return nil
+}
+
 func findLineByAccount(t *testing.T, lines []any, accountCode string) map[string]any {
 	t.Helper()
 	for _, item := range lines {
@@ -164,6 +177,9 @@ func TestStage3C(t *testing.T) {
 			},
 		}, http.StatusCreated)
 		receiptCode := text(receipt, "code")
+		if text(receipt, "voucher_code") == "" {
+			t.Fatal("purchase receipt voucher_code is empty")
+		}
 
 		voucher := findVoucherBySource(admin, receiptCode)
 		if voucher == nil {
@@ -209,6 +225,9 @@ func TestStage3C(t *testing.T) {
 			},
 		}, http.StatusCreated)
 		shipmentCode := text(shipment, "code")
+		if text(shipment, "voucher_code") == "" {
+			t.Fatal("sales shipment voucher_code is empty")
+		}
 		expectedCost := number(t, shipment, "total_cost")
 
 		voucher := findVoucherBySource(admin, shipmentCode)
@@ -250,6 +269,9 @@ func TestStage3C(t *testing.T) {
 			"method":       "bank",
 			"reference":    "stage3c-receipt",
 		}, http.StatusCreated)
+		if text(receiptPayment, "voucher_code") == "" {
+			t.Fatal("receipt payment voucher_code is empty")
+		}
 		receiptVoucher := findVoucherBySource(admin, text(receiptPayment, "code"))
 		if receiptVoucher == nil {
 			t.Fatalf("receipt voucher not found for payment %s", text(receiptPayment, "code"))
@@ -274,6 +296,9 @@ func TestStage3C(t *testing.T) {
 			"method":       "bank",
 			"reference":    "stage3c-payment",
 		}, http.StatusCreated)
+		if text(supplierPayment, "voucher_code") == "" {
+			t.Fatal("supplier payment voucher_code is empty")
+		}
 		paymentVoucher := findVoucherBySource(admin, text(supplierPayment, "code"))
 		if paymentVoucher == nil {
 			t.Fatalf("supplier payment voucher not found for payment %s", text(supplierPayment, "code"))
@@ -316,6 +341,47 @@ func TestStage3C(t *testing.T) {
 		original := admin.mustGet("/finance/vouchers/"+voucherID, http.StatusOK)
 		if got := text(original, "status"); got != "reversed" {
 			t.Fatalf("original status = %q, want reversed", got)
+		}
+	})
+
+	t.Run("historical reversal semantics", func(t *testing.T) {
+		previousMonth := now.AddDate(0, -1, 0)
+		previousStart := time.Date(previousMonth.Year(), previousMonth.Month(), 1, 0, 0, 0, 0, now.Location())
+		previousEnd := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, now.Location()).AddDate(0, 0, -1)
+		previousStartText := previousStart.Format("2006-01-02")
+		previousEndText := previousEnd.Format("2006-01-02")
+
+		voucher := admin.mustPost("/finance/vouchers", map[string]any{
+			"voucher_date": previousStartText,
+			"memo":         "stage3c historical reversal",
+			"lines": []map[string]any{
+				{"account_id": cashID, "summary": "historical debit", "debit": "50.00", "credit": "0"},
+				{"account_id": capitalID, "summary": "historical credit", "debit": "0", "credit": "50.00"},
+			},
+		}, http.StatusCreated)
+		voucherID := text(voucher, "id")
+		admin.mustPost("/finance/vouchers/"+voucherID+"/post", nil, http.StatusOK)
+
+		before := admin.mustGet("/finance/reports/trial-balance?start_date="+previousStartText+"&end_date="+previousEndText, http.StatusOK)
+		beforeCash := findTrialRow(t, before, "1001")
+		beforeDebit := number(t, beforeCash, "period_debit")
+		if beforeDebit < 50 {
+			t.Fatalf("historical cash period debit = %v, want >= 50", beforeDebit)
+		}
+
+		admin.mustPost("/finance/vouchers/"+voucherID+"/reverse", nil, http.StatusCreated)
+
+		after := admin.mustGet("/finance/reports/trial-balance?start_date="+previousStartText+"&end_date="+previousEndText, http.StatusOK)
+		afterCash := findTrialRow(t, after, "1001")
+		afterDebit := number(t, afterCash, "period_debit")
+		if !nearlyEqual(beforeDebit, afterDebit) {
+			t.Fatalf("historical period changed after reversal: before=%v after=%v", beforeDebit, afterDebit)
+		}
+
+		current := admin.mustGet("/finance/reports/trial-balance?start_date="+startDate+"&end_date="+endDate, http.StatusOK)
+		currentCash := findTrialRow(t, current, "1001")
+		if got := number(t, currentCash, "period_credit"); got < 50 {
+			t.Fatalf("current period cash credit = %v, want >= 50", got)
 		}
 	})
 

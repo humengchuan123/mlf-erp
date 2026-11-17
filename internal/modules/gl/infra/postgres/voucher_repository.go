@@ -237,6 +237,9 @@ func (r *VoucherRepository) Post(ctx context.Context, filter scope.Filter, tenan
 		return domain.ErrPeriodClosed
 	}
 
+	if err := validateVoucherAccountsTx(ctx, tx, tenantID, id); err != nil {
+		return err
+	}
 	if err := validateVoucherBalanceTx(ctx, tx, tenantID, id); err != nil {
 		return err
 	}
@@ -486,6 +489,28 @@ func validateAndBuildLinesTx(
 		return nil, domain.ErrUnbalanced
 	}
 	return lines, nil
+}
+
+func validateVoucherAccountsTx(ctx context.Context, tx pgx.Tx, tenantID, voucherID string) error {
+	var isLeaf bool
+	var status string
+	err := tx.QueryRow(ctx, `
+		SELECT a.is_leaf, a.status
+		FROM erp.gl_voucher_lines l
+		JOIN erp.gl_accounts a ON a.tenant_id = l.tenant_id AND a.id = l.account_id
+		WHERE l.tenant_id = $1 AND l.voucher_id = $2
+		  AND (a.is_leaf = false OR a.status <> 'active')
+		LIMIT 1`, tenantID, voucherID).Scan(&isLeaf, &status)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("validate voucher accounts: %w", err)
+	}
+	if !isLeaf {
+		return domain.ErrAccountNotLeaf
+	}
+	return domain.ErrAccountDisabled
 }
 
 func validateVoucherBalanceTx(ctx context.Context, tx pgx.Tx, tenantID, voucherID string) error {

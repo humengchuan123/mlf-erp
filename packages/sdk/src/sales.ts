@@ -71,6 +71,7 @@ export interface Shipment {
   invoice_id: string
   invoice_code: string
   invoice_due_date: string
+  voucher_code: string
   total_amount: string
   total_cost: string
   created_at: string

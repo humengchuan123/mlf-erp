@@ -1,11 +1,11 @@
 openapi: 3.1.0
 info:
   title: MLF ERP API
-  version: 0.3.0
+  version: 0.4.0
   description: |
-    MLF ERP Stage 1 + Stage 2 + Stage 3A/3B API contract.
+    MLF ERP Stage 1 + Stage 2 + Stage 3A/3B/3C API contract.
     Master data uses a generic CRUD surface under /masterdata/{entity}.
-    Purchase, sales, inventory, receivables/payables and payments are included.
+    Purchase, sales, inventory, receivables/payables, payments, general ledger and reports are included.
 servers:
   - url: /api/v1
 security:

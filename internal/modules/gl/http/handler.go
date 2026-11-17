@@ -489,13 +489,21 @@ func parseVoucherInput(c *gin.Context) (app.VoucherInput, error) {
 	}
 	lines := make([]app.VoucherLineInput, 0, len(request.Lines))
 	for _, line := range request.Lines {
-		debit, debitErr := decimal.NewFromString(strings.TrimSpace(line.Debit))
-		if debitErr != nil {
-			return app.VoucherInput{}, debitErr
+		debit := decimal.Zero
+		if value := strings.TrimSpace(line.Debit); value != "" {
+			parsed, debitErr := decimal.NewFromString(value)
+			if debitErr != nil {
+				return app.VoucherInput{}, debitErr
+			}
+			debit = parsed
 		}
-		credit, creditErr := decimal.NewFromString(strings.TrimSpace(line.Credit))
-		if creditErr != nil {
-			return app.VoucherInput{}, creditErr
+		credit := decimal.Zero
+		if value := strings.TrimSpace(line.Credit); value != "" {
+			parsed, creditErr := decimal.NewFromString(value)
+			if creditErr != nil {
+				return app.VoucherInput{}, creditErr
+			}
+			credit = parsed
 		}
 		lines = append(lines, app.VoucherLineInput{
 			AccountID: line.AccountID, Summary: line.Summary, Debit: debit, Credit: credit,

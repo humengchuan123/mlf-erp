@@ -19,6 +19,9 @@ func NewReportService(reports domain.ReportRepository) *ReportService {
 func (s *ReportService) TrialBalance(ctx context.Context, startDate, endDate time.Time) (*domain.TrialBalance, error) {
 	tenantID, _, _ := tenantActor(ctx)
 	startDate, endDate = normalizeRange(startDate, endDate)
+	if startDate.After(endDate) {
+		return nil, domain.ErrInvalidInput
+	}
 	return s.reports.TrialBalance(ctx, scope.FromActor(ctx, tenantID), tenantID, startDate, endDate)
 }
 
@@ -29,6 +32,9 @@ func (s *ReportService) GeneralLedger(
 ) (*domain.GeneralLedger, error) {
 	tenantID, _, _ := tenantActor(ctx)
 	startDate, endDate = normalizeRange(startDate, endDate)
+	if startDate.After(endDate) {
+		return nil, domain.ErrInvalidInput
+	}
 	return s.reports.GeneralLedger(ctx, scope.FromActor(ctx, tenantID), tenantID, trim(accountID), startDate, endDate)
 }
 
@@ -43,6 +49,9 @@ func (s *ReportService) BalanceSheet(ctx context.Context, asOf time.Time) (*doma
 func (s *ReportService) IncomeStatement(ctx context.Context, startDate, endDate time.Time) (*domain.IncomeStatement, error) {
 	tenantID, _, _ := tenantActor(ctx)
 	startDate, endDate = normalizeRange(startDate, endDate)
+	if startDate.After(endDate) {
+		return nil, domain.ErrInvalidInput
+	}
 	return s.reports.IncomeStatement(ctx, scope.FromActor(ctx, tenantID), tenantID, startDate, endDate)
 }
 

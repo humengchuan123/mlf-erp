@@ -51,6 +51,7 @@ export interface Payment {
   method: string
   reference: string
   remark: string
+  voucher_code: string
   created_at: string
 }
 

@@ -94,6 +94,7 @@ type paymentResponse struct {
 	Method            string    `json:"method"`
 	Reference         string    `json:"reference"`
 	Remark            string    `json:"remark"`
+	VoucherCode       string    `json:"voucher_code"`
 	CreatedAt         time.Time `json:"created_at"`
 }
 
@@ -347,7 +348,8 @@ func toPaymentResponse(item *domain.Payment) paymentResponse {
 		PaymentDate: item.PaymentDate.Format("2006-01-02"), Currency: item.Currency,
 		Amount: item.Amount.StringFixed(4), AllocatedAmount: item.AllocatedAmount.StringFixed(4),
 		UnallocatedAmount: item.Unallocated().StringFixed(4), Status: item.Status,
-		Method: item.Method, Reference: item.Reference, Remark: item.Remark, CreatedAt: item.CreatedAt,
+		Method: item.Method, Reference: item.Reference, Remark: item.Remark,
+		VoucherCode: item.VoucherCode, CreatedAt: item.CreatedAt,
 	}
 }
 

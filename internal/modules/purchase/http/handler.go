@@ -124,6 +124,7 @@ type receiptResponse struct {
 	Remark         string                `json:"remark"`
 	PayableCode    string                `json:"payable_code"`
 	PayableDueDate string                `json:"payable_due_date"`
+	VoucherCode    string                `json:"voucher_code"`
 	CreatedAt      time.Time             `json:"created_at"`
 	Lines          []receiptLineResponse `json:"lines"`
 }
@@ -384,7 +385,7 @@ func toReceiptResponse(receipt *domain.Receipt) receiptResponse {
 		ID: receipt.ID, Code: receipt.Code, OrderID: receipt.OrderID, OrderCode: receipt.OrderCode,
 		SupplierName: receipt.SupplierName, WarehouseID: receipt.WarehouseID, WarehouseName: receipt.WarehouseName,
 		ReceiptDate: receipt.ReceiptDate.Format("2006-01-02"), Status: receipt.Status, Remark: receipt.Remark,
-		PayableCode: receipt.PayableCode, PayableDueDate: payableDueDate,
+		PayableCode: receipt.PayableCode, PayableDueDate: payableDueDate, VoucherCode: receipt.VoucherCode,
 		CreatedAt: receipt.CreatedAt, Lines: lines,
 	}
 }

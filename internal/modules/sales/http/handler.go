@@ -128,6 +128,7 @@ type shipmentResponse struct {
 	InvoiceID      string                 `json:"invoice_id"`
 	InvoiceCode    string                 `json:"invoice_code"`
 	InvoiceDueDate string                 `json:"invoice_due_date"`
+	VoucherCode    string                 `json:"voucher_code"`
 	TotalAmount    string                 `json:"total_amount"`
 	TotalCost      string                 `json:"total_cost"`
 	CreatedAt      time.Time              `json:"created_at"`
@@ -396,8 +397,8 @@ func toShipmentResponse(shipment *domain.Shipment) shipmentResponse {
 		WarehouseID: shipment.WarehouseID, WarehouseName: shipment.WarehouseName,
 		ShipmentDate: shipment.ShipmentDate.Format("2006-01-02"), Status: shipment.Status,
 		Remark: shipment.Remark, InvoiceID: shipment.InvoiceID, InvoiceCode: shipment.InvoiceCode,
-		InvoiceDueDate: invoiceDueDate,
-		TotalAmount:    shipment.TotalAmount().StringFixed(4), TotalCost: shipment.TotalCost().StringFixed(4),
+		InvoiceDueDate: invoiceDueDate, VoucherCode: shipment.VoucherCode,
+		TotalAmount: shipment.TotalAmount().StringFixed(4), TotalCost: shipment.TotalCost().StringFixed(4),
 		CreatedAt: shipment.CreatedAt, Lines: lines,
 	}
 }

@@ -89,7 +89,7 @@
                 </el-table>
                 <div class="total">负债合计：{{ balanceSheet.total_liabilities }}</div>
                 <div class="total">权益合计：{{ balanceSheet.total_equity }}</div>
-                <div class="total">本年利润：{{ balanceSheet.current_profit }}</div>
+                <div class="total">未结转利润（累计）：{{ balanceSheet.current_profit }}</div>
                 <div class="total">负债和权益合计：{{ balanceSheet.total_liabilities_and_equity }}</div>
               </div>
             </div>

@@ -31,7 +31,7 @@ func (r *ReportRepository) TrialBalance(
 	}
 
 	args := []any{tenantID, startDate.Format("2006-01-02"), endDate.Format("2006-01-02")}
-	where := "l.tenant_id = $1 AND v.status = 'posted' AND v.reversal_of_voucher_id IS NULL"
+	where := "l.tenant_id = $1 AND v.status IN ('posted', 'reversed')"
 	appendScope(&where, &args, "v", filter)
 
 	query := fmt.Sprintf(`
@@ -107,7 +107,7 @@ func (r *ReportRepository) GeneralLedger(
 	}
 
 	openingArgs := []any{tenantID, accountID, startDate.Format("2006-01-02")}
-	openingWhere := "l.tenant_id = $1 AND l.account_id = $2 AND v.status = 'posted' AND v.reversal_of_voucher_id IS NULL AND v.voucher_date < $3::date"
+	openingWhere := "l.tenant_id = $1 AND l.account_id = $2 AND v.status IN ('posted', 'reversed') AND v.voucher_date < $3::date"
 	appendScope(&openingWhere, &openingArgs, "v", filter)
 
 	var openingRaw string
@@ -121,7 +121,7 @@ func (r *ReportRepository) GeneralLedger(
 	opening := decimal.RequireFromString(openingRaw)
 
 	args := []any{tenantID, accountID, startDate.Format("2006-01-02"), endDate.Format("2006-01-02")}
-	where := "l.tenant_id = $1 AND l.account_id = $2 AND v.status = 'posted' AND v.reversal_of_voucher_id IS NULL AND v.voucher_date BETWEEN $3::date AND $4::date"
+	where := "l.tenant_id = $1 AND l.account_id = $2 AND v.status IN ('posted', 'reversed') AND v.voucher_date BETWEEN $3::date AND $4::date"
 	appendScope(&where, &args, "v", filter)
 
 	rows, err := r.db.Query(ctx, `
@@ -170,7 +170,7 @@ func (r *ReportRepository) BalanceSheet(
 	asOf time.Time,
 ) (*domain.BalanceSheet, error) {
 	args := []any{tenantID, asOf.Format("2006-01-02")}
-	where := "l.tenant_id = $1 AND v.status = 'posted' AND v.reversal_of_voucher_id IS NULL AND v.voucher_date <= $2::date"
+	where := "l.tenant_id = $1 AND v.status IN ('posted', 'reversed') AND v.voucher_date <= $2::date"
 	appendScope(&where, &args, "v", filter)
 
 	rows, err := r.db.Query(ctx, `
@@ -243,7 +243,7 @@ func (r *ReportRepository) IncomeStatement(
 	startDate, endDate time.Time,
 ) (*domain.IncomeStatement, error) {
 	args := []any{tenantID, startDate.Format("2006-01-02"), endDate.Format("2006-01-02")}
-	where := "l.tenant_id = $1 AND v.status = 'posted' AND v.reversal_of_voucher_id IS NULL AND v.voucher_date BETWEEN $2::date AND $3::date"
+	where := "l.tenant_id = $1 AND v.status IN ('posted', 'reversed') AND v.voucher_date BETWEEN $2::date AND $3::date"
 	appendScope(&where, &args, "v", filter)
 
 	rows, err := r.db.Query(ctx, `
@@ -295,10 +295,17 @@ func (r *ReportRepository) IncomeStatement(
 
 func (r *ReportRepository) listLeafAccounts(ctx context.Context, tenantID string) ([]*domain.Account, error) {
 	rows, err := r.db.Query(ctx, accountSelectSQL+`
-		WHERE tenant_id = $1 AND is_leaf = true
+		WHERE tenant_id = $1
+		  AND (
+		      is_leaf = true
+		      OR EXISTS (
+		          SELECT 1 FROM erp.gl_voucher_lines l
+		          WHERE l.tenant_id = erp.gl_accounts.tenant_id AND l.account_id = erp.gl_accounts.id
+		      )
+		  )
 		ORDER BY code`, tenantID)
 	if err != nil {
-		return nil, fmt.Errorf("list leaf accounts: %w", err)
+		return nil, fmt.Errorf("list report accounts: %w", err)
 	}
 	defer rows.Close()
 
@@ -315,6 +322,6 @@ func (r *ReportRepository) listLeafAccounts(ctx context.Context, tenantID string
 
 func (r *ReportRepository) getLeafAccount(ctx context.Context, tenantID, id string) (*domain.Account, error) {
 	row := r.db.QueryRow(ctx, accountSelectSQL+`
-		WHERE tenant_id = $1 AND id = $2 AND is_leaf = true`, tenantID, id)
+		WHERE tenant_id = $1 AND id = $2`, tenantID, id)
 	return scanAccount(row)
 }
