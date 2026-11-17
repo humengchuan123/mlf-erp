@@ -23,6 +23,7 @@ type PeriodRepository interface {
 	Close(ctx context.Context, tenantID, orgID, id, userID, voucherCode string) error
 	Reopen(ctx context.Context, tenantID, id, userID, reversalCode string) error
 	CloseYear(ctx context.Context, tenantID, orgID string, year int, userID, voucherCode string) error
+	YearCloseStatus(ctx context.Context, tenantID string, year int) (*YearClose, error)
 }
 
 type DimensionRepository interface {

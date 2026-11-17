@@ -23,7 +23,7 @@ func (r *DimensionRepository) List(ctx context.Context, tenantID string) (*domai
 		return nil, fmt.Errorf("list partner dimensions: %w", err)
 	}
 	departments, err := r.list(ctx, tenantID, `SELECT id::text, code, name FROM erp.organizations
-		WHERE tenant_id = $1 AND status = 'active' ORDER BY code`)
+		WHERE tenant_id = $1 AND status = 'active' AND type = 'dept' ORDER BY code`)
 	if err != nil {
 		return nil, fmt.Errorf("list department dimensions: %w", err)
 	}

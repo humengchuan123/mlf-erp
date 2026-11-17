@@ -1018,8 +1018,29 @@ func ensureDemoAuxiliaryVoucher(
 		return err
 	}
 
+	voucherDate := time.Now()
+	var currentStatus string
+	err = db.QueryRow(ctx, `
+		SELECT status FROM erp.gl_periods
+		WHERE tenant_id = $1 AND year = $2 AND month = $3`,
+		tenantID, voucherDate.Year(), int(voucherDate.Month())).Scan(&currentStatus)
+	if err == nil && currentStatus == "closed" {
+		if err := db.QueryRow(ctx, `
+			SELECT start_date FROM erp.gl_periods
+			WHERE tenant_id = $1 AND status = 'open'
+			ORDER BY year, month
+			LIMIT 1`, tenantID).Scan(&voucherDate); err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return nil
+			}
+			return fmt.Errorf("load open demo period: %w", err)
+		}
+	} else if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return fmt.Errorf("load current demo period: %w", err)
+	}
+
 	voucher, err := voucherService.Create(ctx, glapp.VoucherInput{
-		VoucherDate: time.Now(),
+		VoucherDate: voucherDate,
 		Memo:        "demo-aux-voucher",
 		Lines: []glapp.VoucherLineInput{
 			{

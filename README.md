@@ -333,10 +333,11 @@ docker build -f deploy/docker/web.Dockerfile -t mlf-erp/web:dev .
 
 - 关账自动生成损益结转凭证，收入/费用结转到本年利润 4103。
 - 反关账生成反向结转凭证，期间恢复 open；再次关账生成新结转凭证。
-- 年度结转：本年利润 4103 结转到利润分配 4104。
+- 年度结转：本年利润 4103 结转到利润分配 4104；要求 12 个期间全部关账且有关账记录，按年度顺序执行，结转后不可反关账。
 - 凭证行支持客商、部门、项目辅助核算。
 - 辅助余额表按客商/部门/项目汇总。
-- 期间页面增加创建年度期间、年度结转；凭证页面增加辅助字段；报表增加辅助余额表。
+- 报表严格应用组织数据范围，部门用户不显示公司级结转凭证。
+- 期间页面增加创建年度期间、年度结转状态；凭证页面增加辅助字段；报表增加辅助余额表。
 - Stage 3D 真实 HTTP API 集成测试和前端完整度检查。
 
 ### 工程与交付
@@ -344,7 +345,7 @@ docker build -f deploy/docker/web.Dockerfile -t mlf-erp/web:dev .
 - Monorepo 工作区与共享包。
 - PostgreSQL 迁移、seed、Docker Compose。
 - Dockerfile、GitHub Actions CI、SaaS/私有化发布模板。
-- CI 包含单元测试、构建、Stage 3B 真实 PostgreSQL API 集成测试。
+- CI 包含单元测试、构建、Stage 3B/3C/3D 真实 PostgreSQL API 集成测试。
 - OpenAPI 契约与模块文档。
 
 ## 下一步

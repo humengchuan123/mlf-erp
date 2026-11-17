@@ -120,7 +120,8 @@ assertFile('apps/web/src/views/finance/PeriodListView.vue', [
   'glApi.periods.close',
   'glApi.periods.reopen',
   'glApi.periods.ensureYear',
-  'glApi.periods.closeYear'
+  'glApi.periods.closeYear',
+  'glApi.periods.yearCloseStatus'
 ])
 
 assertFile('apps/web/src/views/finance/VoucherListView.vue', [

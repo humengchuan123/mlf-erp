@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/mlf-erp/mlf-erp/internal/modules/gl/domain"
 	"github.com/mlf-erp/mlf-erp/internal/platform/scope"
 )
@@ -31,11 +32,15 @@ func (s *ReportService) GeneralLedger(
 	startDate, endDate time.Time,
 ) (*domain.GeneralLedger, error) {
 	tenantID, _, _ := tenantActor(ctx)
+	accountID = trim(accountID)
+	if _, err := uuid.Parse(accountID); err != nil {
+		return nil, domain.ErrInvalidInput
+	}
 	startDate, endDate = normalizeRange(startDate, endDate)
 	if startDate.After(endDate) {
 		return nil, domain.ErrInvalidInput
 	}
-	return s.reports.GeneralLedger(ctx, scope.FromActor(ctx, tenantID), tenantID, trim(accountID), startDate, endDate)
+	return s.reports.GeneralLedger(ctx, scope.FromActor(ctx, tenantID), tenantID, accountID, startDate, endDate)
 }
 
 func (s *ReportService) BalanceSheet(ctx context.Context, asOf time.Time) (*domain.BalanceSheet, error) {
@@ -61,7 +66,13 @@ func (s *ReportService) AuxiliaryBalance(
 	if startDate.After(endDate) {
 		return nil, domain.ErrInvalidInput
 	}
-	return s.reports.AuxiliaryBalance(ctx, scope.FromActor(ctx, tenantID), tenantID, dimension, trim(accountID), startDate, endDate)
+	accountID = trim(accountID)
+	if accountID != "" {
+		if _, err := uuid.Parse(accountID); err != nil {
+			return nil, domain.ErrInvalidInput
+		}
+	}
+	return s.reports.AuxiliaryBalance(ctx, scope.FromActor(ctx, tenantID), tenantID, dimension, accountID, startDate, endDate)
 }
 
 func (s *ReportService) IncomeStatement(ctx context.Context, startDate, endDate time.Time) (*domain.IncomeStatement, error) {

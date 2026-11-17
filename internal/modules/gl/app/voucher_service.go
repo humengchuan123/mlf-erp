@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"time"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"github.com/mlf-erp/mlf-erp/internal/modules/gl/domain"
@@ -68,17 +69,9 @@ func (s *VoucherService) Create(ctx context.Context, input VoucherInput) (*domai
 	if date.IsZero() {
 		date = time.Now()
 	}
-	lines := make([]domain.VoucherLineInput, 0, len(input.Lines))
-	for _, line := range input.Lines {
-		lines = append(lines, domain.VoucherLineInput{
-			AccountID:    line.AccountID,
-			Summary:      trim(line.Summary),
-			Debit:        line.Debit.Round(4),
-			Credit:       line.Credit.Round(4),
-			PartnerID:    trim(line.PartnerID),
-			DepartmentID: trim(line.DepartmentID),
-			ProjectCode:  trim(line.ProjectCode),
-		})
+	lines, err := normalizeVoucherLines(input.Lines)
+	if err != nil {
+		return nil, err
 	}
 	code, err := s.codes.Next(ctx, tenantID, "gl_voucher")
 	if err != nil {
@@ -117,17 +110,9 @@ func (s *VoucherService) UpdateDraft(ctx context.Context, id string, input Vouch
 	if date.IsZero() {
 		date = voucher.VoucherDate
 	}
-	lines := make([]domain.VoucherLineInput, 0, len(input.Lines))
-	for _, line := range input.Lines {
-		lines = append(lines, domain.VoucherLineInput{
-			AccountID:    line.AccountID,
-			Summary:      trim(line.Summary),
-			Debit:        line.Debit.Round(4),
-			Credit:       line.Credit.Round(4),
-			PartnerID:    trim(line.PartnerID),
-			DepartmentID: trim(line.DepartmentID),
-			ProjectCode:  trim(line.ProjectCode),
-		})
+	lines, err := normalizeVoucherLines(input.Lines)
+	if err != nil {
+		return nil, err
 	}
 	voucher.VoucherDate = date
 	voucher.Memo = trim(input.Memo)
@@ -151,4 +136,36 @@ func (s *VoucherService) Reverse(ctx context.Context, id string) (*domain.Vouche
 		return nil, err
 	}
 	return s.vouchers.Reverse(ctx, scope.FromActor(ctx, tenantID), tenantID, id, code, userID)
+}
+
+func normalizeVoucherLines(input []VoucherLineInput) ([]domain.VoucherLineInput, error) {
+	lines := make([]domain.VoucherLineInput, 0, len(input))
+	for _, line := range input {
+		partnerID := trim(line.PartnerID)
+		if partnerID != "" {
+			if _, err := uuid.Parse(partnerID); err != nil {
+				return nil, domain.ErrInvalidInput
+			}
+		}
+		departmentID := trim(line.DepartmentID)
+		if departmentID != "" {
+			if _, err := uuid.Parse(departmentID); err != nil {
+				return nil, domain.ErrInvalidInput
+			}
+		}
+		projectCode := trim(line.ProjectCode)
+		if utf8.RuneCountInString(projectCode) > 64 {
+			return nil, domain.ErrInvalidInput
+		}
+		lines = append(lines, domain.VoucherLineInput{
+			AccountID:    line.AccountID,
+			Summary:      trim(line.Summary),
+			Debit:        line.Debit.Round(4),
+			Credit:       line.Credit.Round(4),
+			PartnerID:    partnerID,
+			DepartmentID: departmentID,
+			ProjectCode:  projectCode,
+		})
+	}
+	return lines, nil
 }

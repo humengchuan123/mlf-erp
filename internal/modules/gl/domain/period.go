@@ -34,13 +34,14 @@ type PeriodClose struct {
 }
 
 type YearClose struct {
-	ID        string
-	TenantID  string
-	Year      int
-	VoucherID string
-	Status    string
-	CreatedBy string
-	CreatedAt time.Time
+	ID          string
+	TenantID    string
+	Year        int
+	VoucherID   string
+	VoucherCode string
+	Status      string
+	CreatedBy   string
+	CreatedAt   time.Time
 }
 
 type Dimension struct {

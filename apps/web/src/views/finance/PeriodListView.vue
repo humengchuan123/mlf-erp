@@ -5,8 +5,20 @@
         <el-option v-for="item in years" :key="item" :label="`${item} 年`" :value="item" />
       </el-select>
       <el-button v-if="canClose" plain @click="ensureYear">创建年度期间</el-button>
-      <el-button v-if="canClose" type="warning" @click="closeYear">年度结转</el-button>
+      <el-button v-if="canClose" type="warning" :disabled="yearClose?.closed" @click="closeYear">
+        {{ yearClose?.closed ? '已年度结转' : '年度结转' }}
+      </el-button>
     </PageHeader>
+
+    <el-alert
+      v-if="yearClose?.closed"
+      class="year-close-alert"
+      type="info"
+      :closable="false"
+      show-icon
+      :title="`${year} 年度已结转${yearClose.voucher_code ? `，结转凭证 ${yearClose.voucher_code}` : '（本年利润为零，未生成凭证）'}`"
+      description="年度结转不可反结转；如需调整，请在后续年度通过调整凭证处理。"
+    />
 
     <el-card shadow="never">
       <el-table v-loading="loading" :data="periods" border stripe>
@@ -43,22 +55,28 @@
 import { computed, onMounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { PageHeader } from '@mlf-erp/ui'
-import { glApi, type GlPeriod } from '@mlf-erp/sdk'
+import { glApi, type GlPeriod, type YearCloseStatus } from '@mlf-erp/sdk'
 import { useAuthStore } from '@/stores/auth'
 
 const authStore = useAuthStore()
 const canClose = computed(() => authStore.hasPermission('finance.period.close'))
 
 const periods = ref<GlPeriod[]>([])
+const yearClose = ref<YearCloseStatus | null>(null)
 const loading = ref(false)
 const now = new Date()
 const year = ref(now.getFullYear())
-const years = [now.getFullYear() - 1, now.getFullYear(), now.getFullYear() + 1]
+const years = Array.from({ length: 11 }, (_, index) => now.getFullYear() - 5 + index)
 
 async function load() {
   loading.value = true
   try {
-    periods.value = await glApi.periods.list(year.value)
+    const [items, status] = await Promise.all([
+      glApi.periods.list(year.value),
+      glApi.periods.yearCloseStatus(year.value)
+    ])
+    periods.value = items
+    yearClose.value = status
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : '加载会计期间失败')
   } finally {
@@ -117,7 +135,7 @@ async function ensureYear() {
 async function closeYear() {
   try {
     await ElMessageBox.confirm(
-      `确认完成 ${year.value} 年度结转？要求该年度 12 个期间全部关账，系统将把本年利润结转到利润分配。`,
+      `确认完成 ${year.value} 年度结转？要求该年度 12 个期间全部关账，系统将把本年利润结转到利润分配。年度结转不可反结转。`,
       '年度结转',
       { type: 'warning' }
     )
@@ -139,3 +157,9 @@ function formatDate(value: string) {
 
 onMounted(load)
 </script>
+
+<style scoped>
+.year-close-alert {
+  margin-bottom: 12px;
+}
+</style>

@@ -50,6 +50,7 @@ func Register(
 	finance.POST("/periods/:id/close", authmw.RequirePermission("finance.period.close"), handler.closePeriod)
 	finance.POST("/periods/:id/reopen", authmw.RequirePermission("finance.period.close"), handler.reopenPeriod)
 	finance.POST("/years/:year/close", authmw.RequirePermission("finance.period.close"), handler.closeYear)
+	finance.GET("/years/:year/close", authmw.RequirePermission("finance.period.read"), handler.yearCloseStatus)
 
 	finance.GET("/vouchers", authmw.RequirePermission("finance.voucher.read"), handler.listVouchers)
 	finance.POST("/vouchers", authmw.RequirePermission("finance.voucher.write"), handler.createVoucher)
@@ -351,6 +352,31 @@ func (h *Handler) closeYear(c *gin.Context) {
 	}
 	h.recordAudit(c, "finance.year.close", "gl_year_close", strconv.Itoa(year), nil)
 	httpx.OK(c, gin.H{"year": year, "status": "closed"})
+}
+
+func (h *Handler) yearCloseStatus(c *gin.Context) {
+	year, err := strconv.Atoi(c.Param("year"))
+	if err != nil || year < 2000 || year > 2200 {
+		httpx.Error(c, http.StatusBadRequest, httpx.CodeBadRequest, "invalid year")
+		return
+	}
+	item, err := h.periods.YearCloseStatus(c.Request.Context(), year)
+	if err != nil {
+		h.handleError(c, err)
+		return
+	}
+	if item == nil {
+		httpx.OK(c, gin.H{"year": year, "closed": false})
+		return
+	}
+	httpx.OK(c, gin.H{
+		"year":         item.Year,
+		"closed":       true,
+		"voucher_id":   item.VoucherID,
+		"voucher_code": item.VoucherCode,
+		"status":       item.Status,
+		"closed_at":    item.CreatedAt,
+	})
 }
 
 func (h *Handler) closePeriod(c *gin.Context) {
@@ -692,6 +718,10 @@ func (h *Handler) handleError(c *gin.Context, err error) {
 		httpx.Error(c, http.StatusConflict, "YEAR_NOT_CLOSED", "all periods in the year must be closed")
 	case errors.Is(err, domain.ErrYearClosed):
 		httpx.Error(c, http.StatusConflict, "YEAR_CLOSED", "year is already closed")
+	case errors.Is(err, domain.ErrYearOutOfOrder):
+		httpx.Error(c, http.StatusConflict, "YEAR_OUT_OF_ORDER", "years must be closed in chronological order")
+	case errors.Is(err, domain.ErrPeriodCloseMissing):
+		httpx.Error(c, http.StatusConflict, "PERIOD_CLOSE_MISSING", "every closed period must have a period close record")
 	case errors.Is(err, domain.ErrInvalidStatus):
 		httpx.Error(c, http.StatusConflict, "INVALID_STATUS", "voucher status does not allow this operation")
 	case errors.Is(err, domain.ErrConflict):

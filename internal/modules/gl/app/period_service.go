@@ -51,3 +51,8 @@ func (s *PeriodService) CloseYear(ctx context.Context, year int) error {
 	}
 	return s.periods.CloseYear(ctx, tenantID, orgID, year, userID, code)
 }
+
+func (s *PeriodService) YearCloseStatus(ctx context.Context, year int) (*domain.YearClose, error) {
+	tenantID, _, _ := tenantActor(ctx)
+	return s.periods.YearCloseStatus(ctx, tenantID, year)
+}

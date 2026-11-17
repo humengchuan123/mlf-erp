@@ -103,6 +103,13 @@ func (r *PeriodRepository) Close(ctx context.Context, tenantID, orgID, id, userI
 	if period.Status == domain.PeriodStatusClosed {
 		return domain.ErrConflict
 	}
+	yearClosed, err := yearClosedTx(ctx, tx, tenantID, period.Year)
+	if err != nil {
+		return err
+	}
+	if yearClosed {
+		return domain.ErrYearClosed
+	}
 
 	var draftCount int
 	if err := tx.QueryRow(ctx, `
@@ -143,6 +150,13 @@ func (r *PeriodRepository) Reopen(ctx context.Context, tenantID, id, userID, rev
 	if err != nil {
 		return err
 	}
+	yearClosed, err := yearClosedTx(ctx, tx, tenantID, period.Year)
+	if err != nil {
+		return err
+	}
+	if yearClosed {
+		return domain.ErrYearClosed
+	}
 	if period.Status == domain.PeriodStatusOpen {
 		return nil
 	}
@@ -159,67 +173,72 @@ func (r *PeriodRepository) Reopen(ctx context.Context, tenantID, id, userID, rev
 		return fmt.Errorf("load period close: %w", err)
 	}
 
-	if closeID != "" && voucherID != "" {
-		if reversalCode == "" {
-			return domain.ErrInvalidInput
-		}
-		var orgID string
-		if err := tx.QueryRow(ctx, `
-			SELECT org_id::text FROM erp.gl_vouchers
-			WHERE tenant_id = $1 AND id = $2`, tenantID, voucherID).Scan(&orgID); err != nil {
-			return fmt.Errorf("load closing voucher: %w", err)
-		}
-		originalLines, err := loadVoucherLines(ctx, tx, tenantID, voucherID)
-		if err != nil {
-			return err
-		}
-		reversal := &domain.Voucher{
-			ID:          uuid.NewString(),
-			TenantID:    tenantID,
-			OrgID:       orgID,
-			Code:        reversalCode,
-			VoucherDate: period.EndDate,
-			PeriodID:    period.ID,
-			VoucherType: "period_close_reversal",
-			SourceType:  "period_close_reversal",
-			SourceID:    closeID,
-			SourceCode:  fmt.Sprintf("%04d-%02d", period.Year, period.Month),
-			Status:      domain.VoucherStatusPosted,
-			Memo:        fmt.Sprintf("反结转 %04d-%02d", period.Year, period.Month),
-			CreatedBy:   userID,
-			PostedBy:    userID,
-		}
-		now := time.Now()
-		reversal.PostedAt = &now
-		reversal.CreatedAt = now
-		reversal.UpdatedAt = now
-		total := decimal.Zero
-		for i, line := range originalLines {
-			total = total.Add(line.Credit)
-			reversal.Lines = append(reversal.Lines, &domain.VoucherLine{
-				ID:           uuid.NewString(),
-				TenantID:     tenantID,
-				VoucherID:    reversal.ID,
-				LineNo:       i + 1,
-				AccountID:    line.AccountID,
-				AccountCode:  line.AccountCode,
-				AccountName:  line.AccountName,
-				Summary:      "反结转 " + line.Summary,
-				Debit:        line.Credit,
-				Credit:       line.Debit,
-				PartnerID:    line.PartnerID,
-				DepartmentID: line.DepartmentID,
-				ProjectCode:  line.ProjectCode,
-			})
-		}
-		reversal.TotalAmount = total.Round(4)
-		if err := insertVoucherTx(ctx, tx, reversal); err != nil {
-			return err
+	if closeID != "" {
+		reversalVoucherID := ""
+		if voucherID != "" {
+			if reversalCode == "" {
+				return domain.ErrInvalidInput
+			}
+			var orgID string
+			if err := tx.QueryRow(ctx, `
+				SELECT org_id::text FROM erp.gl_vouchers
+				WHERE tenant_id = $1 AND id = $2`, tenantID, voucherID).Scan(&orgID); err != nil {
+				return fmt.Errorf("load closing voucher: %w", err)
+			}
+			originalLines, err := loadVoucherLines(ctx, tx, tenantID, voucherID)
+			if err != nil {
+				return err
+			}
+			reversal := &domain.Voucher{
+				ID:                  uuid.NewString(),
+				TenantID:            tenantID,
+				OrgID:               orgID,
+				Code:                reversalCode,
+				VoucherDate:         period.EndDate,
+				PeriodID:            period.ID,
+				VoucherType:         domain.VoucherTypePeriodCloseReversal,
+				SourceType:          domain.SourceTypePeriodCloseReversal,
+				SourceID:            closeID,
+				SourceCode:          fmt.Sprintf("%04d-%02d", period.Year, period.Month),
+				Status:              domain.VoucherStatusPosted,
+				Memo:                fmt.Sprintf("反结转 %04d-%02d", period.Year, period.Month),
+				CreatedBy:           userID,
+				PostedBy:            userID,
+				ReversalOfVoucherID: voucherID,
+			}
+			now := time.Now()
+			reversal.PostedAt = &now
+			reversal.CreatedAt = now
+			reversal.UpdatedAt = now
+			total := decimal.Zero
+			for i, line := range originalLines {
+				total = total.Add(line.Credit)
+				reversal.Lines = append(reversal.Lines, &domain.VoucherLine{
+					ID:           uuid.NewString(),
+					TenantID:     tenantID,
+					VoucherID:    reversal.ID,
+					LineNo:       i + 1,
+					AccountID:    line.AccountID,
+					AccountCode:  line.AccountCode,
+					AccountName:  line.AccountName,
+					Summary:      "反结转 " + line.Summary,
+					Debit:        line.Credit,
+					Credit:       line.Debit,
+					PartnerID:    line.PartnerID,
+					DepartmentID: line.DepartmentID,
+					ProjectCode:  line.ProjectCode,
+				})
+			}
+			reversal.TotalAmount = total.Round(4)
+			if err := insertVoucherTx(ctx, tx, reversal); err != nil {
+				return err
+			}
+			reversalVoucherID = reversal.ID
 		}
 		if _, err := tx.Exec(ctx, `
 			UPDATE erp.gl_period_closes
 			SET status = 'reopened', reversal_voucher_id = $3, reopened_by = $4, reopened_at = now()
-			WHERE tenant_id = $1 AND id = $2`, tenantID, closeID, reversal.ID, userID); err != nil {
+			WHERE tenant_id = $1 AND id = $2`, tenantID, closeID, nullableUUID(reversalVoucherID), userID); err != nil {
 			return fmt.Errorf("mark period close reopened: %w", err)
 		}
 	}
@@ -248,6 +267,34 @@ func (r *PeriodRepository) CloseYear(
 	}
 	defer tx.Rollback(ctx)
 
+	// Lock every period in the year so a concurrent reopen/close cannot change
+	// the year between validation and posting.
+	rows, err := tx.Query(ctx, `
+		SELECT id::text FROM erp.gl_periods
+		WHERE tenant_id = $1 AND year = $2
+		ORDER BY month
+		FOR UPDATE`, tenantID, year)
+	if err != nil {
+		return fmt.Errorf("lock year periods: %w", err)
+	}
+	periodCount := 0
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return fmt.Errorf("scan year period: %w", err)
+		}
+		periodCount++
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	rows.Close()
+	if periodCount < 12 {
+		return domain.ErrYearNotClosed
+	}
+
 	var exists bool
 	if err := tx.QueryRow(ctx, `
 		SELECT EXISTS (
@@ -257,6 +304,17 @@ func (r *PeriodRepository) CloseYear(
 	}
 	if exists {
 		return domain.ErrYearClosed
+	}
+
+	var laterClosed bool
+	if err := tx.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1 FROM erp.gl_year_closes WHERE tenant_id = $1 AND year > $2
+		)`, tenantID, year).Scan(&laterClosed); err != nil {
+		return fmt.Errorf("check later year close: %w", err)
+	}
+	if laterClosed {
+		return domain.ErrYearOutOfOrder
 	}
 
 	var closedCount int
@@ -269,15 +327,46 @@ func (r *PeriodRepository) CloseYear(
 		return domain.ErrYearNotClosed
 	}
 
-	accounts, err := loadMappedAccountsTx(ctx, tx, tenantID, []postingLine{
+	var recordedCount int
+	if err := tx.QueryRow(ctx, `
+		SELECT count(*) FROM erp.gl_periods p
+		WHERE p.tenant_id = $1 AND p.year = $2 AND p.status = 'closed'
+		  AND EXISTS (
+		      SELECT 1 FROM erp.gl_period_closes c
+		      WHERE c.tenant_id = p.tenant_id AND c.period_id = p.id AND c.status = 'closed'
+		  )`, tenantID, year).Scan(&recordedCount); err != nil {
+		return fmt.Errorf("count recorded period closes: %w", err)
+	}
+	if recordedCount < closedCount {
+		return domain.ErrPeriodCloseMissing
+	}
+
+	var priorPeriods int
+	if err := tx.QueryRow(ctx, `
+		SELECT count(*) FROM erp.gl_periods WHERE tenant_id = $1 AND year = $2`,
+		tenantID, year-1).Scan(&priorPeriods); err != nil {
+		return fmt.Errorf("count prior year periods: %w", err)
+	}
+	if priorPeriods > 0 {
+		var priorClosed bool
+		if err := tx.QueryRow(ctx, `
+			SELECT EXISTS (
+				SELECT 1 FROM erp.gl_year_closes WHERE tenant_id = $1 AND year = $2
+			)`, tenantID, year-1).Scan(&priorClosed); err != nil {
+			return fmt.Errorf("check prior year close: %w", err)
+		}
+		if !priorClosed {
+			return domain.ErrYearOutOfOrder
+		}
+	}
+
+	profitAccounts, err := loadMappedAccountsTx(ctx, tx, tenantID, []postingLine{
 		{AccountKey: "profit"},
-		{AccountKey: "retained_earnings"},
 	})
 	if err != nil {
 		return err
 	}
-	profitAccountID := accounts["profit"]
-	retainedAccountID := accounts["retained_earnings"]
+	profitAccountID := profitAccounts["profit"]
 
 	asOf := time.Date(year, 12, 31, 0, 0, 0, 0, time.UTC)
 	var balanceRaw string
@@ -287,8 +376,7 @@ func (r *PeriodRepository) CloseYear(
 		JOIN erp.gl_vouchers v ON v.tenant_id = l.tenant_id AND v.id = l.voucher_id
 		WHERE l.tenant_id = $1 AND l.account_id = $2
 		  AND v.voucher_date <= $3::date
-		  AND v.status IN ('posted', 'reversed')
-		  AND v.voucher_type <> 'year_close'`,
+		  AND v.status IN ('posted', 'reversed')`,
 		tenantID, profitAccountID, asOf.Format("2006-01-02"),
 	).Scan(&balanceRaw); err != nil {
 		return fmt.Errorf("load profit balance: %w", err)
@@ -301,6 +389,14 @@ func (r *PeriodRepository) CloseYear(
 		if voucherCode == "" {
 			return domain.ErrInvalidInput
 		}
+		retainedAccounts, err := loadMappedAccountsTx(ctx, tx, tenantID, []postingLine{
+			{AccountKey: "retained_earnings"},
+		})
+		if err != nil {
+			return err
+		}
+		retainedAccountID := retainedAccounts["retained_earnings"]
+
 		voucherDate := time.Date(year+1, 1, 1, 0, 0, 0, 0, time.UTC)
 		period, err := ensurePeriodTx(ctx, tx, tenantID, voucherDate)
 		if err != nil {
@@ -317,8 +413,8 @@ func (r *PeriodRepository) CloseYear(
 			Code:        voucherCode,
 			VoucherDate: voucherDate,
 			PeriodID:    period.ID,
-			VoucherType: "year_close",
-			SourceType:  "year_close",
+			VoucherType: domain.VoucherTypeYearClose,
+			SourceType:  domain.SourceTypeYearClose,
 			SourceID:    yearCloseID,
 			SourceCode:  fmt.Sprintf("%04d", year),
 			Status:      domain.VoucherStatusPosted,
@@ -359,6 +455,36 @@ func (r *PeriodRepository) CloseYear(
 		return fmt.Errorf("commit close year: %w", err)
 	}
 	return nil
+}
+
+func (r *PeriodRepository) YearCloseStatus(ctx context.Context, tenantID string, year int) (*domain.YearClose, error) {
+	item := &domain.YearClose{}
+	err := r.db.QueryRow(ctx, `
+		SELECT c.id::text, c.tenant_id::text, c.year, COALESCE(c.voucher_id::text, ''),
+		       COALESCE(v.code, ''), c.status, c.created_by::text, c.created_at
+		FROM erp.gl_year_closes c
+		LEFT JOIN erp.gl_vouchers v ON v.tenant_id = c.tenant_id AND v.id = c.voucher_id
+		WHERE c.tenant_id = $1 AND c.year = $2`, tenantID, year,
+	).Scan(&item.ID, &item.TenantID, &item.Year, &item.VoucherID,
+		&item.VoucherCode, &item.Status, &item.CreatedBy, &item.CreatedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("load year close status: %w", err)
+	}
+	return item, nil
+}
+
+func yearClosedTx(ctx context.Context, tx pgx.Tx, tenantID string, year int) (bool, error) {
+	var closed bool
+	if err := tx.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1 FROM erp.gl_year_closes WHERE tenant_id = $1 AND year = $2
+		)`, tenantID, year).Scan(&closed); err != nil {
+		return false, fmt.Errorf("check year close: %w", err)
+	}
+	return closed, nil
 }
 
 func closePeriodTx(
@@ -436,6 +562,14 @@ func closePeriodTx(
 		return "", err
 	}
 	if len(lines) == 0 {
+		closeID := uuid.NewString()
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO erp.gl_period_closes (id, tenant_id, period_id, voucher_id, status, created_by)
+			VALUES ($1, $2, $3, NULL, 'closed', $4)`,
+			closeID, tenantID, period.ID, userID,
+		); err != nil {
+			return "", fmt.Errorf("insert empty period close: %w", err)
+		}
 		return "", nil
 	}
 
@@ -478,8 +612,8 @@ func closePeriodTx(
 		Code:        voucherCode,
 		VoucherDate: period.EndDate,
 		PeriodID:    period.ID,
-		VoucherType: "period_close",
-		SourceType:  "period_close",
+		VoucherType: domain.VoucherTypePeriodClose,
+		SourceType:  domain.SourceTypePeriodClose,
 		SourceID:    closeID,
 		SourceCode:  fmt.Sprintf("%04d-%02d", period.Year, period.Month),
 		Status:      domain.VoucherStatusPosted,

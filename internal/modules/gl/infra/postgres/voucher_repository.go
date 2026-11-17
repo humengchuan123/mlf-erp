@@ -335,6 +335,7 @@ func (r *VoucherRepository) Reverse(
 			Credit:       line.Debit,
 			PartnerID:    line.PartnerID,
 			DepartmentID: line.DepartmentID,
+			ProjectCode:  line.ProjectCode,
 		})
 	}
 	reversal.TotalAmount = sumLineDebits(reversal.Lines)

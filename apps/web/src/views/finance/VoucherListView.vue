@@ -172,6 +172,15 @@
           <el-table-column prop="account_code" label="科目编码" width="110" />
           <el-table-column prop="account_name" label="科目名称" min-width="160" />
           <el-table-column prop="summary" label="摘要" min-width="150" />
+          <el-table-column label="客商" width="130">
+            <template #default="{ row }">{{ dimensionName('partner', row.partner_id) }}</template>
+          </el-table-column>
+          <el-table-column label="部门" width="120">
+            <template #default="{ row }">{{ dimensionName('department', row.department_id) }}</template>
+          </el-table-column>
+          <el-table-column prop="project_code" label="项目" width="110">
+            <template #default="{ row }">{{ row.project_code || '-' }}</template>
+          </el-table-column>
           <el-table-column prop="debit" label="借方" width="120" align="right" />
           <el-table-column prop="credit" label="贷方" width="120" align="right" />
         </el-table>
@@ -226,7 +235,10 @@ const typeLabels: Record<string, string> = {
   purchase_receipt: '采购收货',
   receipt_payment: '收款',
   supplier_payment: '付款',
-  reversal: '反过账'
+  reversal: '反过账',
+  period_close: '期末结转',
+  period_close_reversal: '反结转',
+  year_close: '年度结转'
 }
 const statusLabels: Record<string, string> = {
   draft: '草稿',
@@ -278,6 +290,12 @@ function statusType(status: string) {
   if (status === 'posted') return 'success'
   if (status === 'reversed') return 'warning'
   return 'info'
+}
+
+function dimensionName(dimension: 'partner' | 'department', id: string) {
+  if (!id) return '-'
+  const items = dimension === 'partner' ? dimensions.value.partners : dimensions.value.departments
+  return items.find((item) => item.id === id)?.name ?? id
 }
 
 function formatDate(value: string) {

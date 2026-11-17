@@ -15,6 +15,7 @@
 - `000013_general_ledger`：会计科目、期间、科目映射、凭证/分录、总账权限、`gl_voucher` 编码规则，并为现有租户初始化标准科目、映射和当前年度期间。
 - `000014_general_ledger_indexes`：总账报表和期间关账查询索引。
 - `000015_period_close_auxiliary`：凭证行项目辅助、期末关账/年度关账记录、损益结转和利润分配科目映射。
+- `000016_period_close_integrity`：关账记录唯一索引、辅助核算外键和项目编码长度约束。
 - 迁移由 `cmd/migrate` 执行，使用 `golang-migrate`，SQL 文件通过 `embed` 打进二进制。
 - 所有业务表遵循 `tenant_id` 非空、唯一键带租户、外键尽量带租户的原则。
 

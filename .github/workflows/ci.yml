@@ -66,6 +66,7 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter @mlf-erp/web typecheck
+      - run: pnpm test:frontend
       - run: pnpm --filter @mlf-erp/web build
       - uses: actions/upload-artifact@v4
         with:
@@ -121,7 +122,6 @@ jobs:
       DB_ENABLED: 'true'
       HTTP_ADDR: ':18080'
       LOG_LEVEL: error
-      TEST_YEAR_CLOSE_YEAR: '2099'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5

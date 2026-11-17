@@ -35,6 +35,15 @@ export interface GlPeriod {
   closed_by: string
 }
 
+export interface YearCloseStatus {
+  year: number
+  closed: boolean
+  voucher_id?: string
+  voucher_code?: string
+  status?: string
+  closed_at?: string
+}
+
 export interface GlVoucherLine {
   id: string
   line_no: number
@@ -224,6 +233,9 @@ export const glApi = {
     },
     closeYear(year: number): Promise<unknown> {
       return api.post(`/finance/years/${year}/close`)
+    },
+    yearCloseStatus(year: number): Promise<YearCloseStatus> {
+      return api.get<YearCloseStatus>(`/finance/years/${year}/close`)
     }
   },
   dimensions(): Promise<Dimensions> {
