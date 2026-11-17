@@ -111,18 +111,20 @@ type receiptLineResponse struct {
 }
 
 type receiptResponse struct {
-	ID            string                `json:"id"`
-	Code          string                `json:"code"`
-	OrderID       string                `json:"order_id"`
-	OrderCode     string                `json:"order_code"`
-	SupplierName  string                `json:"supplier_name"`
-	WarehouseID   string                `json:"warehouse_id"`
-	WarehouseName string                `json:"warehouse_name"`
-	ReceiptDate   string                `json:"receipt_date"`
-	Status        string                `json:"status"`
-	Remark        string                `json:"remark"`
-	CreatedAt     time.Time             `json:"created_at"`
-	Lines         []receiptLineResponse `json:"lines"`
+	ID             string                `json:"id"`
+	Code           string                `json:"code"`
+	OrderID        string                `json:"order_id"`
+	OrderCode      string                `json:"order_code"`
+	SupplierName   string                `json:"supplier_name"`
+	WarehouseID    string                `json:"warehouse_id"`
+	WarehouseName  string                `json:"warehouse_name"`
+	ReceiptDate    string                `json:"receipt_date"`
+	Status         string                `json:"status"`
+	Remark         string                `json:"remark"`
+	PayableCode    string                `json:"payable_code"`
+	PayableDueDate string                `json:"payable_due_date"`
+	CreatedAt      time.Time             `json:"created_at"`
+	Lines          []receiptLineResponse `json:"lines"`
 }
 
 type pagedResponse[T any] struct {
@@ -361,10 +363,15 @@ func toReceiptResponse(receipt *domain.Receipt) receiptResponse {
 			Quantity: line.Quantity.String(), UnitPrice: line.UnitPrice.String(), Amount: line.Amount.StringFixed(4),
 		})
 	}
+	payableDueDate := ""
+	if !receipt.PayableDueDate.IsZero() {
+		payableDueDate = receipt.PayableDueDate.Format("2006-01-02")
+	}
 	return receiptResponse{
 		ID: receipt.ID, Code: receipt.Code, OrderID: receipt.OrderID, OrderCode: receipt.OrderCode,
 		SupplierName: receipt.SupplierName, WarehouseID: receipt.WarehouseID, WarehouseName: receipt.WarehouseName,
 		ReceiptDate: receipt.ReceiptDate.Format("2006-01-02"), Status: receipt.Status, Remark: receipt.Remark,
+		PayableCode: receipt.PayableCode, PayableDueDate: payableDueDate,
 		CreatedAt: receipt.CreatedAt, Lines: lines,
 	}
 }

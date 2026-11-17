@@ -65,6 +65,8 @@ export interface PurchaseReceipt {
   receipt_date: string
   status: string
   remark: string
+  payable_code: string
+  payable_due_date: string
   created_at: string
   lines: PurchaseReceiptLine[]
 }

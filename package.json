@@ -18,6 +18,8 @@
     "seed": "go run ./cmd/seed",
     "demo:seed": "go run ./cmd/demo",
     "test:go": "go test ./...",
+    "test:api:stage3b": "powershell -ExecutionPolicy Bypass -File ./scripts/test/stage3b-api.ps1",
+    "test:frontend": "node ./scripts/test/check-frontend.mjs",
     "vet:go": "go vet ./...",
     "fmt:go": "gofmt -w ./cmd ./internal ./db",
     "migrate:up": "go run ./cmd/migrate -direction up",

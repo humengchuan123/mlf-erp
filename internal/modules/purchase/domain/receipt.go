@@ -7,21 +7,24 @@ import (
 )
 
 type Receipt struct {
-	ID            string
-	TenantID      string
-	OrgID         string
-	Code          string
-	OrderID       string
-	OrderCode     string
-	SupplierName  string
-	WarehouseID   string
-	WarehouseName string
-	ReceiptDate   time.Time
-	Status        string
-	Remark        string
-	CreatedBy     string
-	CreatedAt     time.Time
-	Lines         []*ReceiptLine
+	ID             string
+	TenantID       string
+	OrgID          string
+	Code           string
+	OrderID        string
+	OrderCode      string
+	SupplierName   string
+	WarehouseID    string
+	WarehouseName  string
+	ReceiptDate    time.Time
+	Status         string
+	Remark         string
+	CreatedBy      string
+	CreatedAt      time.Time
+	PayableID      string
+	PayableCode    string
+	PayableDueDate time.Time
+	Lines          []*ReceiptLine
 }
 
 type ReceiptLine struct {

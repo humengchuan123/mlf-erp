@@ -247,7 +247,9 @@ func (r *Repository) Receive(ctx context.Context, filter scope.Filter, receipt *
 		return fmt.Errorf("insert receipt: %w", mapDBError(err))
 	}
 
+	invoiceTotal := decimal.Zero
 	for _, line := range receipt.Lines {
+		invoiceTotal = invoiceTotal.Add(line.Amount)
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO erp.purchase_receipt_lines (
 				id, tenant_id, receipt_id, order_line_id, material_id, quantity, unit_price, amount
@@ -273,13 +275,20 @@ func (r *Repository) Receive(ctx context.Context, filter scope.Filter, receipt *
 
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO erp.inventory_balances (
-				tenant_id, org_id, warehouse_id, material_id, on_hand, reserved, available, updated_at
-			) VALUES ($1,$2,$3,$4,$5,0,$5,now())
+				tenant_id, org_id, warehouse_id, material_id, on_hand, reserved, available, avg_cost, updated_at
+			) VALUES ($1,$2,$3,$4,$5,0,$5,$6,now())
 			ON CONFLICT (tenant_id, warehouse_id, material_id) DO UPDATE
-			SET on_hand = erp.inventory_balances.on_hand + EXCLUDED.on_hand,
+			SET avg_cost = CASE
+			        WHEN erp.inventory_balances.on_hand + EXCLUDED.on_hand = 0 THEN 0
+			        ELSE (erp.inventory_balances.on_hand * erp.inventory_balances.avg_cost
+			              + EXCLUDED.on_hand * EXCLUDED.avg_cost)
+			             / (erp.inventory_balances.on_hand + EXCLUDED.on_hand)
+			    END,
+			    on_hand = erp.inventory_balances.on_hand + EXCLUDED.on_hand,
 			    available = erp.inventory_balances.available + EXCLUDED.available,
 			    updated_at = now()`,
-			receipt.TenantID, receipt.OrgID, receipt.WarehouseID, line.MaterialID, line.Quantity.String(),
+			receipt.TenantID, receipt.OrgID, receipt.WarehouseID, line.MaterialID,
+			line.Quantity.String(), line.UnitPrice.String(),
 		); err != nil {
 			return fmt.Errorf("upsert inventory balance: %w", err)
 		}
@@ -294,6 +303,20 @@ func (r *Repository) Receive(ctx context.Context, filter scope.Filter, receipt *
 		); err != nil {
 			return fmt.Errorf("insert inventory transaction: %w", err)
 		}
+	}
+
+	invoiceTotal = invoiceTotal.Round(4)
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO erp.finance_invoices (
+			id, tenant_id, org_id, code, invoice_type, source_type, source_id, source_code,
+			partner_id, invoice_date, due_date, currency, status, total_amount, paid_amount,
+			remark, created_by, updated_by
+		) VALUES ($1,$2,$3,$4,'payable','purchase_receipt',$5,$6,$7,$8,$9,$10,'open',$11,0,'',$12,$12)`,
+		receipt.PayableID, receipt.TenantID, receipt.OrgID, receipt.PayableCode,
+		receipt.ID, receipt.Code, order.SupplierID, receipt.ReceiptDate,
+		receipt.PayableDueDate, order.Currency, invoiceTotal.String(), receipt.CreatedBy,
+	); err != nil {
+		return fmt.Errorf("insert payable invoice: %w", mapDBError(err))
 	}
 
 	allReceived := true

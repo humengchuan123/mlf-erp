@@ -20,9 +20,13 @@
             <el-icon><ShoppingCart /></el-icon>
             <span>采购订单</span>
           </el-menu-item>
-          <el-menu-item v-if="authStore.hasPermission('sales.read')" index="/sales/orders">
+          <el-menu-item v-if="authStore.hasPermission('sales.order.read')" index="/sales/orders">
             <el-icon><Goods /></el-icon>
             <span>销售订单</span>
+          </el-menu-item>
+          <el-menu-item v-if="authStore.hasPermission('sales.shipment.read')" index="/sales/shipments">
+            <el-icon><Document /></el-icon>
+            <span>发货单</span>
           </el-menu-item>
           <el-menu-item v-if="authStore.hasPermission('inventory.balance.read')" index="/inventory/balances">
             <el-icon><Box /></el-icon>
@@ -56,6 +60,14 @@
         </el-menu-item-group>
 
         <el-menu-item-group v-if="canFinance" title="财务">
+          <el-menu-item v-if="authStore.hasPermission('finance.invoice.read')" index="/finance/invoices">
+            <el-icon><Money /></el-icon>
+            <span>应收应付</span>
+          </el-menu-item>
+          <el-menu-item v-if="authStore.hasPermission('finance.payment.read')" index="/finance/payments">
+            <el-icon><Money /></el-icon>
+            <span>收付款</span>
+          </el-menu-item>
           <el-menu-item v-if="authStore.hasPermission('finance.read')" index="/finance/gl">
             <el-icon><Money /></el-icon>
             <span>总账</span>
@@ -143,7 +155,8 @@ const displayName = computed(() => authStore.user?.display_name || authStore.use
 const canSupplyChain = computed(
   () =>
     authStore.hasPermission('purchase.order.read') ||
-    authStore.hasPermission('sales.read') ||
+    authStore.hasPermission('sales.order.read') ||
+    authStore.hasPermission('sales.shipment.read') ||
     authStore.hasPermission('inventory.balance.read') ||
     authStore.hasPermission('inventory.transaction.read')
 )
@@ -156,7 +169,12 @@ const canMasterData = computed(
     authStore.hasPermission('masterdata.currency.read') ||
     authStore.hasPermission('masterdata.tax.read')
 )
-const canFinance = computed(() => authStore.hasPermission('finance.read'))
+const canFinance = computed(
+  () =>
+    authStore.hasPermission('finance.invoice.read') ||
+    authStore.hasPermission('finance.payment.read') ||
+    authStore.hasPermission('finance.read')
+)
 const canSystem = computed(
   () =>
     authStore.hasPermission('system.user.read') ||

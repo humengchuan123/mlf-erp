@@ -93,26 +93,33 @@ func (s *ReceiptService) Receive(ctx context.Context, orderID string, input Rece
 	if err != nil {
 		return nil, err
 	}
+	payableCode, err := s.codes.Next(ctx, tenantID, "purchase_payable")
+	if err != nil {
+		return nil, err
+	}
 	receiptDate := input.ReceiptDate
 	if receiptDate.IsZero() {
 		receiptDate = time.Now()
 	}
 
 	receipt := &domain.Receipt{
-		ID:            receiptID,
-		TenantID:      tenantID,
-		OrgID:         order.OrgID,
-		Code:          code,
-		OrderID:       order.ID,
-		OrderCode:     order.Code,
-		SupplierName:  order.SupplierName,
-		WarehouseID:   order.WarehouseID,
-		WarehouseName: order.WarehouseName,
-		ReceiptDate:   receiptDate,
-		Status:        "posted",
-		Remark:        strings.TrimSpace(input.Remark),
-		CreatedBy:     userID,
-		Lines:         receiptLines,
+		ID:             receiptID,
+		TenantID:       tenantID,
+		OrgID:          order.OrgID,
+		Code:           code,
+		OrderID:        order.ID,
+		OrderCode:      order.Code,
+		SupplierName:   order.SupplierName,
+		WarehouseID:    order.WarehouseID,
+		WarehouseName:  order.WarehouseName,
+		ReceiptDate:    receiptDate,
+		Status:         "posted",
+		Remark:         strings.TrimSpace(input.Remark),
+		CreatedBy:      userID,
+		PayableID:      uuid.NewString(),
+		PayableCode:    payableCode,
+		PayableDueDate: receiptDate.AddDate(0, 0, 30),
+		Lines:          receiptLines,
 	}
 
 	if err := s.orders.Receive(ctx, filter, receipt); err != nil {

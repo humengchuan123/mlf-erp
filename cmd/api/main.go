@@ -11,6 +11,9 @@ import (
 	"time"
 
 	"github.com/joho/godotenv"
+	financeapp "github.com/mlf-erp/mlf-erp/internal/modules/finance/app"
+	financehttp "github.com/mlf-erp/mlf-erp/internal/modules/finance/http"
+	financepostgres "github.com/mlf-erp/mlf-erp/internal/modules/finance/infra/postgres"
 	inventoryapp "github.com/mlf-erp/mlf-erp/internal/modules/inventory/app"
 	inventoryhttp "github.com/mlf-erp/mlf-erp/internal/modules/inventory/http"
 	inventorypostgres "github.com/mlf-erp/mlf-erp/internal/modules/inventory/infra/postgres"
@@ -21,6 +24,9 @@ import (
 	"github.com/mlf-erp/mlf-erp/internal/modules/purchase/app"
 	purchasehttp "github.com/mlf-erp/mlf-erp/internal/modules/purchase/http"
 	purchasepostgres "github.com/mlf-erp/mlf-erp/internal/modules/purchase/infra/postgres"
+	salesapp "github.com/mlf-erp/mlf-erp/internal/modules/sales/app"
+	saleshttp "github.com/mlf-erp/mlf-erp/internal/modules/sales/http"
+	salespostgres "github.com/mlf-erp/mlf-erp/internal/modules/sales/infra/postgres"
 	systemapp "github.com/mlf-erp/mlf-erp/internal/modules/system/app"
 	systemhttp "github.com/mlf-erp/mlf-erp/internal/modules/system/http"
 	systempostgres "github.com/mlf-erp/mlf-erp/internal/modules/system/infra/postgres"
@@ -152,6 +158,23 @@ func main() {
 	inventoryService := inventoryapp.NewQueryService(inventoryRepository)
 	inventoryHandler := inventoryhttp.NewHandler(inventoryService, log)
 	inventoryHandler.Register(protected)
+
+	salesRepository := salespostgres.NewRepository(db)
+	salesOrderService := salesapp.NewOrderService(
+		salesRepository,
+		codeRuleService,
+		partnerRepository,
+		materialRepository,
+		warehouseRepository,
+	)
+	salesShipmentService := salesapp.NewShipmentService(salesRepository, codeRuleService)
+	saleshttp.Register(protected, salesOrderService, salesShipmentService, auditService, log)
+
+	invoiceRepository := financepostgres.NewInvoiceRepository(db)
+	paymentRepository := financepostgres.NewPaymentRepository(db)
+	invoiceService := financeapp.NewInvoiceService(invoiceRepository)
+	paymentService := financeapp.NewPaymentService(paymentRepository, codeRuleService, partnerRepository)
+	financehttp.Register(protected, invoiceService, paymentService, auditService, log)
 
 	server := &http.Server{
 		Addr:              cfg.HTTP.Addr,

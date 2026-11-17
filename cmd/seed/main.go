@@ -65,6 +65,13 @@ var permissions = []struct {
 	{"purchase.receipt.read", "查看采购收货", "purchase", "api"},
 	{"inventory.balance.read", "查看库存余额", "inventory", "api"},
 	{"inventory.transaction.read", "查看库存流水", "inventory", "api"},
+	{"sales.order.read", "查看销售订单", "sales", "api"},
+	{"sales.order.write", "管理销售订单", "sales", "api"},
+	{"sales.order.approve", "审批销售订单", "sales", "api"},
+	{"sales.shipment.read", "查看销售发货", "sales", "api"},
+	{"finance.invoice.read", "查看应收应付", "finance", "api"},
+	{"finance.payment.read", "查看收付款", "finance", "api"},
+	{"finance.payment.write", "管理收付款", "finance", "api"},
 }
 
 var defaultCodeRules = []struct {
@@ -80,6 +87,12 @@ var defaultCodeRules = []struct {
 	{"warehouse", "WH", "yyyyMMdd", "-", 3, "day"},
 	{"purchase_order", "PO", "yyyyMMdd", "-", 4, "day"},
 	{"purchase_receipt", "GRN", "yyyyMMdd", "-", 4, "day"},
+	{"sales_order", "SO", "yyyyMMdd", "-", 4, "day"},
+	{"sales_shipment", "DN", "yyyyMMdd", "-", 4, "day"},
+	{"sales_receivable", "AR", "yyyyMMdd", "-", 4, "day"},
+	{"purchase_payable", "AP", "yyyyMMdd", "-", 4, "day"},
+	{"finance_receipt", "RCPT", "yyyyMMdd", "-", 4, "day"},
+	{"finance_payment", "PAY", "yyyyMMdd", "-", 4, "day"},
 }
 
 func main() {

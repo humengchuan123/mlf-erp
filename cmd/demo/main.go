@@ -2,18 +2,27 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
+	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
+	financeapp "github.com/mlf-erp/mlf-erp/internal/modules/finance/app"
+	financedomain "github.com/mlf-erp/mlf-erp/internal/modules/finance/domain"
+	financepostgres "github.com/mlf-erp/mlf-erp/internal/modules/finance/infra/postgres"
 	masterapp "github.com/mlf-erp/mlf-erp/internal/modules/masterdata/app"
 	masterdomain "github.com/mlf-erp/mlf-erp/internal/modules/masterdata/domain"
 	masterpostgres "github.com/mlf-erp/mlf-erp/internal/modules/masterdata/infra/postgres"
 	purchaseapp "github.com/mlf-erp/mlf-erp/internal/modules/purchase/app"
 	purchasepostgres "github.com/mlf-erp/mlf-erp/internal/modules/purchase/infra/postgres"
+	salesapp "github.com/mlf-erp/mlf-erp/internal/modules/sales/app"
+	salesdomain "github.com/mlf-erp/mlf-erp/internal/modules/sales/domain"
+	salespostgres "github.com/mlf-erp/mlf-erp/internal/modules/sales/infra/postgres"
 	systemapp "github.com/mlf-erp/mlf-erp/internal/modules/system/app"
 	systemdomain "github.com/mlf-erp/mlf-erp/internal/modules/system/domain"
 	systempostgres "github.com/mlf-erp/mlf-erp/internal/modules/system/infra/postgres"
@@ -146,6 +155,12 @@ var demoViewerPermissions = []string{
 	"purchase.read",
 	"inventory.balance.read",
 	"inventory.transaction.read",
+	"sales.order.read",
+	"sales.shipment.read",
+	"sales.read",
+	"finance.invoice.read",
+	"finance.payment.read",
+	"finance.read",
 }
 
 func main() {
@@ -228,6 +243,19 @@ func seedDemo(ctx context.Context, cfg *config.Config, db *pgxpool.Pool, log *sl
 		warehouseRepository,
 	)
 	receiptService := purchaseapp.NewReceiptService(purchaseRepository, codeRuleService)
+
+	salesRepository := salespostgres.NewRepository(db)
+	salesOrderService := salesapp.NewOrderService(
+		salesRepository,
+		codeRuleService,
+		partnerRepository,
+		materialRepository,
+		warehouseRepository,
+	)
+	salesShipmentService := salesapp.NewShipmentService(salesRepository, codeRuleService)
+
+	paymentRepository := financepostgres.NewPaymentRepository(db)
+	paymentService := financeapp.NewPaymentService(paymentRepository, codeRuleService, partnerRepository)
 
 	orgIDs := map[string]string{"HQ": defaultOrgID}
 
@@ -342,6 +370,12 @@ func seedDemo(ctx context.Context, cfg *config.Config, db *pgxpool.Pool, log *sl
 	}
 
 	if err := ensureDemoPurchases(baseCtx, db, tenantID, orderService, receiptService, partnerService, materialService, warehouseService); err != nil {
+		return err
+	}
+	if err := ensureDemoPayablesForLegacyReceipts(baseCtx, db, tenantID); err != nil {
+		return err
+	}
+	if err := ensureDemoSales(baseCtx, db, tenantID, salesOrderService, salesShipmentService, paymentService, partnerService, materialService, warehouseService); err != nil {
 		return err
 	}
 
@@ -572,6 +606,10 @@ func ensureDemoPurchases(
 	if err != nil {
 		return err
 	}
+	material3, err := findMaterialByCode(ctx, materialService, "MAT-DEMO-003")
+	if err != nil {
+		return err
+	}
 
 	if err := ensureDemoOrder(ctx, db, tenantID, orderService, receiptService,
 		"demo-seed-order-1", supplier.ID, warehouse.ID, material1.ID,
@@ -579,9 +617,15 @@ func ensureDemoPurchases(
 	); err != nil {
 		return err
 	}
-	return ensureDemoOrder(ctx, db, tenantID, orderService, receiptService,
+	if err := ensureDemoOrder(ctx, db, tenantID, orderService, receiptService,
 		"demo-seed-order-2", supplier.ID, warehouse.ID, material2.ID,
 		"5", "50.00", "5",
+	); err != nil {
+		return err
+	}
+	return ensureDemoOrder(ctx, db, tenantID, orderService, receiptService,
+		"demo-seed-order-3", supplier.ID, warehouse.ID, material3.ID,
+		"2", "100.00", "2",
 	)
 }
 
@@ -633,6 +677,292 @@ func ensureDemoOrder(
 		}},
 	}); err != nil {
 		return err
+	}
+	return nil
+}
+
+func ensureDemoSales(
+	ctx context.Context,
+	db *pgxpool.Pool,
+	tenantID string,
+	orderService *salesapp.OrderService,
+	shipmentService *salesapp.ShipmentService,
+	paymentService *financeapp.PaymentService,
+	partnerService *masterapp.PartnerService,
+	materialService *masterapp.MaterialService,
+	warehouseService *masterapp.WarehouseService,
+) error {
+	customer1, err := findPartnerByCode(ctx, partnerService, "CUS-DEMO-001")
+	if err != nil {
+		return err
+	}
+	customer2, err := findPartnerByCode(ctx, partnerService, "CUS-DEMO-002")
+	if err != nil {
+		return err
+	}
+	warehouse, err := findWarehouseByCode(ctx, warehouseService, "WH-SH")
+	if err != nil {
+		return err
+	}
+	material1, err := findMaterialByCode(ctx, materialService, "MAT-DEMO-001")
+	if err != nil {
+		return err
+	}
+	material2, err := findMaterialByCode(ctx, materialService, "MAT-DEMO-002")
+	if err != nil {
+		return err
+	}
+
+	invoice1, err := ensureDemoSalesOrder(ctx, db, tenantID, orderService, shipmentService,
+		"demo-seed-sales-1", customer1.ID, warehouse.ID, material1.ID, "2", "150.00", "2",
+	)
+	if err != nil {
+		return err
+	}
+	if _, err := ensureDemoSalesOrder(ctx, db, tenantID, orderService, shipmentService,
+		"demo-seed-sales-2", customer2.ID, warehouse.ID, material2.ID, "3", "80.00", "1",
+	); err != nil {
+		return err
+	}
+	if invoice1 != "" {
+		if err := ensureDemoPaymentAllocation(ctx, db, tenantID, paymentService,
+			customer1.ID, "receipt", invoice1, "300.00", "demo-ar-payment-1",
+		); err != nil {
+			return err
+		}
+	}
+
+	supplier, err := findPartnerByCode(ctx, partnerService, "SUP-DEMO-001")
+	if err != nil {
+		return err
+	}
+	var payableID string
+	if err := db.QueryRow(ctx, `
+		SELECT i.id::text
+		FROM erp.finance_invoices i
+		JOIN erp.purchase_receipts r
+		  ON r.tenant_id = i.tenant_id AND r.id = i.source_id
+		JOIN erp.purchase_orders o
+		  ON o.tenant_id = r.tenant_id AND o.id = r.order_id
+		WHERE i.tenant_id = $1 AND i.invoice_type = 'payable'
+		  AND i.source_type = 'purchase_receipt' AND o.remark = 'demo-seed-order-3'
+		LIMIT 1`, tenantID).Scan(&payableID); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return fmt.Errorf("load demo payable: %w", err)
+	}
+	if payableID != "" {
+		return ensureDemoPaymentAllocation(ctx, db, tenantID, paymentService,
+			supplier.ID, "payment", payableID, "200.00", "demo-ap-payment-1",
+		)
+	}
+	return nil
+}
+
+func ensureDemoSalesOrder(
+	ctx context.Context,
+	db *pgxpool.Pool,
+	tenantID string,
+	orderService *salesapp.OrderService,
+	shipmentService *salesapp.ShipmentService,
+	remark, customerID, warehouseID, materialID, quantity, unitPrice, shipQuantity string,
+) (string, error) {
+	var orderID, shipmentID, invoiceID string
+	err := db.QueryRow(ctx, `
+		SELECT o.id::text,
+		       COALESCE(s.id::text, ''),
+		       COALESCE(i.id::text, '')
+		FROM erp.sales_orders o
+		LEFT JOIN erp.sales_shipments s
+		  ON s.tenant_id = o.tenant_id AND s.order_id = o.id
+		LEFT JOIN erp.finance_invoices i
+		  ON i.tenant_id = s.tenant_id AND i.source_type = 'sales_shipment'
+		 AND i.source_id = s.id AND i.invoice_type = 'receivable'
+		WHERE o.tenant_id = $1 AND o.remark = $2
+		ORDER BY s.created_at
+		LIMIT 1`, tenantID, remark).Scan(&orderID, &shipmentID, &invoiceID)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return "", fmt.Errorf("check demo sales order: %w", err)
+	}
+	if shipmentID != "" {
+		return invoiceID, nil
+	}
+
+	if orderID == "" {
+		created, createErr := orderService.Create(ctx, salesapp.OrderInput{
+			CustomerID:  customerID,
+			WarehouseID: warehouseID,
+			OrderDate:   time.Now(),
+			Currency:    "CNY",
+			Remark:      remark,
+			Lines: []salesapp.OrderLineInput{{
+				MaterialID: materialID,
+				Quantity:   decimal.RequireFromString(quantity),
+				UnitPrice:  decimal.RequireFromString(unitPrice),
+			}},
+		})
+		if createErr != nil {
+			return "", createErr
+		}
+		orderID = created.ID
+	}
+
+	order, err := orderService.Get(ctx, orderID)
+	if err != nil {
+		return "", err
+	}
+	switch order.Status {
+	case salesdomain.StatusDraft:
+		if err := orderService.Submit(ctx, order.ID); err != nil {
+			return "", err
+		}
+		if err := orderService.Approve(ctx, order.ID); err != nil {
+			return "", err
+		}
+	case salesdomain.StatusSubmitted:
+		if err := orderService.Approve(ctx, order.ID); err != nil {
+			return "", err
+		}
+	case salesdomain.StatusApproved, salesdomain.StatusPartiallyShipped:
+	default:
+		return "", fmt.Errorf("unexpected demo sales order status %s", order.Status)
+	}
+
+	shipment, err := shipmentService.Ship(ctx, order.ID, salesapp.ShipInput{
+		ShipmentDate: time.Now(),
+		Remark:       remark + "-shipment",
+		Lines: []salesapp.ShipLineInput{{
+			OrderLineID: order.Lines[0].ID,
+			Quantity:    decimal.RequireFromString(shipQuantity),
+		}},
+	})
+	if err != nil {
+		return "", err
+	}
+	return shipment.InvoiceID, nil
+}
+
+func ensureDemoPaymentAllocation(
+	ctx context.Context,
+	db *pgxpool.Pool,
+	tenantID string,
+	paymentService *financeapp.PaymentService,
+	partnerID, paymentType, invoiceID, amount, reference string,
+) error {
+	var paymentID, status, allocatedRaw string
+	err := db.QueryRow(ctx, `
+		SELECT id::text, status, allocated_amount::text
+		FROM erp.finance_payments
+		WHERE tenant_id = $1 AND reference = $2`, tenantID, reference).Scan(&paymentID, &status, &allocatedRaw)
+	if errors.Is(err, pgx.ErrNoRows) {
+		payment, createErr := paymentService.Create(ctx, financeapp.PaymentInput{
+			PaymentType: paymentType,
+			PartnerID:   partnerID,
+			PaymentDate: time.Now(),
+			Currency:    "CNY",
+			Amount:      decimal.RequireFromString(amount),
+			Method:      "bank",
+			Reference:   reference,
+			Remark:      reference,
+		})
+		if createErr != nil {
+			return createErr
+		}
+		paymentID = payment.ID
+		allocatedRaw = "0"
+	} else if err != nil {
+		return fmt.Errorf("check demo payment: %w", err)
+	} else if status == financedomain.PaymentStatusAllocated {
+		return nil
+	}
+
+	var allocationCount int
+	if err := db.QueryRow(ctx, `
+		SELECT count(*) FROM erp.finance_payment_allocations
+		WHERE tenant_id = $1 AND payment_id = $2 AND invoice_id = $3`,
+		tenantID, paymentID, invoiceID).Scan(&allocationCount); err != nil {
+		return fmt.Errorf("check demo payment allocation: %w", err)
+	}
+	if allocationCount > 0 {
+		return nil
+	}
+
+	var outstandingRaw string
+	if err := db.QueryRow(ctx, `
+		SELECT (total_amount - paid_amount)::text
+		FROM erp.finance_invoices
+		WHERE tenant_id = $1 AND id = $2`, tenantID, invoiceID).Scan(&outstandingRaw); err != nil {
+		return fmt.Errorf("load demo invoice outstanding: %w", err)
+	}
+	outstanding := decimal.RequireFromString(outstandingRaw)
+	if !outstanding.IsPositive() {
+		return nil
+	}
+	allocated := decimal.RequireFromString(allocatedRaw)
+	unallocated := decimal.RequireFromString(amount).Sub(allocated)
+	if !unallocated.IsPositive() {
+		return nil
+	}
+	allocateAmount := decimal.Min(unallocated, outstanding)
+	_, err = paymentService.Allocate(ctx, paymentID, financeapp.AllocateInput{
+		Allocations: []financedomain.AllocationInput{{InvoiceID: invoiceID, Amount: allocateAmount}},
+	})
+	return err
+}
+
+func ensureDemoPayablesForLegacyReceipts(ctx context.Context, db *pgxpool.Pool, tenantID string) error {
+	rows, err := db.Query(ctx, `
+		SELECT r.id::text, r.org_id::text, r.code, r.receipt_date, r.created_by::text,
+		       o.supplier_id::text, o.currency, SUM(rl.amount)::text
+		FROM erp.purchase_receipts r
+		JOIN erp.purchase_orders o ON o.tenant_id = r.tenant_id AND o.id = r.order_id
+		JOIN erp.purchase_receipt_lines rl ON rl.tenant_id = r.tenant_id AND rl.receipt_id = r.id
+		WHERE r.tenant_id = $1
+		  AND NOT EXISTS (
+		      SELECT 1 FROM erp.finance_invoices i
+		      WHERE i.tenant_id = r.tenant_id AND i.invoice_type = 'payable'
+		        AND i.source_type = 'purchase_receipt' AND i.source_id = r.id
+		  )
+		GROUP BY r.id, r.org_id, r.code, r.receipt_date, r.created_by, o.supplier_id, o.currency
+		ORDER BY r.receipt_date, r.created_at`, tenantID)
+	if err != nil {
+		return fmt.Errorf("list legacy receipts without payable: %w", err)
+	}
+	defer rows.Close()
+
+	type legacyReceipt struct {
+		id, orgID, code, createdBy, supplierID, currency, total string
+		receiptDate                                             time.Time
+	}
+	receipts := make([]legacyReceipt, 0)
+	for rows.Next() {
+		var item legacyReceipt
+		if err := rows.Scan(
+			&item.id, &item.orgID, &item.code, &item.receiptDate, &item.createdBy,
+			&item.supplierID, &item.currency, &item.total,
+		); err != nil {
+			return fmt.Errorf("scan legacy receipt: %w", err)
+		}
+		receipts = append(receipts, item)
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+
+	for _, item := range receipts {
+		code := "AP-DEMO-" + strings.TrimPrefix(item.code, "GRN-")
+		if _, err := db.Exec(ctx, `
+			INSERT INTO erp.finance_invoices (
+				id, tenant_id, org_id, code, invoice_type, source_type, source_id, source_code,
+				partner_id, invoice_date, due_date, currency, status, total_amount, paid_amount,
+				remark, created_by, updated_by
+			) VALUES (gen_random_uuid(), $1, $2, $3, 'payable', 'purchase_receipt', $4, $5,
+			          $6, $7, $8, $9, 'open', $10, 0, 'demo legacy payable', $11, $11)
+			ON CONFLICT DO NOTHING`,
+			tenantID, item.orgID, code, item.id, item.code, item.supplierID,
+			item.receiptDate, item.receiptDate.AddDate(0, 0, 30), item.currency,
+			item.total, item.createdBy,
+		); err != nil {
+			return fmt.Errorf("insert legacy payable: %w", err)
+		}
 	}
 	return nil
 }

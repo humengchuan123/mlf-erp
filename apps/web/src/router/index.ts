@@ -34,12 +34,14 @@ const routes: RouteRecordRaw[] = [
       {
         path: 'sales/orders',
         name: 'sales-orders',
-        component: () => import('@/views/PlaceholderView.vue'),
-        meta: {
-          title: '销售订单',
-          description: '销售模块骨架，待接入报价、订单、发货与收款。',
-          permission: 'sales.read'
-        }
+        component: () => import('@/views/sales/OrderListView.vue'),
+        meta: { title: '销售订单', permission: 'sales.order.read' }
+      },
+      {
+        path: 'sales/shipments',
+        name: 'sales-shipments',
+        component: () => import('@/views/sales/ShipmentListView.vue'),
+        meta: { title: '发货单', permission: 'sales.shipment.read' }
       },
       {
         path: 'inventory/balances',
@@ -52,6 +54,18 @@ const routes: RouteRecordRaw[] = [
         name: 'inventory-transactions',
         component: () => import('@/views/inventory/TransactionListView.vue'),
         meta: { title: '库存流水', permission: 'inventory.transaction.read' }
+      },
+      {
+        path: 'finance/invoices',
+        name: 'finance-invoices',
+        component: () => import('@/views/finance/InvoiceListView.vue'),
+        meta: { title: '应收应付', permission: 'finance.invoice.read' }
+      },
+      {
+        path: 'finance/payments',
+        name: 'finance-payments',
+        component: () => import('@/views/finance/PaymentListView.vue'),
+        meta: { title: '收付款', permission: 'finance.payment.read' }
       },
       {
         path: 'finance/gl',
