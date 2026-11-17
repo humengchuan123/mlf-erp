@@ -2,6 +2,7 @@ package glhttp
 
 import (
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -19,12 +20,13 @@ import (
 )
 
 type Handler struct {
-	accounts *app.AccountService
-	periods  *app.PeriodService
-	vouchers *app.VoucherService
-	reports  *app.ReportService
-	audit    *systemapp.AuditService
-	log      *slog.Logger
+	accounts   *app.AccountService
+	periods    *app.PeriodService
+	vouchers   *app.VoucherService
+	reports    *app.ReportService
+	dimensions *app.DimensionService
+	audit      *systemapp.AuditService
+	log        *slog.Logger
 }
 
 func Register(
@@ -33,18 +35,21 @@ func Register(
 	periods *app.PeriodService,
 	vouchers *app.VoucherService,
 	reports *app.ReportService,
+	dimensions *app.DimensionService,
 	audit *systemapp.AuditService,
 	log *slog.Logger,
 ) {
-	handler := &Handler{accounts: accounts, periods: periods, vouchers: vouchers, reports: reports, audit: audit, log: log}
+	handler := &Handler{accounts: accounts, periods: periods, vouchers: vouchers, reports: reports, dimensions: dimensions, audit: audit, log: log}
 	finance := group.Group("/finance")
 	finance.GET("/accounts", authmw.RequirePermission("finance.account.read"), handler.listAccounts)
 	finance.POST("/accounts", authmw.RequirePermission("finance.account.write"), handler.createAccount)
 	finance.PUT("/accounts/:id", authmw.RequirePermission("finance.account.write"), handler.updateAccount)
 
 	finance.GET("/periods", authmw.RequirePermission("finance.period.read"), handler.listPeriods)
+	finance.POST("/periods/ensure", authmw.RequirePermission("finance.period.close"), handler.ensureYear)
 	finance.POST("/periods/:id/close", authmw.RequirePermission("finance.period.close"), handler.closePeriod)
 	finance.POST("/periods/:id/reopen", authmw.RequirePermission("finance.period.close"), handler.reopenPeriod)
+	finance.POST("/years/:year/close", authmw.RequirePermission("finance.period.close"), handler.closeYear)
 
 	finance.GET("/vouchers", authmw.RequirePermission("finance.voucher.read"), handler.listVouchers)
 	finance.POST("/vouchers", authmw.RequirePermission("finance.voucher.write"), handler.createVoucher)
@@ -53,10 +58,12 @@ func Register(
 	finance.POST("/vouchers/:id/post", authmw.RequirePermission("finance.voucher.post"), handler.postVoucher)
 	finance.POST("/vouchers/:id/reverse", authmw.RequirePermission("finance.voucher.reverse"), handler.reverseVoucher)
 
+	finance.GET("/dimensions", authmw.RequirePermission("finance.voucher.read"), handler.listDimensions)
 	finance.GET("/reports/trial-balance", authmw.RequirePermission("finance.report.read"), handler.trialBalance)
 	finance.GET("/reports/general-ledger", authmw.RequirePermission("finance.report.read"), handler.generalLedger)
 	finance.GET("/reports/balance-sheet", authmw.RequirePermission("finance.report.read"), handler.balanceSheet)
 	finance.GET("/reports/income-statement", authmw.RequirePermission("finance.report.read"), handler.incomeStatement)
+	finance.GET("/reports/auxiliary-balance", authmw.RequirePermission("finance.report.read"), handler.auxiliaryBalance)
 }
 
 type accountRequest struct {
@@ -82,6 +89,10 @@ type accountResponse struct {
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
+type yearRequest struct {
+	Year int `json:"year"`
+}
+
 type periodResponse struct {
 	ID        string     `json:"id"`
 	Year      int        `json:"year"`
@@ -100,6 +111,7 @@ type voucherLineRequest struct {
 	Credit       string `json:"credit"`
 	PartnerID    string `json:"partner_id"`
 	DepartmentID string `json:"department_id"`
+	ProjectCode  string `json:"project_code"`
 }
 
 type voucherRequest struct {
@@ -119,6 +131,7 @@ type voucherLineResponse struct {
 	Credit       string `json:"credit"`
 	PartnerID    string `json:"partner_id"`
 	DepartmentID string `json:"department_id"`
+	ProjectCode  string `json:"project_code"`
 }
 
 type voucherResponse struct {
@@ -145,6 +158,17 @@ type voucherResponse struct {
 type pagedResponse[T any] struct {
 	Items []T `json:"items"`
 	Total int `json:"total"`
+}
+
+type dimensionResponse struct {
+	ID   string `json:"id"`
+	Code string `json:"code"`
+	Name string `json:"name"`
+}
+
+type dimensionListResponse struct {
+	Partners    []dimensionResponse `json:"partners"`
+	Departments []dimensionResponse `json:"departments"`
 }
 
 type trialBalanceRowResponse struct {
@@ -202,6 +226,28 @@ type balanceSheetResponse struct {
 	TotalEquity               string               `json:"total_equity"`
 	CurrentProfit             string               `json:"current_profit"`
 	TotalLiabilitiesAndEquity string               `json:"total_liabilities_and_equity"`
+}
+
+type auxiliaryBalanceRowResponse struct {
+	AccountID     string `json:"account_id"`
+	AccountCode   string `json:"account_code"`
+	AccountName   string `json:"account_name"`
+	DimensionID   string `json:"dimension_id"`
+	DimensionCode string `json:"dimension_code"`
+	DimensionName string `json:"dimension_name"`
+	Opening       string `json:"opening"`
+	PeriodDebit   string `json:"period_debit"`
+	PeriodCredit  string `json:"period_credit"`
+	Closing       string `json:"closing"`
+}
+
+type auxiliaryBalanceResponse struct {
+	Dimension   string                        `json:"dimension"`
+	StartDate   string                        `json:"start_date"`
+	EndDate     string                        `json:"end_date"`
+	Rows        []auxiliaryBalanceRowResponse `json:"rows"`
+	TotalDebit  string                        `json:"total_debit"`
+	TotalCredit string                        `json:"total_credit"`
 }
 
 type incomeStatementResponse struct {
@@ -277,6 +323,34 @@ func (h *Handler) listPeriods(c *gin.Context) {
 		responses = append(responses, toPeriodResponse(item))
 	}
 	httpx.OK(c, responses)
+}
+
+func (h *Handler) ensureYear(c *gin.Context) {
+	var request yearRequest
+	if err := c.ShouldBindJSON(&request); err != nil || request.Year < 2000 || request.Year > 2200 {
+		httpx.Error(c, http.StatusBadRequest, httpx.CodeBadRequest, "invalid year")
+		return
+	}
+	if err := h.periods.EnsureYear(c.Request.Context(), request.Year); err != nil {
+		h.handleError(c, err)
+		return
+	}
+	h.recordAudit(c, "finance.period.ensure_year", "gl_period", fmt.Sprintf("%d", request.Year), nil)
+	httpx.OK(c, gin.H{"year": request.Year, "status": "ensured"})
+}
+
+func (h *Handler) closeYear(c *gin.Context) {
+	year, err := strconv.Atoi(c.Param("year"))
+	if err != nil || year < 2000 || year > 2200 {
+		httpx.Error(c, http.StatusBadRequest, httpx.CodeBadRequest, "invalid year")
+		return
+	}
+	if err := h.periods.CloseYear(c.Request.Context(), year); err != nil {
+		h.handleError(c, err)
+		return
+	}
+	h.recordAudit(c, "finance.year.close", "gl_year_close", strconv.Itoa(year), nil)
+	httpx.OK(c, gin.H{"year": year, "status": "closed"})
 }
 
 func (h *Handler) closePeriod(c *gin.Context) {
@@ -386,6 +460,25 @@ func (h *Handler) reverseVoucher(c *gin.Context) {
 	httpx.Created(c, response)
 }
 
+func (h *Handler) listDimensions(c *gin.Context) {
+	dimensions, err := h.dimensions.List(c.Request.Context())
+	if err != nil {
+		h.handleError(c, err)
+		return
+	}
+	toResponse := func(items []*domain.Dimension) []dimensionResponse {
+		result := make([]dimensionResponse, 0, len(items))
+		for _, item := range items {
+			result = append(result, dimensionResponse{ID: item.ID, Code: item.Code, Name: item.Name})
+		}
+		return result
+	}
+	httpx.OK(c, dimensionListResponse{
+		Partners:    toResponse(dimensions.Partners),
+		Departments: toResponse(dimensions.Departments),
+	})
+}
+
 func (h *Handler) trialBalance(c *gin.Context) {
 	startDate, endDate, err := parseRange(c)
 	if err != nil {
@@ -459,6 +552,40 @@ func (h *Handler) balanceSheet(c *gin.Context) {
 	})
 }
 
+func (h *Handler) auxiliaryBalance(c *gin.Context) {
+	dimension := c.Query("dimension")
+	switch dimension {
+	case "partner", "department", "project":
+	default:
+		httpx.Error(c, http.StatusBadRequest, httpx.CodeBadRequest, "invalid dimension")
+		return
+	}
+	startDate, endDate, err := parseRange(c)
+	if err != nil {
+		httpx.Error(c, http.StatusBadRequest, httpx.CodeBadRequest, "invalid date range")
+		return
+	}
+	report, err := h.reports.AuxiliaryBalance(c.Request.Context(), dimension, c.Query("account_id"), startDate, endDate)
+	if err != nil {
+		h.handleError(c, err)
+		return
+	}
+	rows := make([]auxiliaryBalanceRowResponse, 0, len(report.Rows))
+	for _, row := range report.Rows {
+		rows = append(rows, auxiliaryBalanceRowResponse{
+			AccountID: row.AccountID, AccountCode: row.AccountCode, AccountName: row.AccountName,
+			DimensionID: row.DimensionID, DimensionCode: row.DimensionCode, DimensionName: row.DimensionName,
+			Opening: row.Opening.StringFixed(4), PeriodDebit: row.PeriodDebit.StringFixed(4),
+			PeriodCredit: row.PeriodCredit.StringFixed(4), Closing: row.Closing.StringFixed(4),
+		})
+	}
+	httpx.OK(c, auxiliaryBalanceResponse{
+		Dimension: report.Dimension,
+		StartDate: report.StartDate.Format("2006-01-02"), EndDate: report.EndDate.Format("2006-01-02"),
+		Rows: rows, TotalDebit: report.TotalDebit.StringFixed(4), TotalCredit: report.TotalCredit.StringFixed(4),
+	})
+}
+
 func (h *Handler) incomeStatement(c *gin.Context) {
 	startDate, endDate, err := parseRange(c)
 	if err != nil {
@@ -507,7 +634,7 @@ func parseVoucherInput(c *gin.Context) (app.VoucherInput, error) {
 		}
 		lines = append(lines, app.VoucherLineInput{
 			AccountID: line.AccountID, Summary: line.Summary, Debit: debit, Credit: credit,
-			PartnerID: line.PartnerID, DepartmentID: line.DepartmentID,
+			PartnerID: line.PartnerID, DepartmentID: line.DepartmentID, ProjectCode: line.ProjectCode,
 		})
 	}
 	return app.VoucherInput{VoucherDate: date, Memo: request.Memo, Lines: lines}, nil
@@ -561,6 +688,10 @@ func (h *Handler) handleError(c *gin.Context, err error) {
 		httpx.Error(c, http.StatusBadRequest, "ACCOUNT_DISABLED", "account is disabled")
 	case errors.Is(err, domain.ErrPeriodClosed):
 		httpx.Error(c, http.StatusConflict, "PERIOD_CLOSED", "accounting period is closed")
+	case errors.Is(err, domain.ErrYearNotClosed):
+		httpx.Error(c, http.StatusConflict, "YEAR_NOT_CLOSED", "all periods in the year must be closed")
+	case errors.Is(err, domain.ErrYearClosed):
+		httpx.Error(c, http.StatusConflict, "YEAR_CLOSED", "year is already closed")
 	case errors.Is(err, domain.ErrInvalidStatus):
 		httpx.Error(c, http.StatusConflict, "INVALID_STATUS", "voucher status does not allow this operation")
 	case errors.Is(err, domain.ErrConflict):
@@ -598,7 +729,7 @@ func toVoucherResponse(item *domain.Voucher) voucherResponse {
 			ID: line.ID, LineNo: line.LineNo, AccountID: line.AccountID,
 			AccountCode: line.AccountCode, AccountName: line.AccountName, Summary: line.Summary,
 			Debit: line.Debit.StringFixed(4), Credit: line.Credit.StringFixed(4),
-			PartnerID: line.PartnerID, DepartmentID: line.DepartmentID,
+			PartnerID: line.PartnerID, DepartmentID: line.DepartmentID, ProjectCode: line.ProjectCode,
 		})
 	}
 	return voucherResponse{

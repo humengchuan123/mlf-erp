@@ -72,3 +72,25 @@ type IncomeStatement struct {
 	TotalExpenses decimal.Decimal
 	NetProfit     decimal.Decimal
 }
+
+type AuxiliaryBalanceRow struct {
+	AccountID     string
+	AccountCode   string
+	AccountName   string
+	DimensionID   string
+	DimensionCode string
+	DimensionName string
+	Opening       decimal.Decimal
+	PeriodDebit   decimal.Decimal
+	PeriodCredit  decimal.Decimal
+	Closing       decimal.Decimal
+}
+
+type AuxiliaryBalance struct {
+	Dimension   string
+	StartDate   time.Time
+	EndDate     time.Time
+	Rows        []*AuxiliaryBalanceRow
+	TotalDebit  decimal.Decimal
+	TotalCredit decimal.Decimal
+}

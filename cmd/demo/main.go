@@ -15,6 +15,7 @@ import (
 	financeapp "github.com/mlf-erp/mlf-erp/internal/modules/finance/app"
 	financedomain "github.com/mlf-erp/mlf-erp/internal/modules/finance/domain"
 	financepostgres "github.com/mlf-erp/mlf-erp/internal/modules/finance/infra/postgres"
+	glapp "github.com/mlf-erp/mlf-erp/internal/modules/gl/app"
 	glpostgres "github.com/mlf-erp/mlf-erp/internal/modules/gl/infra/postgres"
 	masterapp "github.com/mlf-erp/mlf-erp/internal/modules/masterdata/app"
 	masterdomain "github.com/mlf-erp/mlf-erp/internal/modules/masterdata/domain"
@@ -261,6 +262,8 @@ func seedDemo(ctx context.Context, cfg *config.Config, db *pgxpool.Pool, log *sl
 
 	paymentRepository := financepostgres.NewPaymentRepository(db)
 	paymentService := financeapp.NewPaymentService(paymentRepository, codeRuleService, partnerRepository)
+	glVoucherRepository := glpostgres.NewVoucherRepository(db)
+	glVoucherService := glapp.NewVoucherService(glVoucherRepository, codeRuleService)
 
 	orgIDs := map[string]string{"HQ": defaultOrgID}
 
@@ -389,6 +392,9 @@ func seedDemo(ctx context.Context, cfg *config.Config, db *pgxpool.Pool, log *sl
 	}
 	log.Info("demo GL backfill", "sales_shipments", glResult.SalesShipments,
 		"purchase_receipts", glResult.PurchaseReceipts, "payments", glResult.Payments)
+	if err := ensureDemoAuxiliaryVoucher(baseCtx, db, tenantID, glVoucherService, partnerService); err != nil {
+		return err
+	}
 
 	log.Info("demo data ready",
 		"units", len(demoUnits),
@@ -977,6 +983,66 @@ func ensureDemoPayablesForLegacyReceipts(ctx context.Context, db *pgxpool.Pool, 
 		}
 	}
 	return nil
+}
+
+func ensureDemoAuxiliaryVoucher(
+	ctx context.Context,
+	db *pgxpool.Pool,
+	tenantID string,
+	voucherService *glapp.VoucherService,
+	partnerService *masterapp.PartnerService,
+) error {
+	var count int
+	if err := db.QueryRow(ctx, `
+		SELECT count(*) FROM erp.gl_vouchers
+		WHERE tenant_id = $1 AND voucher_type = 'manual' AND memo = 'demo-aux-voucher'`,
+		tenantID).Scan(&count); err != nil {
+		return fmt.Errorf("check demo auxiliary voucher: %w", err)
+	}
+	if count > 0 {
+		return nil
+	}
+
+	var expenseID, cashID, departmentID string
+	if err := db.QueryRow(ctx, `SELECT id::text FROM erp.gl_accounts WHERE tenant_id = $1 AND code = '6602'`, tenantID).Scan(&expenseID); err != nil {
+		return fmt.Errorf("load demo expense account: %w", err)
+	}
+	if err := db.QueryRow(ctx, `SELECT id::text FROM erp.gl_accounts WHERE tenant_id = $1 AND code = '1001'`, tenantID).Scan(&cashID); err != nil {
+		return fmt.Errorf("load demo cash account: %w", err)
+	}
+	if err := db.QueryRow(ctx, `SELECT id::text FROM erp.organizations WHERE tenant_id = $1 AND code = 'DEPT-EAST'`, tenantID).Scan(&departmentID); err != nil {
+		return fmt.Errorf("load demo department: %w", err)
+	}
+	partner, err := findPartnerByCode(ctx, partnerService, "CUS-DEMO-001")
+	if err != nil {
+		return err
+	}
+
+	voucher, err := voucherService.Create(ctx, glapp.VoucherInput{
+		VoucherDate: time.Now(),
+		Memo:        "demo-aux-voucher",
+		Lines: []glapp.VoucherLineInput{
+			{
+				AccountID:    expenseID,
+				Summary:      "演示管理费用",
+				Debit:        decimal.RequireFromString("100"),
+				Credit:       decimal.Zero,
+				PartnerID:    partner.ID,
+				DepartmentID: departmentID,
+				ProjectCode:  "DEMO-P1",
+			},
+			{
+				AccountID: cashID,
+				Summary:   "演示现金支出",
+				Debit:     decimal.Zero,
+				Credit:    decimal.RequireFromString("100"),
+			},
+		},
+	})
+	if err != nil {
+		return err
+	}
+	return voucherService.Post(ctx, voucher.ID)
 }
 
 func findPartnerByCode(ctx context.Context, service *masterapp.PartnerService, code string) (*masterdomain.Partner, error) {

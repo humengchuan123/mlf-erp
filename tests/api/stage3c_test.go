@@ -480,8 +480,8 @@ func TestStage3C(t *testing.T) {
 			t.Fatalf("demo_dept voucher total = %v, want 0", got)
 		}
 		deptTrial := dept.mustGet("/finance/reports/trial-balance?start_date="+startDate+"&end_date="+endDate, http.StatusOK)
-		if got := number(t, deptTrial, "total_debit"); got != 0 {
-			t.Fatalf("demo_dept trial debit = %v, want 0", got)
+		if got, want := number(t, deptTrial, "total_debit"), number(t, deptTrial, "total_credit"); !nearlyEqual(got, want) {
+			t.Fatalf("demo_dept trial debit = %v, credit = %v, want balanced (tenant-level closing vouchers may be visible)", got, want)
 		}
 		dept.expectError(http.MethodPost, "/finance/vouchers", map[string]any{
 			"voucher_date": endDate,

@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -32,7 +33,7 @@ func (r *ReportRepository) TrialBalance(
 
 	args := []any{tenantID, startDate.Format("2006-01-02"), endDate.Format("2006-01-02")}
 	where := "l.tenant_id = $1 AND v.status IN ('posted', 'reversed')"
-	appendScope(&where, &args, "v", filter)
+	appendReportScope(&where, &args, filter)
 
 	query := fmt.Sprintf(`
 		SELECT l.account_id::text,
@@ -122,7 +123,7 @@ func (r *ReportRepository) GeneralLedger(
 
 	args := []any{tenantID, accountID, startDate.Format("2006-01-02"), endDate.Format("2006-01-02")}
 	where := "l.tenant_id = $1 AND l.account_id = $2 AND v.status IN ('posted', 'reversed') AND v.voucher_date BETWEEN $3::date AND $4::date"
-	appendScope(&where, &args, "v", filter)
+	appendReportScope(&where, &args, filter)
 
 	rows, err := r.db.Query(ctx, `
 		SELECT v.id::text, v.code, v.voucher_date, l.summary, l.debit::text, l.credit::text
@@ -171,7 +172,7 @@ func (r *ReportRepository) BalanceSheet(
 ) (*domain.BalanceSheet, error) {
 	args := []any{tenantID, asOf.Format("2006-01-02")}
 	where := "l.tenant_id = $1 AND v.status IN ('posted', 'reversed') AND v.voucher_date <= $2::date"
-	appendScope(&where, &args, "v", filter)
+	appendReportScope(&where, &args, filter)
 
 	rows, err := r.db.Query(ctx, `
 		SELECT a.code, a.name, a.type, COALESCE(SUM(l.debit - l.credit), 0)::text
@@ -236,6 +237,111 @@ func (r *ReportRepository) BalanceSheet(
 	return result, nil
 }
 
+func appendReportScope(where *string, args *[]any, filter scope.Filter) {
+	if filter.DataScope == "all" {
+		return
+	}
+	before := *where
+	appendScope(where, args, "v", filter)
+	scopePart := strings.TrimPrefix(*where, before)
+	scopePart = strings.TrimPrefix(scopePart, " AND ")
+	*where = before + " AND (v.voucher_type IN ('period_close', 'period_close_reversal', 'year_close') OR (" + scopePart + "))"
+}
+
+func (r *ReportRepository) AuxiliaryBalance(
+	ctx context.Context,
+	filter scope.Filter,
+	tenantID, dimension, accountID string,
+	startDate, endDate time.Time,
+) (*domain.AuxiliaryBalance, error) {
+	var dimensionID, dimensionCode, dimensionName, dimensionJoin, dimensionFilter string
+	switch dimension {
+	case "partner":
+		dimensionID = "COALESCE(l.partner_id::text, '')"
+		dimensionCode = "COALESCE(p.code, '')"
+		dimensionName = "COALESCE(p.name, '')"
+		dimensionJoin = "LEFT JOIN erp.partners p ON p.tenant_id = l.tenant_id AND p.id = l.partner_id"
+		dimensionFilter = "l.partner_id IS NOT NULL"
+	case "department":
+		dimensionID = "COALESCE(l.department_id::text, '')"
+		dimensionCode = "COALESCE(o.code, '')"
+		dimensionName = "COALESCE(o.name, '')"
+		dimensionJoin = "LEFT JOIN erp.organizations o ON o.tenant_id = l.tenant_id AND o.id = l.department_id"
+		dimensionFilter = "l.department_id IS NOT NULL"
+	case "project":
+		dimensionID = "l.project_code"
+		dimensionCode = "l.project_code"
+		dimensionName = "l.project_code"
+		dimensionJoin = ""
+		dimensionFilter = "l.project_code <> ''"
+	default:
+		return nil, domain.ErrInvalidInput
+	}
+
+	args := []any{tenantID}
+	where := "l.tenant_id = $1 AND v.status IN ('posted', 'reversed') AND v.voucher_type NOT IN ('period_close', 'period_close_reversal', 'year_close')"
+	if accountID != "" {
+		args = append(args, accountID)
+		where += fmt.Sprintf(" AND l.account_id = $%d", len(args))
+	}
+	args = append(args, startDate.Format("2006-01-02"))
+	startIndex := len(args)
+	args = append(args, endDate.Format("2006-01-02"))
+	endIndex := len(args)
+	where += fmt.Sprintf(" AND %s", dimensionFilter)
+	appendReportScope(&where, &args, filter)
+
+	query := fmt.Sprintf(`
+		SELECT l.account_id::text, a.code, a.name,
+		       %s, %s, %s,
+		       COALESCE(SUM(CASE WHEN v.voucher_date < $%d::date THEN l.debit - l.credit ELSE 0 END), 0)::text,
+		       COALESCE(SUM(CASE WHEN v.voucher_date BETWEEN $%d::date AND $%d::date THEN l.debit ELSE 0 END), 0)::text,
+		       COALESCE(SUM(CASE WHEN v.voucher_date BETWEEN $%d::date AND $%d::date THEN l.credit ELSE 0 END), 0)::text
+		FROM erp.gl_voucher_lines l
+		JOIN erp.gl_vouchers v ON v.tenant_id = l.tenant_id AND v.id = l.voucher_id
+		JOIN erp.gl_accounts a ON a.tenant_id = l.tenant_id AND a.id = l.account_id
+		%s
+		WHERE %s
+		GROUP BY l.account_id, a.code, a.name, %s, %s, %s
+		ORDER BY a.code, %s`,
+		dimensionID, dimensionCode, dimensionName,
+		startIndex, startIndex, endIndex, startIndex, endIndex,
+		dimensionJoin, where, dimensionID, dimensionCode, dimensionName, dimensionID,
+	)
+
+	rows, err := r.db.Query(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("auxiliary balance: %w", err)
+	}
+	defer rows.Close()
+
+	result := &domain.AuxiliaryBalance{
+		Dimension: dimension,
+		StartDate: startDate,
+		EndDate:   endDate,
+		Rows:      make([]*domain.AuxiliaryBalanceRow, 0),
+	}
+	for rows.Next() {
+		row := &domain.AuxiliaryBalanceRow{}
+		var openingRaw, debitRaw, creditRaw string
+		if err := rows.Scan(
+			&row.AccountID, &row.AccountCode, &row.AccountName,
+			&row.DimensionID, &row.DimensionCode, &row.DimensionName,
+			&openingRaw, &debitRaw, &creditRaw,
+		); err != nil {
+			return nil, fmt.Errorf("scan auxiliary balance: %w", err)
+		}
+		row.Opening = decimal.RequireFromString(openingRaw)
+		row.PeriodDebit = decimal.RequireFromString(debitRaw)
+		row.PeriodCredit = decimal.RequireFromString(creditRaw)
+		row.Closing = row.Opening.Add(row.PeriodDebit).Sub(row.PeriodCredit)
+		result.Rows = append(result.Rows, row)
+		result.TotalDebit = result.TotalDebit.Add(row.PeriodDebit)
+		result.TotalCredit = result.TotalCredit.Add(row.PeriodCredit)
+	}
+	return result, rows.Err()
+}
+
 func (r *ReportRepository) IncomeStatement(
 	ctx context.Context,
 	filter scope.Filter,
@@ -243,8 +349,8 @@ func (r *ReportRepository) IncomeStatement(
 	startDate, endDate time.Time,
 ) (*domain.IncomeStatement, error) {
 	args := []any{tenantID, startDate.Format("2006-01-02"), endDate.Format("2006-01-02")}
-	where := "l.tenant_id = $1 AND v.status IN ('posted', 'reversed') AND v.voucher_date BETWEEN $2::date AND $3::date"
-	appendScope(&where, &args, "v", filter)
+	where := "l.tenant_id = $1 AND v.status IN ('posted', 'reversed') AND v.voucher_date BETWEEN $2::date AND $3::date AND v.voucher_type NOT IN ('period_close', 'period_close_reversal', 'year_close')"
+	appendReportScope(&where, &args, filter)
 
 	rows, err := r.db.Query(ctx, `
 		SELECT a.code, a.name, a.type, COALESCE(SUM(l.debit - l.credit), 0)::text

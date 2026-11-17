@@ -26,8 +26,10 @@
 | GET/POST | `/api/v1/finance/accounts` | `finance.account.read/write` |
 | PUT | `/api/v1/finance/accounts/:id` | `finance.account.write` |
 | GET | `/api/v1/finance/periods` | `finance.period.read` |
+| POST | `/api/v1/finance/periods/ensure` | `finance.period.close` |
 | POST | `/api/v1/finance/periods/:id/close` | `finance.period.close` |
 | POST | `/api/v1/finance/periods/:id/reopen` | `finance.period.close` |
+| POST | `/api/v1/finance/years/:year/close` | `finance.period.close` |
 | GET/POST | `/api/v1/finance/vouchers` | `finance.voucher.read/write` |
 | GET/PUT | `/api/v1/finance/vouchers/:id` | `finance.voucher.read/write` |
 | POST | `/api/v1/finance/vouchers/:id/post` | `finance.voucher.post` |
@@ -36,6 +38,8 @@
 | GET | `/api/v1/finance/reports/general-ledger` | `finance.report.read` |
 | GET | `/api/v1/finance/reports/balance-sheet` | `finance.report.read` |
 | GET | `/api/v1/finance/reports/income-statement` | `finance.report.read` |
+| GET | `/api/v1/finance/reports/auxiliary-balance` | `finance.report.read` |
+| GET | `/api/v1/finance/dimensions` | `finance.voucher.read` |
 
 ## 自动凭证规则
 
@@ -59,6 +63,20 @@
 - 反过账生成反方向凭证，原凭证标记 `reversed`。
 - 本期只允许反过账手工凭证；自动凭证应通过业务退货/反核销等业务反向流程处理，避免总账与业务子账不一致。
 - 凭证号按生成/过账时间编号，历史回填使用回填时间；凭证日期单独记录，报表按凭证日期取数。
+
+## 期末结转与年度结转
+
+- 关账自动汇总本期收入/费用余额，生成损益结转凭证到本年利润 4103。
+- 反关账生成同期间反向结转凭证，期间恢复 open；再次关账生成新的结转凭证。
+- 年度结转要求该年度 12 个期间全部关账，在次年 1 月 1 日把 4103 结转到利润分配 4104。
+- 利润表、辅助余额表排除结转/年度结转凭证；科目余额表、资产负债表、明细账包含。
+
+## 辅助核算
+
+- 凭证行支持客商、部门、项目编码。
+- 自动凭证带入客商；部门/项目可手工录入。
+- 辅助余额表按客商/部门/项目分组，展示期初、本期借/贷、期末。
+- 项目当前为轻量文本编码，后续可接项目主数据。
 
 ## 历史数据回填
 

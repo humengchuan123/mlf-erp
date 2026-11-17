@@ -63,6 +63,7 @@ type VoucherLine struct {
 	Credit       decimal.Decimal
 	PartnerID    string
 	DepartmentID string
+	ProjectCode  string
 }
 
 type VoucherLineInput struct {
@@ -72,6 +73,7 @@ type VoucherLineInput struct {
 	Credit       decimal.Decimal
 	PartnerID    string
 	DepartmentID string
+	ProjectCode  string
 }
 
 type VoucherInput struct {

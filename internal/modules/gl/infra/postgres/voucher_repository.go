@@ -392,7 +392,7 @@ func loadVoucherLines(ctx context.Context, q querier, tenantID, voucherID string
 	rows, err := q.Query(ctx, `
 		SELECT l.id::text, l.tenant_id::text, l.voucher_id::text, l.line_no,
 		       l.account_id::text, a.code, a.name, l.summary, l.debit::text, l.credit::text,
-		       COALESCE(l.partner_id::text, ''), COALESCE(l.department_id::text, '')
+		       COALESCE(l.partner_id::text, ''), COALESCE(l.department_id::text, ''), l.project_code
 		FROM erp.gl_voucher_lines l
 		JOIN erp.gl_accounts a ON a.tenant_id = l.tenant_id AND a.id = l.account_id
 		WHERE l.tenant_id = $1 AND l.voucher_id = $2
@@ -409,7 +409,7 @@ func loadVoucherLines(ctx context.Context, q querier, tenantID, voucherID string
 		if err := rows.Scan(
 			&line.ID, &line.TenantID, &line.VoucherID, &line.LineNo,
 			&line.AccountID, &line.AccountCode, &line.AccountName, &line.Summary,
-			&debit, &credit, &line.PartnerID, &line.DepartmentID,
+			&debit, &credit, &line.PartnerID, &line.DepartmentID, &line.ProjectCode,
 		); err != nil {
 			return nil, fmt.Errorf("scan voucher line: %w", err)
 		}
@@ -482,6 +482,7 @@ func validateAndBuildLinesTx(
 			Credit:       credit,
 			PartnerID:    input.PartnerID,
 			DepartmentID: input.DepartmentID,
+			ProjectCode:  input.ProjectCode,
 		})
 	}
 
@@ -563,11 +564,11 @@ func insertVoucherLinesTx(ctx context.Context, tx pgx.Tx, lines []*domain.Vouche
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO erp.gl_voucher_lines (
 				id, tenant_id, voucher_id, line_no, account_id, summary, debit, credit,
-				partner_id, department_id
-			) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+				partner_id, department_id, project_code
+			) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
 			line.ID, line.TenantID, line.VoucherID, line.LineNo, line.AccountID, line.Summary,
 			line.Debit.String(), line.Credit.String(),
-			nullableUUID(line.PartnerID), nullableUUID(line.DepartmentID),
+			nullableUUID(line.PartnerID), nullableUUID(line.DepartmentID), line.ProjectCode,
 		); err != nil {
 			return fmt.Errorf("insert voucher line: %w", mapDBError(err))
 		}

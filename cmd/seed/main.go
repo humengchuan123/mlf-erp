@@ -326,7 +326,9 @@ func seedGL(ctx context.Context, tx pgx.Tx, tenantID string) error {
 				('inventory', '1405'),
 				('cogs', '6401'),
 				('bank', '1002'),
-				('cash', '1001')
+				('cash', '1001'),
+				('profit', '4103'),
+				('retained_earnings', '4104')
 		) AS mapping(key, account_code)
 		ON CONFLICT DO NOTHING`, tenantID); err != nil {
 		return err

@@ -1,9 +1,11 @@
 <template>
   <div>
-    <PageHeader title="会计期间" description="按月关账，关账后该期间禁止新增或过账凭证。">
+    <PageHeader title="会计期间" description="按月关账并生成损益结转凭证；关账后该期间禁止新增或过账凭证。">
       <el-select v-model="year" style="width: 120px" @change="load">
         <el-option v-for="item in years" :key="item" :label="`${item} 年`" :value="item" />
       </el-select>
+      <el-button v-if="canClose" plain @click="ensureYear">创建年度期间</el-button>
+      <el-button v-if="canClose" type="warning" @click="closeYear">年度结转</el-button>
     </PageHeader>
 
     <el-card shadow="never">
@@ -66,9 +68,11 @@ async function load() {
 
 async function closePeriod(period: GlPeriod) {
   try {
-    await ElMessageBox.confirm(`确认关闭 ${period.year}-${String(period.month).padStart(2, '0')} 期间？`, '关账', {
-      type: 'warning'
-    })
+    await ElMessageBox.confirm(
+      `确认关闭 ${period.year}-${String(period.month).padStart(2, '0')} 期间？系统将生成本期损益结转凭证。`,
+      '期末结转并关账',
+      { type: 'warning' }
+    )
   } catch {
     return
   }
@@ -83,9 +87,11 @@ async function closePeriod(period: GlPeriod) {
 
 async function reopenPeriod(period: GlPeriod) {
   try {
-    await ElMessageBox.confirm(`确认重新打开 ${period.year}-${String(period.month).padStart(2, '0')} 期间？`, '反关账', {
-      type: 'warning'
-    })
+    await ElMessageBox.confirm(
+      `确认重新打开 ${period.year}-${String(period.month).padStart(2, '0')} 期间？系统将生成反结转凭证。`,
+      '反关账',
+      { type: 'warning' }
+    )
   } catch {
     return
   }
@@ -95,6 +101,35 @@ async function reopenPeriod(period: GlPeriod) {
     await load()
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : '反关账失败')
+  }
+}
+
+async function ensureYear() {
+  try {
+    await glApi.periods.ensureYear(year.value)
+    ElMessage.success(`${year.value} 年度期间已创建`)
+    await load()
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : '创建年度期间失败')
+  }
+}
+
+async function closeYear() {
+  try {
+    await ElMessageBox.confirm(
+      `确认完成 ${year.value} 年度结转？要求该年度 12 个期间全部关账，系统将把本年利润结转到利润分配。`,
+      '年度结转',
+      { type: 'warning' }
+    )
+  } catch {
+    return
+  }
+  try {
+    await glApi.periods.closeYear(year.value)
+    ElMessage.success('年度结转完成')
+    await load()
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : '年度结转失败')
   }
 }
 

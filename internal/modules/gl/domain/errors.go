@@ -12,4 +12,6 @@ var (
 	ErrAccountNotLeaf  = errors.New("account is not a leaf")
 	ErrAccountDisabled = errors.New("account is disabled")
 	ErrDuplicateSource = errors.New("voucher source already posted")
+	ErrYearNotClosed   = errors.New("all periods in the year must be closed")
+	ErrYearClosed      = errors.New("year is already closed")
 )

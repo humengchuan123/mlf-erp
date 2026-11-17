@@ -1,9 +1,9 @@
 openapi: 3.1.0
 info:
   title: MLF ERP API
-  version: 0.4.0
+  version: 0.5.0
   description: |
-    MLF ERP Stage 1 + Stage 2 + Stage 3A/3B/3C API contract.
+    MLF ERP Stage 1 + Stage 2 + Stage 3A/3B/3C/3D API contract.
     Master data uses a generic CRUD surface under /masterdata/{entity}.
     Purchase, sales, inventory, receivables/payables, payments, general ledger and reports are included.
 servers:
@@ -846,6 +846,21 @@ paths:
                     properties:
                       data:
                         $ref: '#/components/schemas/GlAccount'
+  /finance/dimensions:
+    get:
+      summary: List partner and department auxiliary dimensions
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/GlDimensions'
   /finance/periods:
     get:
       summary: List accounting periods
@@ -868,6 +883,26 @@ paths:
                         type: array
                         items:
                           $ref: '#/components/schemas/GlPeriod'
+  /finance/periods/ensure:
+    post:
+      summary: Ensure all 12 accounting periods exist for a year
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [year]
+              properties:
+                year:
+                  type: integer
+      responses:
+        '200':
+          description: Ensured
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
   /finance/periods/{id}/close:
     parameters:
       - $ref: '#/components/parameters/ID'
@@ -894,6 +929,28 @@ paths:
       responses:
         '200':
           description: Reopened
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+  /finance/years/{year}/close:
+    post:
+      summary: Close a fiscal year and transfer profit to retained earnings
+      parameters:
+        - in: path
+          name: year
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Closed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+        '409':
+          description: Year not fully closed or already closed
           content:
             application/json:
               schema:
@@ -1146,6 +1203,43 @@ paths:
                     properties:
                       data:
                         $ref: '#/components/schemas/GlIncomeStatement'
+  /finance/reports/auxiliary-balance:
+    get:
+      summary: Auxiliary balance report grouped by partner, department or project
+      parameters:
+        - in: query
+          name: dimension
+          required: true
+          schema:
+            type: string
+            enum: [partner, department, project]
+        - in: query
+          name: account_id
+          schema:
+            type: string
+            format: uuid
+        - in: query
+          name: start_date
+          schema:
+            type: string
+            format: date
+        - in: query
+          name: end_date
+          schema:
+            type: string
+            format: date
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/GlAuxiliaryBalance'
 components:
   securitySchemes:
     bearerAuth:
@@ -2084,6 +2178,8 @@ components:
           type: string
         department_id:
           type: string
+        project_code:
+          type: string
     GlVoucher:
       type: object
       properties:
@@ -2146,6 +2242,8 @@ components:
         partner_id:
           type: string
         department_id:
+          type: string
+        project_code:
           type: string
     GlVoucherInput:
       type: object
@@ -2294,4 +2392,67 @@ components:
         total_expenses:
           type: string
         net_profit:
+          type: string
+    GlDimension:
+      type: object
+      properties:
+        id:
+          type: string
+        code:
+          type: string
+        name:
+          type: string
+    GlDimensions:
+      type: object
+      properties:
+        partners:
+          type: array
+          items:
+            $ref: '#/components/schemas/GlDimension'
+        departments:
+          type: array
+          items:
+            $ref: '#/components/schemas/GlDimension'
+    GlAuxiliaryBalanceRow:
+      type: object
+      properties:
+        account_id:
+          type: string
+        account_code:
+          type: string
+        account_name:
+          type: string
+        dimension_id:
+          type: string
+        dimension_code:
+          type: string
+        dimension_name:
+          type: string
+        opening:
+          type: string
+        period_debit:
+          type: string
+        period_credit:
+          type: string
+        closing:
+          type: string
+    GlAuxiliaryBalance:
+      type: object
+      properties:
+        dimension:
+          type: string
+          enum: [partner, department, project]
+        start_date:
+          type: string
+          format: date
+        end_date:
+          type: string
+          format: date
+        rows:
+          type: array
+          items:
+            $ref: '#/components/schemas/GlAuxiliaryBalanceRow'
+        total_debit:
+          type: string
+        total_credit:
           type: string

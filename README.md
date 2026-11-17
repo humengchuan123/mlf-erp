@@ -2,7 +2,7 @@
 
 企业级 ERP Monorepo 骨架，支持 **SaaS 订阅** 与 **私有化安装** 两种交付形态。
 
-> 当前状态：Stage 1 平台底座 + Stage 2 主数据/编码规则/数据权限 + Stage 3A 采购/库存 + Stage 3B 销售/应收应付 + Stage 3C 总账/自动凭证/基础报表。
+> 当前状态：Stage 1 平台底座 + Stage 2 主数据/编码规则/数据权限 + Stage 3A 采购/库存 + Stage 3B 销售/应收应付 + Stage 3C 总账/自动凭证/基础报表 + Stage 3D 期末结转/辅助核算。
 > 设计参考：工作区根目录的《企业ERP应用开发指南》。
 
 ## 技术栈
@@ -126,7 +126,7 @@ demo_company / Demo@123456   数据范围 company
 demo_dept    / Demo@123456   数据范围 dept
 ```
 
-演示数据包含：4 个计量单位、2 个币种、4 个税率、4 个仓库、12 个客商、20 个物料、2 个部门组织、3 张采购订单、2 张销售订单、发货单、应收/应付发票、收付款、库存余额/流水，以及自动生成的会计凭证和财务报表数据。
+演示数据包含：4 个计量单位、2 个币种、4 个税率、4 个仓库、12 个客商、20 个物料、2 个部门组织、3 张采购订单、2 张销售订单、发货单、应收/应付发票、收付款、库存余额/流水、自动会计凭证、辅助核算凭证和财务报表数据。
 
 > Stage 1 起 API 要求 PostgreSQL 可用；`DB_REQUIRED=true`。
 
@@ -261,6 +261,9 @@ pnpm test:api:stage3b
 # Stage 3C API integration test (GL, auto vouchers, reports)
 pnpm test:api:stage3c
 
+# Stage 3D API integration test (period close, auxiliary accounting)
+pnpm test:api:stage3d
+
 # Docker
 docker build -f deploy/docker/api.Dockerfile -t mlf-erp/api:dev .
 docker build -f deploy/docker/worker.Dockerfile -t mlf-erp/worker:dev .
@@ -326,6 +329,16 @@ docker build -f deploy/docker/web.Dockerfile -t mlf-erp/web:dev .
 - `cmd/glbackfill` 为历史业务单据补生成凭证。
 - Stage 3C 真实 HTTP API 集成测试和前端完整度检查。
 
+### Stage 3D 期末结转与辅助核算
+
+- 关账自动生成损益结转凭证，收入/费用结转到本年利润 4103。
+- 反关账生成反向结转凭证，期间恢复 open；再次关账生成新结转凭证。
+- 年度结转：本年利润 4103 结转到利润分配 4104。
+- 凭证行支持客商、部门、项目辅助核算。
+- 辅助余额表按客商/部门/项目汇总。
+- 期间页面增加创建年度期间、年度结转；凭证页面增加辅助字段；报表增加辅助余额表。
+- Stage 3D 真实 HTTP API 集成测试和前端完整度检查。
+
 ### 工程与交付
 
 - Monorepo 工作区与共享包。
@@ -336,7 +349,7 @@ docker build -f deploy/docker/web.Dockerfile -t mlf-erp/web:dev .
 
 ## 下一步
 
-- Stage 3D：现金流量表、期末损益结转、辅助核算、税务/发票。
+- Stage 3E：现金流量表、税务/发票、多币种/汇率。
 - 采购退货、销售退货、价格协议、客户信用。
 - 收付款反核销、发票红冲、账龄分析。
 - 审批流引擎、导入导出、附件。

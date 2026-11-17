@@ -63,7 +63,7 @@
       />
     </el-card>
 
-    <el-dialog v-model="dialogVisible" :title="editingVoucher ? '编辑凭证' : '新建凭证'" width="980px">
+    <el-dialog v-model="dialogVisible" :title="editingVoucher ? '编辑凭证' : '新建凭证'" width="1220px">
       <el-form :model="form" label-width="80px">
         <el-row :gutter="12">
           <el-col :span="8">
@@ -101,9 +101,38 @@
               <el-input v-model="row.debit" placeholder="0.0000" />
             </template>
           </el-table-column>
-          <el-table-column label="贷方" width="130">
+          <el-table-column label="贷方" width="120">
             <template #default="{ row }">
               <el-input v-model="row.credit" placeholder="0.0000" />
+            </template>
+          </el-table-column>
+          <el-table-column label="客商" width="160">
+            <template #default="{ row }">
+              <el-select v-model="row.partner_id" filterable clearable style="width: 100%" placeholder="可选">
+                <el-option
+                  v-for="partner in dimensions.partners"
+                  :key="partner.id"
+                  :label="partner.name"
+                  :value="partner.id"
+                />
+              </el-select>
+            </template>
+          </el-table-column>
+          <el-table-column label="部门" width="150">
+            <template #default="{ row }">
+              <el-select v-model="row.department_id" filterable clearable style="width: 100%" placeholder="可选">
+                <el-option
+                  v-for="department in dimensions.departments"
+                  :key="department.id"
+                  :label="department.name"
+                  :value="department.id"
+                />
+              </el-select>
+            </template>
+          </el-table-column>
+          <el-table-column label="项目" width="130">
+            <template #default="{ row }">
+              <el-input v-model="row.project_code" placeholder="项目编码" />
             </template>
           </el-table-column>
           <el-table-column width="70">
@@ -169,6 +198,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { PageHeader } from '@mlf-erp/ui'
 import {
   glApi,
+  type Dimensions,
   type GlAccount,
   type GlVoucher,
   type GlVoucherInput
@@ -180,6 +210,9 @@ interface VoucherFormLine {
   summary: string
   debit: string
   credit: string
+  partner_id: string
+  department_id: string
+  project_code: string
 }
 
 const authStore = useAuthStore()
@@ -203,6 +236,7 @@ const statusLabels: Record<string, string> = {
 
 const vouchers = ref<GlVoucher[]>([])
 const accounts = ref<GlAccount[]>([])
+const dimensions = ref<Dimensions>({ partners: [], departments: [] })
 const loading = ref(false)
 const saving = ref(false)
 const keyword = ref('')
@@ -279,6 +313,14 @@ async function loadAccounts() {
   }
 }
 
+async function loadDimensions() {
+  try {
+    dimensions.value = await glApi.dimensions()
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : '加载辅助核算选项失败')
+  }
+}
+
 function search() {
   page.value = 1
   load()
@@ -299,7 +341,15 @@ function handleSizeChange() {
 }
 
 function factoryLine(): VoucherFormLine {
-  return { account_id: '', summary: '', debit: '', credit: '' }
+  return {
+    account_id: '',
+    summary: '',
+    debit: '',
+    credit: '',
+    partner_id: '',
+    department_id: '',
+    project_code: ''
+  }
 }
 
 function openCreate() {
@@ -319,7 +369,10 @@ async function openEdit(row: GlVoucher) {
         account_id: line.account_id,
         summary: line.summary,
         debit: line.debit,
-        credit: line.credit
+        credit: line.credit,
+        partner_id: line.partner_id,
+        department_id: line.department_id,
+        project_code: line.project_code
       }))
     })
     dialogVisible.value = true
@@ -365,7 +418,10 @@ async function saveVoucher() {
         account_id: line.account_id,
         summary: line.summary,
         debit: line.debit || '0',
-        credit: line.credit || '0'
+        credit: line.credit || '0',
+        partner_id: line.partner_id || undefined,
+        department_id: line.department_id || undefined,
+        project_code: line.project_code || undefined
       }))
     }
     if (editingVoucher.value) {
@@ -432,7 +488,7 @@ async function reverseVoucher(voucher: GlVoucher) {
 }
 
 onMounted(async () => {
-  await Promise.all([load(), loadAccounts()])
+  await Promise.all([load(), loadAccounts(), loadDimensions()])
 })
 </script>
 

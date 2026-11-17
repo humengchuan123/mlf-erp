@@ -183,11 +183,13 @@ func main() {
 	glPeriodRepository := glpostgres.NewPeriodRepository(db)
 	glVoucherRepository := glpostgres.NewVoucherRepository(db)
 	glReportRepository := glpostgres.NewReportRepository(db)
+	glDimensionRepository := glpostgres.NewDimensionRepository(db)
 	glAccountService := glapp.NewAccountService(glAccountRepository)
-	glPeriodService := glapp.NewPeriodService(glPeriodRepository)
+	glPeriodService := glapp.NewPeriodService(glPeriodRepository, codeRuleService)
 	glVoucherService := glapp.NewVoucherService(glVoucherRepository, codeRuleService)
 	glReportService := glapp.NewReportService(glReportRepository)
-	glhttp.Register(protected, glAccountService, glPeriodService, glVoucherService, glReportService, auditService, log)
+	glDimensionService := glapp.NewDimensionService(glDimensionRepository)
+	glhttp.Register(protected, glAccountService, glPeriodService, glVoucherService, glReportService, glDimensionService, auditService, log)
 
 	server := &http.Server{
 		Addr:              cfg.HTTP.Addr,

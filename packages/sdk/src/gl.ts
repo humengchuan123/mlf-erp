@@ -46,6 +46,7 @@ export interface GlVoucherLine {
   credit: string
   partner_id: string
   department_id: string
+  project_code: string
 }
 
 export interface GlVoucher {
@@ -76,6 +77,7 @@ export interface GlVoucherLineInput {
   credit: string
   partner_id?: string
   department_id?: string
+  project_code?: string
 }
 
 export interface GlVoucherInput {
@@ -151,6 +153,39 @@ export interface IncomeStatement {
   net_profit: string
 }
 
+export interface Dimension {
+  id: string
+  code: string
+  name: string
+}
+
+export interface Dimensions {
+  partners: Dimension[]
+  departments: Dimension[]
+}
+
+export interface AuxiliaryBalanceRow {
+  account_id: string
+  account_code: string
+  account_name: string
+  dimension_id: string
+  dimension_code: string
+  dimension_name: string
+  opening: string
+  period_debit: string
+  period_credit: string
+  closing: string
+}
+
+export interface AuxiliaryBalance {
+  dimension: string
+  start_date: string
+  end_date: string
+  rows: AuxiliaryBalanceRow[]
+  total_debit: string
+  total_credit: string
+}
+
 function queryString(params: Record<string, string | number | undefined>): string {
   const search = new URLSearchParams()
   for (const [key, value] of Object.entries(params)) {
@@ -178,12 +213,21 @@ export const glApi = {
     list(year?: number): Promise<GlPeriod[]> {
       return api.get<GlPeriod[]>(`/finance/periods${queryString({ year })}`)
     },
+    ensureYear(year: number): Promise<unknown> {
+      return api.post('/finance/periods/ensure', { year })
+    },
     close(id: string): Promise<unknown> {
       return api.post(`/finance/periods/${id}/close`)
     },
     reopen(id: string): Promise<unknown> {
       return api.post(`/finance/periods/${id}/reopen`)
+    },
+    closeYear(year: number): Promise<unknown> {
+      return api.post(`/finance/years/${year}/close`)
     }
+  },
+  dimensions(): Promise<Dimensions> {
+    return api.get<Dimensions>('/finance/dimensions')
   },
   vouchers: {
     list(params: {
@@ -229,6 +273,14 @@ export const glApi = {
     },
     incomeStatement(params: { start_date?: string; end_date?: string } = {}): Promise<IncomeStatement> {
       return api.get<IncomeStatement>(`/finance/reports/income-statement${queryString(params)}`)
+    },
+    auxiliaryBalance(params: {
+      dimension: string
+      account_id?: string
+      start_date?: string
+      end_date?: string
+    }): Promise<AuxiliaryBalance> {
+      return api.get<AuxiliaryBalance>(`/finance/reports/auxiliary-balance${queryString(params)}`)
     }
   }
 }

@@ -97,6 +97,40 @@
           <el-empty v-else description="点击查询生成资产负债表" />
         </el-tab-pane>
 
+        <el-tab-pane label="辅助余额表" name="auxiliary">
+          <div class="toolbar">
+            <el-select v-model="auxiliaryDimension" style="width: 130px">
+              <el-option label="客商" value="partner" />
+              <el-option label="部门" value="department" />
+              <el-option label="项目" value="project" />
+            </el-select>
+            <el-select v-model="auxiliaryAccountID" filterable clearable placeholder="全部科目" style="width: 260px">
+              <el-option
+                v-for="account in accountOptions"
+                :key="account.id"
+                :label="`${account.code} ${account.name}`"
+                :value="account.id"
+              />
+            </el-select>
+            <el-date-picker v-model="auxiliaryRange" type="daterange" value-format="YYYY-MM-DD" start-placeholder="开始日期" end-placeholder="结束日期" />
+            <el-button type="primary" plain @click="loadAuxiliary">查询</el-button>
+          </div>
+          <el-table v-loading="loading" :data="auxiliaryBalance?.rows ?? []" border stripe>
+            <el-table-column prop="account_code" label="科目编码" width="110" />
+            <el-table-column prop="account_name" label="科目名称" min-width="160" />
+            <el-table-column prop="dimension_code" label="辅助编码" width="130" />
+            <el-table-column prop="dimension_name" label="辅助名称" min-width="160" />
+            <el-table-column prop="opening" label="期初" width="130" align="right" />
+            <el-table-column prop="period_debit" label="本期借方" width="130" align="right" />
+            <el-table-column prop="period_credit" label="本期贷方" width="130" align="right" />
+            <el-table-column prop="closing" label="期末" width="130" align="right" />
+          </el-table>
+          <div class="summary">
+            <span>本期借方合计：{{ auxiliaryBalance?.total_debit ?? '-' }}</span>
+            <span>本期贷方合计：{{ auxiliaryBalance?.total_credit ?? '-' }}</span>
+          </div>
+        </el-tab-pane>
+
         <el-tab-pane label="利润表" name="income">
           <div class="toolbar">
             <el-date-picker v-model="incomeRange" type="daterange" value-format="YYYY-MM-DD" start-placeholder="开始日期" end-placeholder="结束日期" />
@@ -133,6 +167,7 @@ import { ElMessage } from 'element-plus'
 import { PageHeader } from '@mlf-erp/ui'
 import {
   glApi,
+  type AuxiliaryBalance,
   type BalanceSheet,
   type GeneralLedger,
   type GlAccount,
@@ -158,6 +193,10 @@ const ledgerRange = ref<[string, string]>([firstDay, today])
 const incomeRange = ref<[string, string]>([firstDay, today])
 const balanceAsOf = ref(today)
 const ledgerAccountID = ref('')
+const auxiliaryDimension = ref('partner')
+const auxiliaryAccountID = ref('')
+const auxiliaryRange = ref<[string, string]>([firstDay, today])
+const auxiliaryBalance = ref<AuxiliaryBalance | null>(null)
 
 const accountOptions = computed(() => accounts.value.filter((item) => item.is_leaf && item.status === 'active'))
 
@@ -221,6 +260,22 @@ async function loadBalanceSheet() {
   }
 }
 
+async function loadAuxiliary() {
+  loading.value = true
+  try {
+    auxiliaryBalance.value = await glApi.reports.auxiliaryBalance({
+      dimension: auxiliaryDimension.value,
+      account_id: auxiliaryAccountID.value || undefined,
+      start_date: auxiliaryRange.value?.[0],
+      end_date: auxiliaryRange.value?.[1]
+    })
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : '加载辅助余额表失败')
+  } finally {
+    loading.value = false
+  }
+}
+
 async function loadIncomeStatement() {
   loading.value = true
   try {
@@ -251,6 +306,7 @@ function onTabChange(tab: string) {
   if (tab === 'trial') loadTrial()
   if (tab === 'ledger') loadLedger()
   if (tab === 'balance') loadBalanceSheet()
+  if (tab === 'auxiliary') loadAuxiliary()
   if (tab === 'income') loadIncomeStatement()
 }
 

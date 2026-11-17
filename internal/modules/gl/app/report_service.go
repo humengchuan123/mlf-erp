@@ -46,6 +46,24 @@ func (s *ReportService) BalanceSheet(ctx context.Context, asOf time.Time) (*doma
 	return s.reports.BalanceSheet(ctx, scope.FromActor(ctx, tenantID), tenantID, asOf)
 }
 
+func (s *ReportService) AuxiliaryBalance(
+	ctx context.Context,
+	dimension, accountID string,
+	startDate, endDate time.Time,
+) (*domain.AuxiliaryBalance, error) {
+	tenantID, _, _ := tenantActor(ctx)
+	switch dimension {
+	case "partner", "department", "project":
+	default:
+		return nil, domain.ErrInvalidInput
+	}
+	startDate, endDate = normalizeRange(startDate, endDate)
+	if startDate.After(endDate) {
+		return nil, domain.ErrInvalidInput
+	}
+	return s.reports.AuxiliaryBalance(ctx, scope.FromActor(ctx, tenantID), tenantID, dimension, trim(accountID), startDate, endDate)
+}
+
 func (s *ReportService) IncomeStatement(ctx context.Context, startDate, endDate time.Time) (*domain.IncomeStatement, error) {
 	tenantID, _, _ := tenantActor(ctx)
 	startDate, endDate = normalizeRange(startDate, endDate)

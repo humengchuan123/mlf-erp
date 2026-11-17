@@ -118,7 +118,9 @@ assertFile('apps/web/src/views/finance/PeriodListView.vue', [
   'el-table',
   'glApi.periods.list',
   'glApi.periods.close',
-  'glApi.periods.reopen'
+  'glApi.periods.reopen',
+  'glApi.periods.ensureYear',
+  'glApi.periods.closeYear'
 ])
 
 assertFile('apps/web/src/views/finance/VoucherListView.vue', [
@@ -129,7 +131,9 @@ assertFile('apps/web/src/views/finance/VoucherListView.vue', [
   'glApi.vouchers.list',
   'glApi.vouchers.create',
   'glApi.vouchers.post',
-  'glApi.vouchers.reverse'
+  'glApi.vouchers.reverse',
+  'glApi.dimensions',
+  'project_code'
 ])
 
 assertFile('apps/web/src/views/finance/ReportView.vue', [
@@ -138,7 +142,8 @@ assertFile('apps/web/src/views/finance/ReportView.vue', [
   'glApi.reports.trialBalance',
   'glApi.reports.generalLedger',
   'glApi.reports.balanceSheet',
-  'glApi.reports.incomeStatement'
+  'glApi.reports.incomeStatement',
+  'glApi.reports.auxiliaryBalance'
 ])
 
 assertFile('packages/sdk/src/sales.ts', [
@@ -169,10 +174,12 @@ assertFile('packages/sdk/src/gl.ts', [
   'accounts',
   'periods',
   'vouchers',
+  'dimensions(',
   'trialBalance(',
   'generalLedger(',
   'balanceSheet(',
-  'incomeStatement('
+  'incomeStatement(',
+  'auxiliaryBalance('
 ])
 
 assertFile('package.json', ['test:api:stage3b', 'test:frontend'])

@@ -19,8 +19,14 @@ type PeriodRepository interface {
 	List(ctx context.Context, tenantID string, year int) ([]*Period, error)
 	Get(ctx context.Context, tenantID, id string) (*Period, error)
 	Ensure(ctx context.Context, tenantID string, date time.Time) (*Period, error)
-	Close(ctx context.Context, tenantID, id, userID string) error
-	Reopen(ctx context.Context, tenantID, id, userID string) error
+	EnsureYear(ctx context.Context, tenantID string, year int) error
+	Close(ctx context.Context, tenantID, orgID, id, userID, voucherCode string) error
+	Reopen(ctx context.Context, tenantID, id, userID, reversalCode string) error
+	CloseYear(ctx context.Context, tenantID, orgID string, year int, userID, voucherCode string) error
+}
+
+type DimensionRepository interface {
+	List(ctx context.Context, tenantID string) (*Dimensions, error)
 }
 
 type VoucherRepository interface {
@@ -37,4 +43,5 @@ type ReportRepository interface {
 	GeneralLedger(ctx context.Context, filter scope.Filter, tenantID, accountID string, startDate, endDate time.Time) (*GeneralLedger, error)
 	BalanceSheet(ctx context.Context, filter scope.Filter, tenantID string, asOf time.Time) (*BalanceSheet, error)
 	IncomeStatement(ctx context.Context, filter scope.Filter, tenantID string, startDate, endDate time.Time) (*IncomeStatement, error)
+	AuxiliaryBalance(ctx context.Context, filter scope.Filter, tenantID, dimension, accountID string, startDate, endDate time.Time) (*AuxiliaryBalance, error)
 }

@@ -26,6 +26,7 @@ type VoucherLineInput struct {
 	Credit       decimal.Decimal
 	PartnerID    string
 	DepartmentID string
+	ProjectCode  string
 }
 
 type VoucherInput struct {
@@ -76,6 +77,7 @@ func (s *VoucherService) Create(ctx context.Context, input VoucherInput) (*domai
 			Credit:       line.Credit.Round(4),
 			PartnerID:    trim(line.PartnerID),
 			DepartmentID: trim(line.DepartmentID),
+			ProjectCode:  trim(line.ProjectCode),
 		})
 	}
 	code, err := s.codes.Next(ctx, tenantID, "gl_voucher")
@@ -124,6 +126,7 @@ func (s *VoucherService) UpdateDraft(ctx context.Context, id string, input Vouch
 			Credit:       line.Credit.Round(4),
 			PartnerID:    trim(line.PartnerID),
 			DepartmentID: trim(line.DepartmentID),
+			ProjectCode:  trim(line.ProjectCode),
 		})
 	}
 	voucher.VoucherDate = date

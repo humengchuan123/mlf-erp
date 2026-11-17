@@ -8,10 +8,11 @@ import (
 
 type PeriodService struct {
 	periods domain.PeriodRepository
+	codes   CodeGenerator
 }
 
-func NewPeriodService(periods domain.PeriodRepository) *PeriodService {
-	return &PeriodService{periods: periods}
+func NewPeriodService(periods domain.PeriodRepository, codes CodeGenerator) *PeriodService {
+	return &PeriodService{periods: periods, codes: codes}
 }
 
 func (s *PeriodService) List(ctx context.Context, year int) ([]*domain.Period, error) {
@@ -19,12 +20,34 @@ func (s *PeriodService) List(ctx context.Context, year int) ([]*domain.Period, e
 	return s.periods.List(ctx, tenantID, year)
 }
 
+func (s *PeriodService) EnsureYear(ctx context.Context, year int) error {
+	tenantID, _, _ := tenantActor(ctx)
+	return s.periods.EnsureYear(ctx, tenantID, year)
+}
+
 func (s *PeriodService) Close(ctx context.Context, id string) error {
-	tenantID, _, userID := tenantActor(ctx)
-	return s.periods.Close(ctx, tenantID, id, userID)
+	tenantID, orgID, userID := tenantActor(ctx)
+	code, err := s.codes.Next(ctx, tenantID, "gl_voucher")
+	if err != nil {
+		return err
+	}
+	return s.periods.Close(ctx, tenantID, orgID, id, userID, code)
 }
 
 func (s *PeriodService) Reopen(ctx context.Context, id string) error {
 	tenantID, _, userID := tenantActor(ctx)
-	return s.periods.Reopen(ctx, tenantID, id, userID)
+	code, err := s.codes.Next(ctx, tenantID, "gl_voucher")
+	if err != nil {
+		return err
+	}
+	return s.periods.Reopen(ctx, tenantID, id, userID, code)
+}
+
+func (s *PeriodService) CloseYear(ctx context.Context, year int) error {
+	tenantID, orgID, userID := tenantActor(ctx)
+	code, err := s.codes.Next(ctx, tenantID, "gl_voucher")
+	if err != nil {
+		return err
+	}
+	return s.periods.CloseYear(ctx, tenantID, orgID, year, userID, code)
 }
