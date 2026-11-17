@@ -2,7 +2,7 @@
 
 > 日期：2026-11-17
 > 分支：`stage-3c-general-ledger`
-> 提交：`6ff728a`（实现）+ `427bd71`（会计完整性加固）+ `1524ba9`（报告/设计收尾）
+> 提交：`6ff728a`（实现）+ `427bd71`（会计完整性加固）+ `1524ba9`（报告/设计收尾）+ `ce22a2e`（审核修复）
 > 设计：`docs/superpowers/specs/2026-11-17-stage-3c-general-ledger-design.md`
 > 计划：`docs/superpowers/plans/2026-11-17-stage-3c-general-ledger.md`
 > 状态：待用户审阅
@@ -212,6 +212,7 @@ gl backfill completed: sales_shipments=0 purchase_receipts=0 payments=0
   3. 期间关账与并发过账没有期间行锁，凭证可能提交到刚关账的期间。
 - **Important**：自动凭证错误未映射到业务接口（500 而非 409/400）、草稿过账未重新校验科目状态、科目编码/类型/状态修改可能破坏自动过账、历史回填凭证号按当前时间编号、自动凭证允许直接反过账、测试缺少关键失败路径。
 - 审核同时确认自动凭证事务位置、借贷方向、移动平均成本、来源幂等、报表计算和前端支撑代码整体正确。
+- **审核修复后结论：Ready to merge: Yes**。Critical 3 项和主要 Important 项已修复并回归，剩余项记录为已知限制。
 
 ### 5.3 已修复问题
 
