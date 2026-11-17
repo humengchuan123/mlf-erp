@@ -202,7 +202,7 @@ func (s *OrderService) validate(
 	tenantID string,
 	input OrderInput,
 ) (*masterdomain.Partner, *masterdomain.Warehouse, []masterdomain.Material, error) {
-	filter := scope.Filter{TenantID: tenantID, DataScope: "all"}
+	filter := scope.FromActor(ctx, tenantID)
 
 	partner, err := s.partners.FindByID(ctx, filter, tenantID, input.CustomerID)
 	if err != nil || partner.Status != masterdomain.StatusActive {

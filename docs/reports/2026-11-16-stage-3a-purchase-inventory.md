@@ -4,7 +4,7 @@
 > 分支：`stage-3a-purchase-inventory`  
 > 提交：`eeabcf0`  
 > 计划：`docs/superpowers/plans/2026-11-16-stage-3a-purchase-inventory.md`  
-> 状态：待用户审阅
+> 状态：用户已要求进入 Stage 3B（2026-11-17），视为审阅通过
 
 ---
 
@@ -221,4 +221,4 @@ Stage 3B：销售与应收闭环
 - [ ] 库存余额和流水口径是否接受。
 - [ ] Demo 采购/库存数据是否满足演示。
 - [ ] 代码审核结论和修复是否认可。
-- [ ] 是否允许进入 Stage 3B。
+- [x] 是否允许进入 Stage 3B。

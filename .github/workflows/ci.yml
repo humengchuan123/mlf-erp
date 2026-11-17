@@ -3,7 +3,7 @@ name: ci
 on:
   pull_request:
   push:
-    branches: [main]
+    branches: [main, master]
 
 permissions:
   contents: read
@@ -95,6 +95,58 @@ jobs:
             dist/migrate
             dist/seed
 
+  api-integration:
+    needs: changes
+    if: needs.changes.outputs.api == 'true'
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: mlf
+          POSTGRES_PASSWORD: mlf
+          POSTGRES_DB: mlf_erp
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      APP_ENV: test
+      DATABASE_URL: postgres://mlf:mlf@localhost:5432/mlf_erp?sslmode=disable
+      DB_ENABLED: 'true'
+      HTTP_ADDR: ':18080'
+      LOG_LEVEL: error
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - run: go run ./cmd/migrate -direction up
+      - run: go run ./cmd/seed
+      - run: go run ./cmd/demo
+      - run: go build -o dist/api ./cmd/api
+      - name: Run Stage 3B API integration tests
+        run: |
+          set -euo pipefail
+          ./dist/api > api-integration.log 2>&1 &
+          API_PID=$!
+          trap 'kill $API_PID 2>/dev/null || true' EXIT
+          for i in $(seq 1 30); do
+            if curl -fsS http://localhost:18080/readyz > /dev/null; then
+              break
+            fi
+            sleep 1
+          done
+          curl -fsS http://localhost:18080/readyz > /dev/null
+          TEST_API_BASE_URL=http://localhost:18080 go test -tags=integration ./tests/api -run 'TestStage3B' -v
+      - name: Show API log on failure
+        if: failure()
+        run: cat api-integration.log || true
+
   worker:
     needs: changes
     if: needs.changes.outputs.worker == 'true'
@@ -114,13 +166,13 @@ jobs:
 
   gate:
     if: always()
-    needs: [changes, web, api, worker]
+    needs: [changes, web, api, api-integration, worker]
     runs-on: ubuntu-latest
     steps:
       - name: Check required jobs
         run: |
           [ "${{ needs.changes.result }}" = "success" ] || exit 1
-          for result in "${{ needs.web.result }}" "${{ needs.api.result }}" "${{ needs.worker.result }}"; do
+          for result in "${{ needs.web.result }}" "${{ needs.api.result }}" "${{ needs.api-integration.result }}" "${{ needs.worker.result }}"; do
             case "$result" in
               success|skipped) ;;
               *) echo "required job failed: $result"; exit 1 ;;

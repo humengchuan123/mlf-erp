@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"sort"
@@ -341,15 +342,20 @@ func (r *Repository) Ship(ctx context.Context, filter scope.Filter, shipment *do
 	}
 
 	invoiceTotal = invoiceTotal.Round(4)
+	invoiceStatus := "open"
+	if !invoiceTotal.IsPositive() {
+		invoiceStatus = "paid"
+	}
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO erp.finance_invoices (
 			id, tenant_id, org_id, code, invoice_type, source_type, source_id, source_code,
 			partner_id, invoice_date, due_date, currency, status, total_amount, paid_amount,
 			remark, created_by, updated_by
-		) VALUES ($1,$2,$3,$4,'receivable','sales_shipment',$5,$6,$7,$8,$9,$10,'open',$11,0,'',$12,$12)`,
+		) VALUES ($1,$2,$3,$4,'receivable','sales_shipment',$5,$6,$7,$8,$9,$10,$13,$11,0,'',$12,$12)`,
 		shipment.InvoiceID, shipment.TenantID, shipment.OrgID, shipment.InvoiceCode,
 		shipment.ID, shipment.Code, order.CustomerID, shipment.ShipmentDate,
 		shipment.InvoiceDueDate, order.Currency, invoiceTotal.String(), shipment.CreatedBy,
+		invoiceStatus,
 	); err != nil {
 		return fmt.Errorf("insert receivable invoice: %w", mapDBError(err))
 	}
@@ -440,11 +446,14 @@ const shipmentSelectSQL = `
 	SELECT s.id::text, s.tenant_id::text, s.org_id::text, s.code,
 	       s.order_id::text, o.code, o.customer_id::text, COALESCE(p.name, ''),
 	       s.warehouse_id::text, COALESCE(w.name, ''), s.shipment_date, s.status,
-	       s.remark, s.created_by::text, s.created_at
+	       s.remark, s.created_by::text, s.created_at,
+	       COALESCE(i.id::text, ''), COALESCE(i.code, ''), i.due_date
 	FROM erp.sales_shipments s
 	JOIN erp.sales_orders o ON o.tenant_id = s.tenant_id AND o.id = s.order_id
 	LEFT JOIN erp.partners p ON p.tenant_id = o.tenant_id AND p.id = o.customer_id
-	LEFT JOIN erp.warehouses w ON w.tenant_id = s.tenant_id AND w.id = s.warehouse_id`
+	LEFT JOIN erp.warehouses w ON w.tenant_id = s.tenant_id AND w.id = s.warehouse_id
+	LEFT JOIN erp.finance_invoices i ON i.tenant_id = s.tenant_id
+	  AND i.source_type = 'sales_shipment' AND i.source_id = s.id AND i.invoice_type = 'receivable'`
 
 func insertLines(ctx context.Context, tx pgx.Tx, order *domain.Order) error {
 	for _, line := range order.Lines {
@@ -586,17 +595,22 @@ func scanOrderLine(row rowScanner) (*domain.OrderLine, error) {
 
 func scanShipment(row rowScanner) (*domain.Shipment, error) {
 	var shipment domain.Shipment
+	var invoiceDueDate sql.NullTime
 	err := row.Scan(
 		&shipment.ID, &shipment.TenantID, &shipment.OrgID, &shipment.Code,
 		&shipment.OrderID, &shipment.OrderCode, &shipment.CustomerID, &shipment.CustomerName,
 		&shipment.WarehouseID, &shipment.WarehouseName, &shipment.ShipmentDate,
 		&shipment.Status, &shipment.Remark, &shipment.CreatedBy, &shipment.CreatedAt,
+		&shipment.InvoiceID, &shipment.InvoiceCode, &invoiceDueDate,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, domain.ErrNotFound
 	}
 	if err != nil {
 		return nil, fmt.Errorf("scan shipment: %w", err)
+	}
+	if invoiceDueDate.Valid {
+		shipment.InvoiceDueDate = invoiceDueDate.Time
 	}
 	return &shipment, nil
 }

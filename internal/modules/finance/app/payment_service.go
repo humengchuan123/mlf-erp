@@ -73,7 +73,7 @@ func (s *PaymentService) Create(ctx context.Context, input PaymentInput) (*domai
 		return nil, domain.ErrInvalidInput
 	}
 
-	filter := scope.Filter{TenantID: tenantID, DataScope: "all"}
+	filter := scope.FromActor(ctx, tenantID)
 	partner, err := s.partners.FindByID(ctx, filter, tenantID, strings.TrimSpace(input.PartnerID))
 	if err != nil || partner.Status != masterdomain.StatusActive {
 		return nil, domain.ErrInvalidInput

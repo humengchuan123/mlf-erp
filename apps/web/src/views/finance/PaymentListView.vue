@@ -352,7 +352,10 @@ async function openAllocate(payment: Payment) {
       page_size: 200
     })
     const outstandingInvoices = result.items.filter(
-      (invoice) => invoice.status !== 'paid' && Number(invoice.outstanding_amount) > 0
+      (invoice) =>
+        invoice.currency === payment.currency &&
+        invoice.status !== 'paid' &&
+        Number(invoice.outstanding_amount) > 0
     )
     let remaining = Number(payment.unallocated_amount)
     allocateLines.value = outstandingInvoices.map((invoice: Invoice) => {

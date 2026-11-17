@@ -2,7 +2,7 @@
 
 企业级 ERP Monorepo 骨架，支持 **SaaS 订阅** 与 **私有化安装** 两种交付形态。
 
-> 当前状态：Stage 1 平台底座 + Stage 2 主数据/编码规则/数据权限 + Stage 3A 采购与库存闭环。
+> 当前状态：Stage 1 平台底座 + Stage 2 主数据/编码规则/数据权限 + Stage 3A 采购与库存闭环 + Stage 3B 销售/发货/应收应付。
 > 设计参考：工作区根目录的《企业ERP应用开发指南》。
 
 ## 技术栈
@@ -126,7 +126,7 @@ demo_company / Demo@123456   数据范围 company
 demo_dept    / Demo@123456   数据范围 dept
 ```
 
-演示数据包含：4 个计量单位、2 个币种、4 个税率、4 个仓库、12 个客商、20 个物料、2 个部门组织、2 张采购订单和对应库存余额/流水。
+演示数据包含：4 个计量单位、2 个币种、4 个税率、4 个仓库、12 个客商、20 个物料、2 个部门组织、3 张采购订单、2 张销售订单、发货单、应收/应付发票、收付款和库存余额/流水。
 
 > Stage 1 起 API 要求 PostgreSQL 可用；`DB_REQUIRED=true`。
 
@@ -203,13 +203,23 @@ curl -H "Authorization: Bearer <access_token>" \
 curl -H "Authorization: Bearer <access_token>" \
   http://localhost:8080/api/v1/purchase/orders
 
-curl -X POST http://localhost:8080/api/v1/purchase/orders \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer <access_token>" \
-  -d '{"code":"PO-2026-0001","supplier_id":"SUP-001","amount":"1234.5600","currency":"CNY"}'
+curl -H "Authorization: Bearer <access_token>" \
+  http://localhost:8080/api/v1/sales/orders
+
+curl -H "Authorization: Bearer <access_token>" \
+  http://localhost:8080/api/v1/sales/shipments
+
+curl -H "Authorization: Bearer <access_token>" \
+  http://localhost:8080/api/v1/inventory/balances
+
+curl -H "Authorization: Bearer <access_token>" \
+  http://localhost:8080/api/v1/finance/invoices
+
+curl -H "Authorization: Bearer <access_token>" \
+  "http://localhost:8080/api/v1/finance/payments"
 ```
 
-采购订单当前使用内存仓储，重启 API 后数据丢失。后续替换为 PostgreSQL 仓储。
+采购、销售、库存和财务均使用 PostgreSQL 持久化。
 
 ## 常用命令
 
@@ -233,6 +243,10 @@ pnpm dev:worker
 # Frontend checks
 pnpm typecheck:web
 pnpm build:web
+pnpm test:frontend
+
+# Stage 3B API integration test (starts Postgres, migrates, seeds, starts API)
+pnpm test:api:stage3b
 
 # Docker
 docker build -f deploy/docker/api.Dockerfile -t mlf-erp/api:dev .
@@ -277,17 +291,30 @@ docker build -f deploy/docker/web.Dockerfile -t mlf-erp/web:dev .
 - 采购订单、库存余额、库存流水前端页面。
 - Demo 数据包含 2 张采购订单和对应库存。
 
+### Stage 3B 销售、发货与应收应付
+
+- 销售订单头/行、提交、审批、取消。
+- 部分发货、全部发货、超发校验、重复行校验、库存不足校验。
+- 发货事务内扣减库存、写库存流水、生成应收发票。
+- 库存移动平均成本 `avg_cost`，发货按平均成本记出库成本。
+- 采购收货自动生成应付发票。
+- 统一应收/应付发票、收款/付款、部分核销、重复/超额/类型/往来单位/币种校验。
+- 销售订单、发货单、应收应付、收付款前端页面。
+- Stage 3B 真实 HTTP API 集成测试和前端完整度检查。
+
 ### 工程与交付
 
 - Monorepo 工作区与共享包。
 - PostgreSQL 迁移、seed、Docker Compose。
 - Dockerfile、GitHub Actions CI、SaaS/私有化发布模板。
+- CI 包含单元测试、构建、Stage 3B 真实 PostgreSQL API 集成测试。
 - OpenAPI 契约与模块文档。
 
 ## 下一步
 
-- Stage 3B：销售订单、发货出库、应收/应付。
-- 采购退货、价格协议、供应商绩效。
+- Stage 3C：总账、凭证、三大报表、业务单据生成凭证。
+- 采购退货、销售退货、价格协议、客户信用。
+- 收付款反核销、发票红冲、账龄分析。
 - 审批流引擎、导入导出、附件。
 - 数据范围管理 API/UI。
 - 登录限流、token version、httpOnly Cookie 评估。

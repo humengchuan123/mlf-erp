@@ -260,6 +260,18 @@ func TestStage3B(t *testing.T) {
 		if got := number(t, payable, "total_amount"); got != 1000 {
 			t.Fatalf("payable total = %v, want 1000", got)
 		}
+
+		receipts := listItems(admin, "/purchase/receipts?order_id="+orderID, http.StatusOK)
+		receiptRow := findByID(receipts, receiptID)
+		if receiptRow == nil {
+			t.Fatalf("purchase receipt %s not found in receipt list", receiptID)
+		}
+		if text(receiptRow, "payable_code") == "" {
+			t.Fatal("purchase receipt list payable_code is empty")
+		}
+		if text(receiptRow, "payable_due_date") == "" {
+			t.Fatal("purchase receipt list payable_due_date is empty")
+		}
 	})
 
 	baseline := admin.mustGet("/inventory/balances?warehouse_id="+warehouseID+"&material_id="+materialID, http.StatusOK)
@@ -349,6 +361,18 @@ func TestStage3B(t *testing.T) {
 		}
 		if got := text(invoice, "status"); got != "open" {
 			t.Fatalf("first receivable status = %q, want open", got)
+		}
+
+		shipments := listItems(admin, "/sales/shipments?order_id="+salesOrderID, http.StatusOK)
+		shipmentRow := findByID(shipments, firstShipmentID)
+		if shipmentRow == nil {
+			t.Fatalf("shipment %s not found in shipment list", firstShipmentID)
+		}
+		if text(shipmentRow, "invoice_code") == "" {
+			t.Fatal("shipment list invoice_code is empty")
+		}
+		if text(shipmentRow, "invoice_due_date") == "" {
+			t.Fatal("shipment list invoice_due_date is empty")
 		}
 
 		second := admin.mustPost("/sales/orders/"+salesOrderID+"/ship", map[string]any{
@@ -617,6 +641,14 @@ func TestStage3B(t *testing.T) {
 		if got, _ := deptInvoices["total"].(float64); got != 0 {
 			t.Fatalf("demo_dept invoice total = %v, want 0", got)
 		}
+		deptShipments := dept.mustGet("/sales/shipments?page_size=100", http.StatusOK)
+		if got, _ := deptShipments["total"].(float64); got != 0 {
+			t.Fatalf("demo_dept shipment total = %v, want 0", got)
+		}
+		deptPayments := dept.mustGet("/finance/payments?page_size=100", http.StatusOK)
+		if got, _ := deptPayments["total"].(float64); got != 0 {
+			t.Fatalf("demo_dept payment total = %v, want 0", got)
+		}
 		dept.expectError(http.MethodPost, "/sales/orders", map[string]any{
 			"customer_id":  customerID,
 			"warehouse_id": warehouseID,
@@ -636,6 +668,85 @@ func TestStage3B(t *testing.T) {
 		if status != http.StatusUnauthorized || payload.Code != "UNAUTHORIZED" {
 			t.Fatalf("anonymous sales orders status = %d code = %q, want 401 UNAUTHORIZED", status, payload.Code)
 		}
+	})
+
+	t.Run("multi-line same material and zero total invoice", func(t *testing.T) {
+		multi := admin.mustPost("/sales/orders", map[string]any{
+			"customer_id":  customer2ID,
+			"warehouse_id": warehouseID,
+			"order_date":   time.Now().Format("2006-01-02"),
+			"currency":     "CNY",
+			"remark":       "stage3b-multi-line-same-material",
+			"lines": []map[string]any{
+				{"material_id": materialID, "quantity": "1", "unit_price": "10.00"},
+				{"material_id": materialID, "quantity": "1", "unit_price": "10.00"},
+			},
+		}, http.StatusCreated)
+		multiID := text(multi, "id")
+		admin.mustPost("/sales/orders/"+multiID+"/submit", nil, http.StatusOK)
+		admin.mustPost("/sales/orders/"+multiID+"/approve", nil, http.StatusOK)
+		multiDetail := admin.mustGet("/sales/orders/"+multiID, http.StatusOK)
+		multiLines, _ := multiDetail["lines"].([]any)
+		if len(multiLines) != 2 {
+			t.Fatalf("multi-line order lines = %d, want 2", len(multiLines))
+		}
+		shipment := admin.mustPost("/sales/orders/"+multiID+"/ship", map[string]any{
+			"shipment_date": time.Now().Format("2006-01-02"),
+			"lines": []map[string]any{
+				{"order_line_id": text(multiLines[0].(map[string]any), "id"), "quantity": "1"},
+				{"order_line_id": text(multiLines[1].(map[string]any), "id"), "quantity": "1"},
+			},
+		}, http.StatusCreated)
+		if got := number(t, shipment, "total_amount"); got != 20 {
+			t.Fatalf("multi-line shipment total = %v, want 20", got)
+		}
+
+		zero := admin.mustPost("/sales/orders", map[string]any{
+			"customer_id":  customer2ID,
+			"warehouse_id": warehouseID,
+			"order_date":   time.Now().Format("2006-01-02"),
+			"currency":     "CNY",
+			"remark":       "stage3b-zero-total",
+			"lines": []map[string]any{
+				{"material_id": materialID, "quantity": "1", "unit_price": "0"},
+			},
+		}, http.StatusCreated)
+		zeroID := text(zero, "id")
+		admin.mustPost("/sales/orders/"+zeroID+"/submit", nil, http.StatusOK)
+		admin.mustPost("/sales/orders/"+zeroID+"/approve", nil, http.StatusOK)
+		zeroDetail := admin.mustGet("/sales/orders/"+zeroID, http.StatusOK)
+		zeroLines, _ := zeroDetail["lines"].([]any)
+		zeroShipment := admin.mustPost("/sales/orders/"+zeroID+"/ship", map[string]any{
+			"shipment_date": time.Now().Format("2006-01-02"),
+			"lines": []map[string]any{
+				{"order_line_id": text(zeroLines[0].(map[string]any), "id"), "quantity": "1"},
+			},
+		}, http.StatusCreated)
+		zeroShipmentID := text(zeroShipment, "id")
+		invoices := listItems(admin, "/finance/invoices?invoice_type=receivable&partner_id="+customer2ID+"&page_size=200", http.StatusOK)
+		zeroInvoice := findItem(invoices, "source_id", zeroShipmentID)
+		if zeroInvoice == nil {
+			t.Fatalf("zero-total receivable invoice not found for shipment %s", zeroShipmentID)
+		}
+		if got := text(zeroInvoice, "status"); got != "paid" {
+			t.Fatalf("zero-total invoice status = %q, want paid", got)
+		}
+		if got := number(t, zeroInvoice, "total_amount"); got != 0 {
+			t.Fatalf("zero-total invoice total = %v, want 0", got)
+		}
+
+		payment := admin.mustPost("/finance/payments", map[string]any{
+			"payment_type": "receipt",
+			"partner_id":   customer2ID,
+			"payment_date": time.Now().Format("2006-01-02"),
+			"currency":     "CNY",
+			"amount":       "1.00",
+		}, http.StatusCreated)
+		admin.expectError(http.MethodPost, "/finance/payments/"+text(payment, "id")+"/allocate", map[string]any{
+			"allocations": []map[string]any{
+				{"invoice_id": text(zeroInvoice, "id"), "amount": "1.00"},
+			},
+		}, http.StatusConflict, "INVOICE_PAID")
 	})
 
 	t.Run("pagination filter and precision", func(t *testing.T) {

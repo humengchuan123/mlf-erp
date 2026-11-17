@@ -1,5 +1,89 @@
 # sales 模块
 
-销售模块：报价、销售合同、销售订单、信用检查、发货、开票、退货、收款、对账。
+销售订单与发货出库模块，Stage 3B 业务闭环：
 
-当前为目录骨架，待接入领域模型、数据库仓储和 API。
+```text
+销售订单 → 提交 → 审批 → 发货出库 → 库存扣减 → 应收发票
+```
+
+## 分层
+
+- `domain`：销售订单头/行、发货单头/行、状态机、金额计算、剩余可发数量、仓储接口。
+- `app`：创建/编辑/提交/审批/取消/发货用例，校验客户、仓库、物料、重复行和剩余可发数量。
+- `infra/postgres`：PostgreSQL 仓储；发货在一个事务中完成订单行更新、库存行锁、库存扣减、库存流水、应收发票和订单状态更新。
+- `http`：Gin Handler、金额/数量字符串转换、权限和审计。
+
+## API
+
+| 方法 | 路径 | 权限 |
+|---|---|---|
+| GET/POST | `/api/v1/sales/orders` | `sales.order.read/write` |
+| GET/PUT | `/api/v1/sales/orders/:id` | `sales.order.read/write` |
+| POST | `/api/v1/sales/orders/:id/submit` | `sales.order.write` |
+| POST | `/api/v1/sales/orders/:id/approve` | `sales.order.approve` |
+| POST | `/api/v1/sales/orders/:id/cancel` | `sales.order.write` |
+| POST | `/api/v1/sales/orders/:id/ship` | `sales.order.write` |
+| GET | `/api/v1/sales/shipments` | `sales.shipment.read` |
+
+创建订单示例：
+
+```json
+{
+  "customer_id": "customer-uuid",
+  "warehouse_id": "warehouse-uuid",
+  "order_date": "2026-11-17",
+  "currency": "CNY",
+  "remark": "",
+  "lines": [
+    {
+      "material_id": "material-uuid",
+      "quantity": "10",
+      "unit_price": "120.0000"
+    }
+  ]
+}
+```
+
+发货示例：
+
+```json
+{
+  "shipment_date": "2026-11-17",
+  "remark": "",
+  "lines": [
+    {
+      "order_line_id": "order-line-uuid",
+      "quantity": "4"
+    }
+  ]
+}
+```
+
+## 状态机
+
+```text
+draft → submitted → approved → partially_shipped → shipped
+   └──────────────┴──────────────┘
+              cancelled（无发货）
+```
+
+## 发货事务
+
+1. `FOR UPDATE` 锁定销售订单和订单行。
+2. 校验状态、重复行、剩余可发数量。
+3. 按物料稳定排序并 `FOR UPDATE` 锁定库存余额。
+4. 校验可用库存。
+5. 插入发货单/行、更新已发数量、扣减库存、写库存流水。
+6. 生成应收发票。
+7. 重算订单状态并提交。
+
+## 前端
+
+- `/sales/orders`：销售订单列表、新建/编辑、详情、提交、审批、取消、发货。
+- `/sales/shipments`：发货单列表和详情。
+
+## 后续
+
+- 销售退货、报价、价格协议、折扣、客户信用。
+- 批次/序列号、预留库存、调拨。
+- 发货幂等键、事件 Outbox。

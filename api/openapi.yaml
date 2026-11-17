@@ -1,10 +1,11 @@
 openapi: 3.1.0
 info:
   title: MLF ERP API
-  version: 0.2.0
+  version: 0.3.0
   description: |
-    MLF ERP Stage 1 + Stage 2 API contract.
+    MLF ERP Stage 1 + Stage 2 + Stage 3A/3B API contract.
     Master data uses a generic CRUD surface under /masterdata/{entity}.
+    Purchase, sales, inventory, receivables/payables and payments are included.
 servers:
   - url: /api/v1
 security:
@@ -223,14 +224,34 @@ paths:
                 $ref: '#/components/schemas/ApiResponse'
   /purchase/orders:
     get:
-      summary: List purchase orders for the current tenant
+      summary: List purchase orders
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+        - $ref: '#/components/parameters/Keyword'
+        - in: query
+          name: status
+          schema:
+            type: string
       responses:
         '200':
           description: OK
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PurchaseOrderListResponse'
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          items:
+                            type: array
+                            items:
+                              $ref: '#/components/schemas/PurchaseOrder'
+                          total:
+                            type: integer
     post:
       summary: Create a purchase order
       requestBody:
@@ -238,7 +259,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/CreatePurchaseOrderRequest'
+              $ref: '#/components/schemas/PurchaseOrderInput'
       responses:
         '201':
           description: Created
@@ -248,6 +269,519 @@ paths:
                 $ref: '#/components/schemas/PurchaseOrderResponse'
         '400':
           description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+  /purchase/orders/{id}:
+    parameters:
+      - $ref: '#/components/parameters/ID'
+    get:
+      summary: Get a purchase order
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PurchaseOrderResponse'
+        '404':
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+    put:
+      summary: Update a draft purchase order
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PurchaseOrderInput'
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PurchaseOrderResponse'
+  /purchase/orders/{id}/submit:
+    parameters:
+      - $ref: '#/components/parameters/ID'
+    post:
+      summary: Submit a draft purchase order
+      responses:
+        '200':
+          description: Submitted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActionResponse'
+  /purchase/orders/{id}/approve:
+    parameters:
+      - $ref: '#/components/parameters/ID'
+    post:
+      summary: Approve a submitted purchase order
+      responses:
+        '200':
+          description: Approved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActionResponse'
+  /purchase/orders/{id}/cancel:
+    parameters:
+      - $ref: '#/components/parameters/ID'
+    post:
+      summary: Cancel a purchase order without receipts
+      responses:
+        '200':
+          description: Cancelled
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActionResponse'
+  /purchase/orders/{id}/receive:
+    parameters:
+      - $ref: '#/components/parameters/ID'
+    post:
+      summary: Receive goods and create a payable invoice
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PurchaseReceiveInput'
+      responses:
+        '201':
+          description: Receipt posted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PurchaseReceiptResponse'
+  /purchase/receipts:
+    get:
+      summary: List purchase receipts
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+        - in: query
+          name: order_id
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          items:
+                            type: array
+                            items:
+                              $ref: '#/components/schemas/PurchaseReceipt'
+                          total:
+                            type: integer
+  /sales/orders:
+    get:
+      summary: List sales orders
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+        - $ref: '#/components/parameters/Keyword'
+        - in: query
+          name: status
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          items:
+                            type: array
+                            items:
+                              $ref: '#/components/schemas/SalesOrder'
+                          total:
+                            type: integer
+    post:
+      summary: Create a sales order
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SalesOrderInput'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SalesOrderResponse'
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+  /sales/orders/{id}:
+    parameters:
+      - $ref: '#/components/parameters/ID'
+    get:
+      summary: Get a sales order
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SalesOrderResponse'
+    put:
+      summary: Update a draft sales order
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SalesOrderInput'
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SalesOrderResponse'
+  /sales/orders/{id}/submit:
+    parameters:
+      - $ref: '#/components/parameters/ID'
+    post:
+      summary: Submit a draft sales order
+      responses:
+        '200':
+          description: Submitted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActionResponse'
+  /sales/orders/{id}/approve:
+    parameters:
+      - $ref: '#/components/parameters/ID'
+    post:
+      summary: Approve a submitted sales order
+      responses:
+        '200':
+          description: Approved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActionResponse'
+  /sales/orders/{id}/cancel:
+    parameters:
+      - $ref: '#/components/parameters/ID'
+    post:
+      summary: Cancel a sales order without shipments
+      responses:
+        '200':
+          description: Cancelled
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActionResponse'
+  /sales/orders/{id}/ship:
+    parameters:
+      - $ref: '#/components/parameters/ID'
+    post:
+      summary: Ship goods, deduct inventory and create a receivable invoice
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SalesShipInput'
+      responses:
+        '201':
+          description: Shipment posted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShipmentResponse'
+        '409':
+          description: Over shipment or insufficient stock
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+  /sales/shipments:
+    get:
+      summary: List sales shipments
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+        - in: query
+          name: order_id
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          items:
+                            type: array
+                            items:
+                              $ref: '#/components/schemas/Shipment'
+                          total:
+                            type: integer
+  /inventory/balances:
+    get:
+      summary: List inventory balances
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+        - $ref: '#/components/parameters/Keyword'
+        - in: query
+          name: warehouse_id
+          schema:
+            type: string
+            format: uuid
+        - in: query
+          name: material_id
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          items:
+                            type: array
+                            items:
+                              $ref: '#/components/schemas/InventoryBalance'
+                          total:
+                            type: integer
+  /inventory/transactions:
+    get:
+      summary: List inventory transactions
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+        - $ref: '#/components/parameters/Keyword'
+        - in: query
+          name: warehouse_id
+          schema:
+            type: string
+            format: uuid
+        - in: query
+          name: material_id
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          items:
+                            type: array
+                            items:
+                              $ref: '#/components/schemas/InventoryTransaction'
+                          total:
+                            type: integer
+  /finance/invoices:
+    get:
+      summary: List receivable and payable invoices
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+        - $ref: '#/components/parameters/Keyword'
+        - in: query
+          name: invoice_type
+          schema:
+            type: string
+            enum: [receivable, payable]
+        - in: query
+          name: status
+          schema:
+            type: string
+            enum: [open, partially_paid, paid]
+        - in: query
+          name: partner_id
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          items:
+                            type: array
+                            items:
+                              $ref: '#/components/schemas/Invoice'
+                          total:
+                            type: integer
+  /finance/invoices/{id}:
+    parameters:
+      - $ref: '#/components/parameters/ID'
+    get:
+      summary: Get an invoice with allocation records
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/InvoiceDetail'
+  /finance/payments:
+    get:
+      summary: List receipts and payments
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+        - $ref: '#/components/parameters/Keyword'
+        - in: query
+          name: payment_type
+          schema:
+            type: string
+            enum: [receipt, payment]
+        - in: query
+          name: status
+          schema:
+            type: string
+            enum: [unallocated, partially_allocated, allocated]
+        - in: query
+          name: partner_id
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          items:
+                            type: array
+                            items:
+                              $ref: '#/components/schemas/Payment'
+                          total:
+                            type: integer
+    post:
+      summary: Create a receipt or payment
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PaymentInput'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentResponse'
+  /finance/payments/{id}:
+    parameters:
+      - $ref: '#/components/parameters/ID'
+    get:
+      summary: Get a receipt or payment
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentResponse'
+  /finance/payments/{id}/allocate:
+    parameters:
+      - $ref: '#/components/parameters/ID'
+    post:
+      summary: Allocate a receipt/payment to invoices
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [allocations]
+              properties:
+                allocations:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/PaymentAllocationInput'
+      responses:
+        '200':
+          description: Allocated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentResponse'
+        '400':
+          description: Over allocation or type/partner/currency mismatch
           content:
             application/json:
               schema:
@@ -510,6 +1044,39 @@ components:
                     $ref: '#/components/schemas/MasterDataItem'
                 total:
                   type: integer
+    ActionResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiResponse'
+        - type: object
+          properties:
+            data:
+              type: object
+              properties:
+                id:
+                  type: string
+                action:
+                  type: string
+    PurchaseOrderLine:
+      type: object
+      properties:
+        id:
+          type: string
+        line_no:
+          type: integer
+        material_id:
+          type: string
+        material_name:
+          type: string
+        quantity:
+          type: string
+        unit_price:
+          type: string
+        amount:
+          type: string
+        received_qty:
+          type: string
+        remaining_qty:
+          type: string
     PurchaseOrder:
       type: object
       properties:
@@ -519,16 +1086,34 @@ components:
           type: string
         supplier_id:
           type: string
-        amount:
+        supplier_name:
           type: string
-          description: Decimal string, never a floating-point number.
+        warehouse_id:
+          type: string
+        warehouse_name:
+          type: string
+        order_date:
+          type: string
+          format: date
         currency:
           type: string
         status:
           type: string
+          enum: [draft, submitted, approved, partially_received, received, closed, cancelled]
+        total_amount:
+          type: string
+        remark:
+          type: string
         created_at:
           type: string
           format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        lines:
+          type: array
+          items:
+            $ref: '#/components/schemas/PurchaseOrderLine'
     PurchaseOrderResponse:
       allOf:
         - $ref: '#/components/schemas/ApiResponse'
@@ -536,26 +1121,511 @@ components:
           properties:
             data:
               $ref: '#/components/schemas/PurchaseOrder'
-    PurchaseOrderListResponse:
+    PurchaseOrderLineInput:
+      type: object
+      required: [material_id, quantity, unit_price]
+      properties:
+        material_id:
+          type: string
+        quantity:
+          type: string
+        unit_price:
+          type: string
+    PurchaseOrderInput:
+      type: object
+      required: [supplier_id, warehouse_id, order_date, lines]
+      properties:
+        supplier_id:
+          type: string
+        warehouse_id:
+          type: string
+        order_date:
+          type: string
+          format: date
+        currency:
+          type: string
+          default: CNY
+        remark:
+          type: string
+        lines:
+          type: array
+          items:
+            $ref: '#/components/schemas/PurchaseOrderLineInput'
+    PurchaseReceiptLine:
+      type: object
+      properties:
+        order_line_id:
+          type: string
+        material_id:
+          type: string
+        material_name:
+          type: string
+        quantity:
+          type: string
+        unit_price:
+          type: string
+        amount:
+          type: string
+    PurchaseReceipt:
+      type: object
+      properties:
+        id:
+          type: string
+        code:
+          type: string
+        order_id:
+          type: string
+        order_code:
+          type: string
+        supplier_name:
+          type: string
+        warehouse_id:
+          type: string
+        warehouse_name:
+          type: string
+        receipt_date:
+          type: string
+          format: date
+        status:
+          type: string
+        remark:
+          type: string
+        payable_code:
+          type: string
+        payable_due_date:
+          type: string
+          format: date
+        created_at:
+          type: string
+          format: date-time
+        lines:
+          type: array
+          items:
+            $ref: '#/components/schemas/PurchaseReceiptLine'
+    PurchaseReceiptResponse:
       allOf:
         - $ref: '#/components/schemas/ApiResponse'
         - type: object
           properties:
             data:
-              type: array
-              items:
-                $ref: '#/components/schemas/PurchaseOrder'
-    CreatePurchaseOrderRequest:
+              $ref: '#/components/schemas/PurchaseReceipt'
+    PurchaseReceiveLineInput:
       type: object
-      required: [code, amount]
+      required: [order_line_id, quantity]
       properties:
-        code:
+        order_line_id:
           type: string
-        supplier_id:
+        quantity:
+          type: string
+    PurchaseReceiveInput:
+      type: object
+      required: [lines]
+      properties:
+        receipt_date:
+          type: string
+          format: date
+        remark:
+          type: string
+        lines:
+          type: array
+          items:
+            $ref: '#/components/schemas/PurchaseReceiveLineInput'
+    SalesOrderLine:
+      type: object
+      properties:
+        id:
+          type: string
+        line_no:
+          type: integer
+        material_id:
+          type: string
+        material_name:
+          type: string
+        quantity:
+          type: string
+        unit_price:
           type: string
         amount:
           type: string
-          description: Decimal string, for example "1234.5600".
+        shipped_qty:
+          type: string
+        remaining_qty:
+          type: string
+    SalesOrder:
+      type: object
+      properties:
+        id:
+          type: string
+        code:
+          type: string
+        customer_id:
+          type: string
+        customer_name:
+          type: string
+        warehouse_id:
+          type: string
+        warehouse_name:
+          type: string
+        order_date:
+          type: string
+          format: date
+        currency:
+          type: string
+        status:
+          type: string
+          enum: [draft, submitted, approved, partially_shipped, shipped, cancelled]
+        total_amount:
+          type: string
+        remark:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        lines:
+          type: array
+          items:
+            $ref: '#/components/schemas/SalesOrderLine'
+    SalesOrderResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiResponse'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/SalesOrder'
+    SalesOrderLineInput:
+      type: object
+      required: [material_id, quantity, unit_price]
+      properties:
+        material_id:
+          type: string
+        quantity:
+          type: string
+        unit_price:
+          type: string
+    SalesOrderInput:
+      type: object
+      required: [customer_id, warehouse_id, order_date, lines]
+      properties:
+        customer_id:
+          type: string
+        warehouse_id:
+          type: string
+        order_date:
+          type: string
+          format: date
         currency:
           type: string
           default: CNY
+        remark:
+          type: string
+        lines:
+          type: array
+          items:
+            $ref: '#/components/schemas/SalesOrderLineInput'
+    ShipmentLine:
+      type: object
+      properties:
+        order_line_id:
+          type: string
+        material_id:
+          type: string
+        material_name:
+          type: string
+        quantity:
+          type: string
+        unit_price:
+          type: string
+        amount:
+          type: string
+        unit_cost:
+          type: string
+        cost_amount:
+          type: string
+    Shipment:
+      type: object
+      properties:
+        id:
+          type: string
+        code:
+          type: string
+        order_id:
+          type: string
+        order_code:
+          type: string
+        customer_id:
+          type: string
+        customer_name:
+          type: string
+        warehouse_id:
+          type: string
+        warehouse_name:
+          type: string
+        shipment_date:
+          type: string
+          format: date
+        status:
+          type: string
+        remark:
+          type: string
+        invoice_id:
+          type: string
+        invoice_code:
+          type: string
+        invoice_due_date:
+          type: string
+          format: date
+        total_amount:
+          type: string
+        total_cost:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        lines:
+          type: array
+          items:
+            $ref: '#/components/schemas/ShipmentLine'
+    ShipmentResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiResponse'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/Shipment'
+    SalesShipLineInput:
+      type: object
+      required: [order_line_id, quantity]
+      properties:
+        order_line_id:
+          type: string
+        quantity:
+          type: string
+    SalesShipInput:
+      type: object
+      required: [lines]
+      properties:
+        shipment_date:
+          type: string
+          format: date
+        remark:
+          type: string
+        lines:
+          type: array
+          items:
+            $ref: '#/components/schemas/SalesShipLineInput'
+    InventoryBalance:
+      type: object
+      properties:
+        tenant_id:
+          type: string
+        org_id:
+          type: string
+        warehouse_id:
+          type: string
+        warehouse_name:
+          type: string
+        material_id:
+          type: string
+        material_name:
+          type: string
+        on_hand:
+          type: string
+        reserved:
+          type: string
+        available:
+          type: string
+        updated_at:
+          type: string
+          format: date-time
+    InventoryTransaction:
+      type: object
+      properties:
+        id:
+          type: string
+        tenant_id:
+          type: string
+        org_id:
+          type: string
+        warehouse_id:
+          type: string
+        warehouse_name:
+          type: string
+        material_id:
+          type: string
+        material_name:
+          type: string
+        direction:
+          type: string
+          enum: [in, out]
+        biz_type:
+          type: string
+        biz_id:
+          type: string
+        biz_code:
+          type: string
+        quantity:
+          type: string
+        unit_cost:
+          type: string
+        amount:
+          type: string
+        occurred_at:
+          type: string
+          format: date-time
+        created_by:
+          type: string
+    Invoice:
+      type: object
+      properties:
+        id:
+          type: string
+        code:
+          type: string
+        invoice_type:
+          type: string
+          enum: [receivable, payable]
+        source_type:
+          type: string
+          enum: [sales_shipment, purchase_receipt]
+        source_id:
+          type: string
+        source_code:
+          type: string
+        partner_id:
+          type: string
+        partner_name:
+          type: string
+        invoice_date:
+          type: string
+          format: date
+        due_date:
+          type: string
+          format: date
+        currency:
+          type: string
+        status:
+          type: string
+          enum: [open, partially_paid, paid]
+        total_amount:
+          type: string
+        paid_amount:
+          type: string
+        outstanding_amount:
+          type: string
+        remark:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    InvoiceAllocation:
+      type: object
+      properties:
+        id:
+          type: string
+        payment_id:
+          type: string
+        payment_code:
+          type: string
+        payment_type:
+          type: string
+          enum: [receipt, payment]
+        payment_date:
+          type: string
+          format: date
+        amount:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+    InvoiceDetail:
+      allOf:
+        - $ref: '#/components/schemas/Invoice'
+        - type: object
+          properties:
+            allocations:
+              type: array
+              items:
+                $ref: '#/components/schemas/InvoiceAllocation'
+    Payment:
+      type: object
+      properties:
+        id:
+          type: string
+        code:
+          type: string
+        payment_type:
+          type: string
+          enum: [receipt, payment]
+        partner_id:
+          type: string
+        partner_name:
+          type: string
+        payment_date:
+          type: string
+          format: date
+        currency:
+          type: string
+        amount:
+          type: string
+        allocated_amount:
+          type: string
+        unallocated_amount:
+          type: string
+        status:
+          type: string
+          enum: [unallocated, partially_allocated, allocated]
+        method:
+          type: string
+          enum: [bank, cash, other]
+        reference:
+          type: string
+        remark:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+    PaymentResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiResponse'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/Payment'
+    PaymentInput:
+      type: object
+      required: [payment_type, partner_id, payment_date, amount]
+      properties:
+        payment_type:
+          type: string
+          enum: [receipt, payment]
+        partner_id:
+          type: string
+        payment_date:
+          type: string
+          format: date
+        currency:
+          type: string
+          default: CNY
+        amount:
+          type: string
+        method:
+          type: string
+          enum: [bank, cash, other]
+        reference:
+          type: string
+        remark:
+          type: string
+    PaymentAllocationInput:
+      type: object
+      required: [invoice_id, amount]
+      properties:
+        invoice_id:
+          type: string
+        amount:
+          type: string

@@ -180,7 +180,8 @@ const canSystem = computed(
     authStore.hasPermission('system.user.read') ||
     authStore.hasPermission('system.role.read') ||
     authStore.hasPermission('system.org.read') ||
-    authStore.hasPermission('system.audit.read')
+    authStore.hasPermission('system.audit.read') ||
+    authStore.hasPermission('system.code_rule.read')
 )
 
 async function handleCommand(command: string) {

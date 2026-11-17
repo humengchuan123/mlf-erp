@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"sort"
@@ -306,15 +307,20 @@ func (r *Repository) Receive(ctx context.Context, filter scope.Filter, receipt *
 	}
 
 	invoiceTotal = invoiceTotal.Round(4)
+	invoiceStatus := "open"
+	if !invoiceTotal.IsPositive() {
+		invoiceStatus = "paid"
+	}
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO erp.finance_invoices (
 			id, tenant_id, org_id, code, invoice_type, source_type, source_id, source_code,
 			partner_id, invoice_date, due_date, currency, status, total_amount, paid_amount,
 			remark, created_by, updated_by
-		) VALUES ($1,$2,$3,$4,'payable','purchase_receipt',$5,$6,$7,$8,$9,$10,'open',$11,0,'',$12,$12)`,
+		) VALUES ($1,$2,$3,$4,'payable','purchase_receipt',$5,$6,$7,$8,$9,$10,$13,$11,0,'',$12,$12)`,
 		receipt.PayableID, receipt.TenantID, receipt.OrgID, receipt.PayableCode,
 		receipt.ID, receipt.Code, order.SupplierID, receipt.ReceiptDate,
 		receipt.PayableDueDate, order.Currency, invoiceTotal.String(), receipt.CreatedBy,
+		invoiceStatus,
 	); err != nil {
 		return fmt.Errorf("insert payable invoice: %w", mapDBError(err))
 	}
@@ -404,11 +410,14 @@ const orderSelectSQL = `
 const receiptSelectSQL = `
 	SELECT r.id::text, r.tenant_id::text, r.org_id::text, r.code,
 	       r.order_id::text, o.code, COALESCE(p.name, ''), r.warehouse_id::text, COALESCE(w.name, ''),
-	       r.receipt_date, r.status, r.remark, r.created_by::text, r.created_at
+	       r.receipt_date, r.status, r.remark, r.created_by::text, r.created_at,
+	       COALESCE(i.code, ''), i.due_date
 	FROM erp.purchase_receipts r
 	JOIN erp.purchase_orders o ON o.tenant_id = r.tenant_id AND o.id = r.order_id
 	LEFT JOIN erp.partners p ON p.tenant_id = o.tenant_id AND p.id = o.supplier_id
-	LEFT JOIN erp.warehouses w ON w.tenant_id = r.tenant_id AND w.id = r.warehouse_id`
+	LEFT JOIN erp.warehouses w ON w.tenant_id = r.tenant_id AND w.id = r.warehouse_id
+	LEFT JOIN erp.finance_invoices i ON i.tenant_id = r.tenant_id
+	  AND i.source_type = 'purchase_receipt' AND i.source_id = r.id AND i.invoice_type = 'payable'`
 
 func insertLines(ctx context.Context, tx pgx.Tx, order *domain.Order) error {
 	for _, line := range order.Lines {
@@ -550,17 +559,22 @@ func scanOrderLine(row rowScanner) (*domain.OrderLine, error) {
 
 func scanReceipt(row rowScanner) (*domain.Receipt, error) {
 	var receipt domain.Receipt
+	var payableDueDate sql.NullTime
 	err := row.Scan(
 		&receipt.ID, &receipt.TenantID, &receipt.OrgID, &receipt.Code,
 		&receipt.OrderID, &receipt.OrderCode, &receipt.SupplierName,
 		&receipt.WarehouseID, &receipt.WarehouseName, &receipt.ReceiptDate,
 		&receipt.Status, &receipt.Remark, &receipt.CreatedBy, &receipt.CreatedAt,
+		&receipt.PayableCode, &payableDueDate,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, domain.ErrNotFound
 	}
 	if err != nil {
 		return nil, fmt.Errorf("scan receipt: %w", err)
+	}
+	if payableDueDate.Valid {
+		receipt.PayableDueDate = payableDueDate.Time
 	}
 	return &receipt, nil
 }

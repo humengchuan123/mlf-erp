@@ -526,19 +526,25 @@ async function openShip(order: SalesOrder) {
     shipOrderTarget.value = detail
     shipForm.shipment_date = today()
     shipForm.remark = ''
-    const balanceResult = await inventoryApi.balances({ page_size: 200 })
+    const balanceResult = await inventoryApi.balances({
+      warehouse_id: detail.warehouse_id,
+      page_size: 200
+    })
     const availableByMaterial = new Map(
       balanceResult.items.map((item) => [item.material_id, Number(item.available)])
     )
     shipForm.lines = detail.lines
       .filter((line) => Number(line.remaining_qty) > 0)
-      .map((line) => ({
-        order_line_id: line.id,
-        material_name: line.material_name,
-        remaining_qty: line.remaining_qty,
-        available_qty: String(availableByMaterial.get(line.material_id) ?? 0),
-        quantity: line.remaining_qty
-      }))
+      .map((line) => {
+        const available = Number(availableByMaterial.get(line.material_id) ?? 0)
+        return {
+          order_line_id: line.id,
+          material_name: line.material_name,
+          remaining_qty: line.remaining_qty,
+          available_qty: String(available),
+          quantity: Math.min(Number(line.remaining_qty), available).toFixed(4)
+        }
+      })
     shipVisible.value = true
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : '加载发货明细失败')
