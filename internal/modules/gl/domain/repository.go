@@ -12,6 +12,7 @@ type AccountRepository interface {
 	Get(ctx context.Context, tenantID, id string) (*Account, error)
 	Create(ctx context.Context, account *Account) error
 	Update(ctx context.Context, account *Account) error
+	InUse(ctx context.Context, tenantID, id string) (bool, error)
 }
 
 type PeriodRepository interface {

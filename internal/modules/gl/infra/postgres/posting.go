@@ -212,6 +212,11 @@ func postVoucherTx(ctx context.Context, tx pgx.Tx, input voucherPostingInput) er
 		accountID := accountIDs[line.AccountKey]
 		debit := line.Debit.Round(4)
 		credit := line.Credit.Round(4)
+		if debit.IsNegative() || credit.IsNegative() ||
+			(debit.IsPositive() && credit.IsPositive()) ||
+			(!debit.IsPositive() && !credit.IsPositive()) {
+			return domain.ErrInvalidInput
+		}
 		totalDebit = totalDebit.Add(debit)
 		totalCredit = totalCredit.Add(credit)
 		lines = append(lines, &domain.VoucherLine{

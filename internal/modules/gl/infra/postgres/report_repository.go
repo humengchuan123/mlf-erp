@@ -295,7 +295,7 @@ func (r *ReportRepository) IncomeStatement(
 
 func (r *ReportRepository) listLeafAccounts(ctx context.Context, tenantID string) ([]*domain.Account, error) {
 	rows, err := r.db.Query(ctx, accountSelectSQL+`
-		WHERE tenant_id = $1 AND is_leaf = true AND status = 'active'
+		WHERE tenant_id = $1 AND is_leaf = true
 		ORDER BY code`, tenantID)
 	if err != nil {
 		return nil, fmt.Errorf("list leaf accounts: %w", err)
@@ -315,6 +315,6 @@ func (r *ReportRepository) listLeafAccounts(ctx context.Context, tenantID string
 
 func (r *ReportRepository) getLeafAccount(ctx context.Context, tenantID, id string) (*domain.Account, error) {
 	row := r.db.QueryRow(ctx, accountSelectSQL+`
-		WHERE tenant_id = $1 AND id = $2 AND is_leaf = true AND status = 'active'`, tenantID, id)
+		WHERE tenant_id = $1 AND id = $2 AND is_leaf = true`, tenantID, id)
 	return scanAccount(row)
 }

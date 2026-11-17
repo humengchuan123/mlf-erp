@@ -42,6 +42,7 @@ func (r *VoucherRepository) Create(ctx context.Context, filter scope.Filter, vou
 	voucher.Status = domain.VoucherStatusDraft
 	if post {
 		voucher.Status = domain.VoucherStatusPosted
+		voucher.PostedBy = voucher.CreatedBy
 		now := time.Now()
 		voucher.PostedAt = &now
 	}
@@ -50,7 +51,11 @@ func (r *VoucherRepository) Create(ctx context.Context, filter scope.Filter, vou
 	if err != nil {
 		return err
 	}
+	now := time.Now()
 	voucher.Lines = lines
+	voucher.TotalAmount = sumLineDebits(lines)
+	voucher.CreatedAt = now
+	voucher.UpdatedAt = now
 	if err := insertVoucherTx(ctx, tx, voucher); err != nil {
 		return err
 	}
@@ -170,6 +175,8 @@ func (r *VoucherRepository) UpdateDraft(ctx context.Context, filter scope.Filter
 		return err
 	}
 	voucher.Lines = lines
+	voucher.TotalAmount = sumLineDebits(lines)
+	voucher.UpdatedAt = time.Now()
 
 	if _, err := tx.Exec(ctx, `
 		UPDATE erp.gl_vouchers
@@ -222,7 +229,8 @@ func (r *VoucherRepository) Post(ctx context.Context, filter scope.Filter, tenan
 	var periodStatus string
 	if err := tx.QueryRow(ctx, `
 		SELECT status FROM erp.gl_periods
-		WHERE tenant_id = $1 AND id = $2`, tenantID, periodID).Scan(&periodStatus); err != nil {
+		WHERE tenant_id = $1 AND id = $2
+		FOR SHARE`, tenantID, periodID).Scan(&periodStatus); err != nil {
 		return fmt.Errorf("load voucher period: %w", err)
 	}
 	if periodStatus == domain.PeriodStatusClosed {
@@ -268,6 +276,9 @@ func (r *VoucherRepository) Reverse(
 	if original.Status != domain.VoucherStatusPosted {
 		return nil, domain.ErrInvalidStatus
 	}
+	if original.VoucherType != domain.VoucherTypeManual {
+		return nil, domain.ErrInvalidStatus
+	}
 	originalLines, err := loadVoucherLines(ctx, tx, tenantID, id)
 	if err != nil {
 		return nil, err
@@ -304,6 +315,8 @@ func (r *VoucherRepository) Reverse(
 	}
 	now := time.Now()
 	reversal.PostedAt = &now
+	reversal.CreatedAt = now
+	reversal.UpdatedAt = now
 
 	for i, line := range originalLines {
 		reversal.Lines = append(reversal.Lines, &domain.VoucherLine{
@@ -321,6 +334,7 @@ func (r *VoucherRepository) Reverse(
 			DepartmentID: line.DepartmentID,
 		})
 	}
+	reversal.TotalAmount = sumLineDebits(reversal.Lines)
 
 	if err := insertVoucherTx(ctx, tx, reversal); err != nil {
 		return nil, err
@@ -509,6 +523,14 @@ func insertVoucherTx(ctx context.Context, tx pgx.Tx, voucher *domain.Voucher) er
 		return fmt.Errorf("insert voucher: %w", mapDBError(err))
 	}
 	return insertVoucherLinesTx(ctx, tx, voucher.Lines)
+}
+
+func sumLineDebits(lines []*domain.VoucherLine) decimal.Decimal {
+	total := decimal.Zero
+	for _, line := range lines {
+		total = total.Add(line.Debit)
+	}
+	return total.Round(4)
 }
 
 func insertVoucherLinesTx(ctx context.Context, tx pgx.Tx, lines []*domain.VoucherLine) error {

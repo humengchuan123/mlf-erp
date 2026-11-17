@@ -104,6 +104,23 @@ func (r *AccountRepository) Update(ctx context.Context, account *domain.Account)
 	return nil
 }
 
+func (r *AccountRepository) InUse(ctx context.Context, tenantID, id string) (bool, error) {
+	var inUse bool
+	if err := r.db.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1 FROM erp.gl_voucher_lines
+			WHERE tenant_id = $1 AND account_id = $2
+		) OR EXISTS (
+			SELECT 1
+			FROM erp.gl_account_mappings m
+			JOIN erp.gl_accounts a ON a.tenant_id = m.tenant_id AND a.code = m.account_code
+			WHERE m.tenant_id = $1 AND a.id = $2
+		)`, tenantID, id).Scan(&inUse); err != nil {
+		return false, fmt.Errorf("check account usage: %w", err)
+	}
+	return inUse, nil
+}
+
 const accountSelectSQL = `
 	SELECT id::text, tenant_id::text, code, name, type, direction,
 	       COALESCE(parent_id::text, ''), level, is_leaf, status, created_at, updated_at

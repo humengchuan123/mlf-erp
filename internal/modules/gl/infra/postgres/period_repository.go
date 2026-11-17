@@ -136,7 +136,8 @@ func ensurePeriodTx(ctx context.Context, tx pgx.Tx, tenantID string, date time.T
 	}
 
 	row := tx.QueryRow(ctx, periodSelectSQL+`
-		WHERE tenant_id = $1 AND year = $2 AND month = $3`, tenantID, year, month)
+		WHERE tenant_id = $1 AND year = $2 AND month = $3
+		FOR SHARE`, tenantID, year, month)
 	return scanPeriod(row)
 }
 

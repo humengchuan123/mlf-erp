@@ -122,6 +122,17 @@ func TestStage3C(t *testing.T) {
 		t.Fatal("demo master data missing")
 	}
 
+	t.Run("account integrity", func(t *testing.T) {
+		ar := accountByCode["1122"]
+		admin.expectError(http.MethodPut, "/finance/accounts/"+text(ar, "id"), map[string]any{
+			"code":      text(ar, "code"),
+			"name":      text(ar, "name"),
+			"type":      "expense",
+			"direction": "debit",
+			"status":    "active",
+		}, http.StatusConflict, "CONFLICT")
+	})
+
 	t.Run("purchase receipt auto voucher", func(t *testing.T) {
 		order := admin.mustPost("/purchase/orders", map[string]any{
 			"supplier_id":  text(supplier, "id"),
@@ -219,6 +230,7 @@ func TestStage3C(t *testing.T) {
 		if got := number(t, inventoryLine, "credit"); !nearlyEqual(got, expectedCost) {
 			t.Fatalf("inventory credit = %v, want %v", got, expectedCost)
 		}
+		admin.expectError(http.MethodPost, "/finance/vouchers/"+salesVoucherID+"/reverse", nil, http.StatusConflict, "INVALID_STATUS")
 	})
 
 	t.Run("receipt and supplier payment auto vouchers", func(t *testing.T) {
@@ -327,11 +339,55 @@ func TestStage3C(t *testing.T) {
 	})
 
 	t.Run("period close blocks posting", func(t *testing.T) {
+		closedOrder := admin.mustPost("/sales/orders", map[string]any{
+			"customer_id":  text(customer, "id"),
+			"warehouse_id": text(warehouse, "id"),
+			"order_date":   endDate,
+			"currency":     "CNY",
+			"remark":       "stage3c-closed-period-ship",
+			"lines": []map[string]any{
+				{"material_id": text(material, "id"), "quantity": "1", "unit_price": "10.00"},
+			},
+		}, http.StatusCreated)
+		closedOrderID := text(closedOrder, "id")
+		admin.mustPost("/sales/orders/"+closedOrderID+"/submit", nil, http.StatusOK)
+		admin.mustPost("/sales/orders/"+closedOrderID+"/approve", nil, http.StatusOK)
+		closedOrderDetail := admin.mustGet("/sales/orders/"+closedOrderID, http.StatusOK)
+		closedOrderLines, _ := closedOrderDetail["lines"].([]any)
+		closedOrderLineID := text(closedOrderLines[0].(map[string]any), "id")
+
+		draft := admin.mustPost("/finance/vouchers", map[string]any{
+			"voucher_date": endDate,
+			"memo":         "stage3c draft blocks close",
+			"lines": []map[string]any{
+				{"account_id": cashID, "summary": "draft", "debit": "1.00", "credit": "0"},
+				{"account_id": capitalID, "summary": "draft", "debit": "0", "credit": "1.00"},
+			},
+		}, http.StatusCreated)
+		draftID := text(draft, "id")
+
 		periodID := text(currentPeriod, "id")
+		admin.expectError(http.MethodPost, "/finance/periods/"+periodID+"/close", nil, http.StatusConflict, "CONFLICT")
+		admin.mustPost("/finance/vouchers/"+draftID+"/post", nil, http.StatusOK)
 		admin.mustPost("/finance/periods/"+periodID+"/close", nil, http.StatusOK)
 		defer func() {
 			admin.post("/finance/periods/"+periodID+"/reopen", nil)
 		}()
+
+		admin.expectError(http.MethodPost, "/sales/orders/"+closedOrderID+"/ship", map[string]any{
+			"shipment_date": endDate,
+			"lines": []map[string]any{
+				{"order_line_id": closedOrderLineID, "quantity": "1"},
+			},
+		}, http.StatusConflict, "PERIOD_CLOSED")
+		admin.expectError(http.MethodPost, "/finance/payments", map[string]any{
+			"payment_type": "receipt",
+			"partner_id":   text(customer, "id"),
+			"payment_date": endDate,
+			"currency":     "CNY",
+			"amount":       "1.00",
+			"method":       "bank",
+		}, http.StatusConflict, "PERIOD_CLOSED")
 		admin.expectError(http.MethodPost, "/finance/vouchers", map[string]any{
 			"voucher_date": endDate,
 			"memo":         "stage3c closed period",

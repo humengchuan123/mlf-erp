@@ -102,7 +102,7 @@ func (s *VoucherService) Create(ctx context.Context, input VoucherInput) (*domai
 }
 
 func (s *VoucherService) UpdateDraft(ctx context.Context, id string, input VoucherInput) (*domain.Voucher, error) {
-	tenantID, _, userID := tenantActor(ctx)
+	tenantID, _, _ := tenantActor(ctx)
 	filter := scope.FromActor(ctx, tenantID)
 	voucher, err := s.vouchers.Get(ctx, filter, tenantID, id)
 	if err != nil {
@@ -129,7 +129,7 @@ func (s *VoucherService) UpdateDraft(ctx context.Context, id string, input Vouch
 	voucher.VoucherDate = date
 	voucher.Memo = trim(input.Memo)
 	voucher.InputLines = lines
-	voucher.CreatedBy = userID
+	voucher.UpdatedAt = time.Now()
 	if err := s.vouchers.UpdateDraft(ctx, filter, voucher); err != nil {
 		return nil, err
 	}

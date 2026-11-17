@@ -11,6 +11,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/mlf-erp/mlf-erp/internal/modules/finance/app"
 	"github.com/mlf-erp/mlf-erp/internal/modules/finance/domain"
+	gldomain "github.com/mlf-erp/mlf-erp/internal/modules/gl/domain"
 	systemapp "github.com/mlf-erp/mlf-erp/internal/modules/system/app"
 	"github.com/mlf-erp/mlf-erp/internal/platform/authmw"
 	"github.com/mlf-erp/mlf-erp/internal/platform/httpmw"
@@ -304,6 +305,18 @@ func (h *Handler) handleError(c *gin.Context, err error) {
 		httpx.Error(c, http.StatusConflict, "PAYMENT_ALLOCATED", "payment is already fully allocated")
 	case errors.Is(err, domain.ErrConflict):
 		httpx.Error(c, http.StatusConflict, "CONFLICT", "finance record is in conflict")
+	case errors.Is(err, gldomain.ErrConflict):
+		httpx.Error(c, http.StatusConflict, "GL_CONFLICT", "general ledger posting is in conflict")
+	case errors.Is(err, gldomain.ErrPeriodClosed):
+		httpx.Error(c, http.StatusConflict, "PERIOD_CLOSED", "accounting period is closed")
+	case errors.Is(err, gldomain.ErrAccountNotLeaf):
+		httpx.Error(c, http.StatusBadRequest, "ACCOUNT_NOT_LEAF", "account must be a leaf")
+	case errors.Is(err, gldomain.ErrAccountDisabled):
+		httpx.Error(c, http.StatusBadRequest, "ACCOUNT_DISABLED", "account is disabled")
+	case errors.Is(err, gldomain.ErrUnbalanced):
+		httpx.Error(c, http.StatusBadRequest, "UNBALANCED", "automatic voucher is not balanced")
+	case errors.Is(err, gldomain.ErrInvalidInput):
+		httpx.Error(c, http.StatusBadRequest, httpx.CodeBadRequest, "general ledger posting is not configured")
 	default:
 		h.log.Error("finance request failed",
 			"error", err,

@@ -39,7 +39,14 @@
             <el-button link type="primary" @click="openDetail(row)">详情</el-button>
             <el-button v-if="canWrite && row.status === 'draft'" link type="primary" @click="openEdit(row)">编辑</el-button>
             <el-button v-if="canPost && row.status === 'draft'" link type="success" @click="postVoucher(row)">过账</el-button>
-            <el-button v-if="canReverse && row.status === 'posted'" link type="warning" @click="reverseVoucher(row)">反过账</el-button>
+            <el-button
+              v-if="canReverse && row.status === 'posted' && row.voucher_type === 'manual'"
+              link
+              type="warning"
+              @click="reverseVoucher(row)"
+            >
+              反过账
+            </el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -142,7 +149,14 @@
 
         <div class="drawer-actions">
           <el-button v-if="canPost && detail.status === 'draft'" type="success" @click="postVoucher(detail)">过账</el-button>
-          <el-button v-if="canReverse && detail.status === 'posted'" type="warning" @click="reverseVoucher(detail)">反过账</el-button>
+          <el-button
+            v-if="canReverse && detail.status === 'posted' && detail.voucher_type === 'manual'"
+            type="warning"
+            @click="reverseVoucher(detail)"
+          >
+            反过账
+          </el-button>
+          <el-tag v-if="detail.voucher_type !== 'manual'" type="info" size="small">自动凭证请通过业务反向流程处理</el-tag>
         </div>
       </template>
     </el-drawer>
