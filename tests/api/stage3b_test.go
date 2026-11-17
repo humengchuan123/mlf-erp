@@ -37,10 +37,7 @@ func env(key, fallback string) string {
 
 func newClient(t *testing.T) *client {
 	t.Helper()
-	baseURL := strings.TrimRight(env("TEST_API_BASE_URL", ""), "/")
-	if baseURL == "" {
-		t.Skip("TEST_API_BASE_URL is not set; skipping Stage 3B API integration test")
-	}
+	baseURL := strings.TrimRight(env("TEST_API_BASE_URL", "http://localhost:18080"), "/")
 	return &client{t: t, baseURL: baseURL}
 }
 
@@ -283,6 +280,9 @@ func TestStage3B(t *testing.T) {
 	if baselineOnHand < 10 {
 		t.Fatalf("baseline on hand = %v, want >= 10", baselineOnHand)
 	}
+	if got := number(t, baselineItems[0].(map[string]any), "avg_cost"); got != 50 {
+		t.Fatalf("baseline avg_cost = %v, want 50", got)
+	}
 
 	var salesOrderID string
 	var firstShipmentID string
@@ -311,6 +311,7 @@ func TestStage3B(t *testing.T) {
 
 		admin.mustPost("/sales/orders/"+salesOrderID+"/submit", nil, http.StatusOK)
 		admin.mustPost("/sales/orders/"+salesOrderID+"/approve", nil, http.StatusOK)
+		admin.expectError(http.MethodPost, "/sales/orders/"+salesOrderID+"/approve", nil, http.StatusConflict, "INVALID_STATUS")
 
 		detail := admin.mustGet("/sales/orders/"+salesOrderID, http.StatusOK)
 		lines, _ := detail["lines"].([]any)
@@ -329,6 +330,40 @@ func TestStage3B(t *testing.T) {
 		}
 		if text(first, "invoice_code") == "" {
 			t.Fatal("first shipment invoice_code is empty")
+		}
+		if got := number(t, first, "total_cost"); got != 200 {
+			t.Fatalf("first shipment total_cost = %v, want 200", got)
+		}
+		firstLines, _ := first["lines"].([]any)
+		firstLine := firstLines[0].(map[string]any)
+		if got := number(t, firstLine, "unit_cost"); got != 50 {
+			t.Fatalf("first shipment unit_cost = %v, want 50", got)
+		}
+		if got := number(t, firstLine, "cost_amount"); got != 200 {
+			t.Fatalf("first shipment cost_amount = %v, want 200", got)
+		}
+		ledger := listItems(admin,
+			"/inventory/transactions?warehouse_id="+warehouseID+"&material_id="+materialID+"&page_size=200",
+			http.StatusOK,
+		)
+		var outbound map[string]any
+		for _, item := range ledger {
+			if text(item, "biz_id") == firstShipmentID {
+				outbound = item
+				break
+			}
+		}
+		if outbound == nil {
+			t.Fatalf("outbound inventory transaction not found for shipment %s", firstShipmentID)
+		}
+		if got := text(outbound, "direction"); got != "out" {
+			t.Fatalf("outbound direction = %q, want out", got)
+		}
+		if got := number(t, outbound, "unit_cost"); got != 50 {
+			t.Fatalf("outbound unit_cost = %v, want 50", got)
+		}
+		if got := number(t, outbound, "amount"); got != 200 {
+			t.Fatalf("outbound amount = %v, want 200", got)
 		}
 
 		afterPartial := admin.mustGet("/sales/orders/"+salesOrderID, http.StatusOK)
@@ -427,6 +462,10 @@ func TestStage3B(t *testing.T) {
 		lines, _ := detail["lines"].([]any)
 		lineID := text(lines[0].(map[string]any), "id")
 
+		beforeBalance := admin.mustGet("/inventory/balances?warehouse_id="+warehouseID+"&material_id="+materialID, http.StatusOK)
+		beforeItems, _ := beforeBalance["items"].([]any)
+		beforeOnHand := number(t, beforeItems[0].(map[string]any), "on_hand")
+
 		admin.expectError(http.MethodPost, "/sales/orders/"+orderID+"/ship", map[string]any{
 			"shipment_date": time.Now().Format("2006-01-02"),
 			"lines": []map[string]any{
@@ -446,6 +485,15 @@ func TestStage3B(t *testing.T) {
 		afterLines, _ := after["lines"].([]any)
 		if got := number(t, afterLines[0].(map[string]any), "shipped_qty"); got != 0 {
 			t.Fatalf("shipped_qty after rejected shipments = %v, want 0", got)
+		}
+		afterBalance := admin.mustGet("/inventory/balances?warehouse_id="+warehouseID+"&material_id="+materialID, http.StatusOK)
+		afterItems, _ := afterBalance["items"].([]any)
+		if got := number(t, afterItems[0].(map[string]any), "on_hand"); got != beforeOnHand {
+			t.Fatalf("on_hand after rejected shipments = %v, want %v", got, beforeOnHand)
+		}
+		shipments := admin.mustGet("/sales/shipments?order_id="+orderID+"&page_size=100", http.StatusOK)
+		if got, _ := shipments["total"].(float64); got != 0 {
+			t.Fatalf("shipment total after rejected shipments = %v, want 0", got)
 		}
 
 		emptyOrder := admin.mustPost("/sales/orders", map[string]any{
@@ -506,6 +554,14 @@ func TestStage3B(t *testing.T) {
 		admin.mustPost("/sales/orders/"+cancelID+"/submit", nil, http.StatusOK)
 		admin.mustPost("/sales/orders/"+cancelID+"/approve", nil, http.StatusOK)
 		admin.mustPost("/sales/orders/"+cancelID+"/cancel", nil, http.StatusOK)
+		cancelledDetail := admin.mustGet("/sales/orders/"+cancelID, http.StatusOK)
+		cancelledLines, _ := cancelledDetail["lines"].([]any)
+		admin.expectError(http.MethodPost, "/sales/orders/"+cancelID+"/ship", map[string]any{
+			"shipment_date": time.Now().Format("2006-01-02"),
+			"lines": []map[string]any{
+				{"order_line_id": text(cancelledLines[0].(map[string]any), "id"), "quantity": "1"},
+			},
+		}, http.StatusConflict, "INVALID_STATUS")
 
 		partialOrder := admin.mustPost("/sales/orders", map[string]any{
 			"customer_id":  customerID,
@@ -587,6 +643,126 @@ func TestStage3B(t *testing.T) {
 				{"invoice_id": secondInvoiceID, "amount": "1.00"},
 			},
 		}, http.StatusConflict, "PAYMENT_ALLOCATED")
+	})
+
+	t.Run("partial allocation top-up and finance validation", func(t *testing.T) {
+		createShippedInvoice := func(remark, quantity, unitPrice string) (string, string) {
+			order := admin.mustPost("/sales/orders", map[string]any{
+				"customer_id":  customerID,
+				"warehouse_id": warehouseID,
+				"order_date":   time.Now().Format("2006-01-02"),
+				"currency":     "CNY",
+				"remark":       remark,
+				"lines": []map[string]any{
+					{"material_id": materialID, "quantity": quantity, "unit_price": unitPrice},
+				},
+			}, http.StatusCreated)
+			orderID := text(order, "id")
+			admin.mustPost("/sales/orders/"+orderID+"/submit", nil, http.StatusOK)
+			admin.mustPost("/sales/orders/"+orderID+"/approve", nil, http.StatusOK)
+			detail := admin.mustGet("/sales/orders/"+orderID, http.StatusOK)
+			lines, _ := detail["lines"].([]any)
+			shipment := admin.mustPost("/sales/orders/"+orderID+"/ship", map[string]any{
+				"shipment_date": time.Now().Format("2006-01-02"),
+				"lines": []map[string]any{
+					{"order_line_id": text(lines[0].(map[string]any), "id"), "quantity": quantity},
+				},
+			}, http.StatusCreated)
+			return text(shipment, "id"), text(shipment, "invoice_id")
+		}
+
+		_, topUpInvoiceID := createShippedInvoice("stage3b-topup-allocation", "1", "10.00")
+		topUpPayment := admin.mustPost("/finance/payments", map[string]any{
+			"payment_type": "receipt",
+			"partner_id":   customerID,
+			"payment_date": time.Now().Format("2006-01-02"),
+			"currency":     "CNY",
+			"amount":       "10.00",
+		}, http.StatusCreated)
+		topUpPaymentID := text(topUpPayment, "id")
+		admin.mustPost("/finance/payments/"+topUpPaymentID+"/allocate", map[string]any{
+			"allocations": []map[string]any{
+				{"invoice_id": topUpInvoiceID, "amount": "6.00"},
+			},
+		}, http.StatusOK)
+		afterFirst := admin.mustGet("/finance/invoices/"+topUpInvoiceID, http.StatusOK)
+		if got := text(afterFirst, "status"); got != "partially_paid" {
+			t.Fatalf("top-up invoice status after first allocation = %q, want partially_paid", got)
+		}
+		admin.mustPost("/finance/payments/"+topUpPaymentID+"/allocate", map[string]any{
+			"allocations": []map[string]any{
+				{"invoice_id": topUpInvoiceID, "amount": "4.00"},
+			},
+		}, http.StatusOK)
+		afterSecond := admin.mustGet("/finance/invoices/"+topUpInvoiceID, http.StatusOK)
+		if got := text(afterSecond, "status"); got != "paid" {
+			t.Fatalf("top-up invoice status after second allocation = %q, want paid", got)
+		}
+		if got := number(t, afterSecond, "paid_amount"); got != 10 {
+			t.Fatalf("top-up invoice paid_amount = %v, want 10", got)
+		}
+
+		_, overInvoiceID := createShippedInvoice("stage3b-over-allocate", "1", "10.00")
+		overPayment := admin.mustPost("/finance/payments", map[string]any{
+			"payment_type": "receipt",
+			"partner_id":   customerID,
+			"payment_date": time.Now().Format("2006-01-02"),
+			"currency":     "CNY",
+			"amount":       "20.00",
+		}, http.StatusCreated)
+		admin.expectError(http.MethodPost, "/finance/payments/"+text(overPayment, "id")+"/allocate", map[string]any{
+			"allocations": []map[string]any{
+				{"invoice_id": overInvoiceID, "amount": "20.00"},
+			},
+		}, http.StatusBadRequest, "OVER_ALLOCATE")
+
+		usdPayment := admin.mustPost("/finance/payments", map[string]any{
+			"payment_type": "receipt",
+			"partner_id":   customerID,
+			"payment_date": time.Now().Format("2006-01-02"),
+			"currency":     "USD",
+			"amount":       "10.00",
+		}, http.StatusCreated)
+		admin.expectError(http.MethodPost, "/finance/payments/"+text(usdPayment, "id")+"/allocate", map[string]any{
+			"allocations": []map[string]any{
+				{"invoice_id": overInvoiceID, "amount": "5.00"},
+			},
+		}, http.StatusBadRequest, "CURRENCY_MISMATCH")
+
+		partnerPayment := admin.mustPost("/finance/payments", map[string]any{
+			"payment_type": "receipt",
+			"partner_id":   customer2ID,
+			"payment_date": time.Now().Format("2006-01-02"),
+			"currency":     "CNY",
+			"amount":       "10.00",
+		}, http.StatusCreated)
+		admin.expectError(http.MethodPost, "/finance/payments/"+text(partnerPayment, "id")+"/allocate", map[string]any{
+			"allocations": []map[string]any{
+				{"invoice_id": overInvoiceID, "amount": "5.00"},
+			},
+		}, http.StatusBadRequest, "PARTNER_MISMATCH")
+
+		duplicatePayment := admin.mustPost("/finance/payments", map[string]any{
+			"payment_type": "receipt",
+			"partner_id":   customerID,
+			"payment_date": time.Now().Format("2006-01-02"),
+			"currency":     "CNY",
+			"amount":       "10.00",
+		}, http.StatusCreated)
+		admin.expectError(http.MethodPost, "/finance/payments/"+text(duplicatePayment, "id")+"/allocate", map[string]any{
+			"allocations": []map[string]any{
+				{"invoice_id": overInvoiceID, "amount": "1.00"},
+				{"invoice_id": overInvoiceID, "amount": "1.00"},
+			},
+		}, http.StatusBadRequest, "BAD_REQUEST")
+
+		admin.expectError(http.MethodPost, "/finance/payments", map[string]any{
+			"payment_type": "receipt",
+			"partner_id":   customerID,
+			"payment_date": time.Now().Format("2006-01-02"),
+			"currency":     "CNY",
+			"amount":       "0.00004",
+		}, http.StatusBadRequest, "BAD_REQUEST")
 	})
 
 	t.Run("payable payment allocation and type mismatch", func(t *testing.T) {
@@ -747,6 +923,53 @@ func TestStage3B(t *testing.T) {
 				{"invoice_id": text(zeroInvoice, "id"), "amount": "1.00"},
 			},
 		}, http.StatusConflict, "INVOICE_PAID")
+	})
+
+	t.Run("draft edit and invalid values", func(t *testing.T) {
+		draft := admin.mustPost("/sales/orders", map[string]any{
+			"customer_id":  customerID,
+			"warehouse_id": warehouseID,
+			"order_date":   time.Now().Format("2006-01-02"),
+			"currency":     "CNY",
+			"remark":       "stage3b-draft-edit",
+			"lines": []map[string]any{
+				{"material_id": materialID, "quantity": "1", "unit_price": "10.00"},
+			},
+		}, http.StatusCreated)
+		draftID := text(draft, "id")
+		updatedStatus, updatedPayload := admin.put("/sales/orders/"+draftID, map[string]any{
+			"customer_id":  customerID,
+			"warehouse_id": warehouseID,
+			"order_date":   time.Now().Format("2006-01-02"),
+			"currency":     "CNY",
+			"remark":       "stage3b-draft-edit-updated",
+			"lines": []map[string]any{
+				{"material_id": materialID, "quantity": "2", "unit_price": "30.00"},
+			},
+		})
+		if updatedStatus != http.StatusOK {
+			t.Fatalf("PUT sales order status = %d, want 200, payload = %v", updatedStatus, updatedPayload)
+		}
+		if got := number(t, updatedPayload.Data, "total_amount"); got != 60 {
+			t.Fatalf("updated total = %v, want 60", got)
+		}
+
+		admin.expectError(http.MethodPost, "/sales/orders", map[string]any{
+			"customer_id":  customerID,
+			"warehouse_id": warehouseID,
+			"order_date":   time.Now().Format("2006-01-02"),
+			"lines": []map[string]any{
+				{"material_id": materialID, "quantity": "-1", "unit_price": "10.00"},
+			},
+		}, http.StatusBadRequest, "BAD_REQUEST")
+		admin.expectError(http.MethodPost, "/sales/orders", map[string]any{
+			"customer_id":  customerID,
+			"warehouse_id": warehouseID,
+			"order_date":   time.Now().Format("2006-01-02"),
+			"lines": []map[string]any{
+				{"material_id": materialID, "quantity": "1", "unit_price": "-10.00"},
+			},
+		}, http.StatusBadRequest, "BAD_REQUEST")
 	})
 
 	t.Run("pagination filter and precision", func(t *testing.T) {

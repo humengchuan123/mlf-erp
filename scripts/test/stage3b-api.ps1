@@ -2,6 +2,7 @@ $ErrorActionPreference = 'Stop'
 
 $root = Resolve-Path (Join-Path $PSScriptRoot '../..')
 Set-Location $root
+$env:APP_ENV = 'test'
 
 function Wait-Docker {
     $path = 'C:\Program Files\Docker\Docker\Docker Desktop.exe'
@@ -19,11 +20,22 @@ function Wait-Docker {
     throw 'Docker engine is not ready'
 }
 
+function Get-PostgresContainer {
+    $id = docker compose -f deploy/compose/docker-compose.dev.yml ps -q postgres 2>$null
+    if ($id) {
+        return $id.Trim()
+    }
+    return $null
+}
+
 function Wait-Postgres {
     for ($i = 0; $i -lt 60; $i++) {
-        $status = docker inspect --format='{{.State.Health.Status}}' mlf-erp-dev-postgres-1 2>$null
-        if ($status -eq 'healthy') {
-            return
+        $container = Get-PostgresContainer
+        if ($container) {
+            $status = docker inspect --format='{{.State.Health.Status}}' $container 2>$null
+            if ($status -eq 'healthy') {
+                return
+            }
         }
         Start-Sleep -Seconds 2
     }
@@ -46,7 +58,11 @@ function Wait-Api {
 
 Wait-Docker
 
-$postgresStatus = docker inspect --format='{{.State.Health.Status}}' mlf-erp-dev-postgres-1 2>$null
+$postgresContainer = Get-PostgresContainer
+$postgresStatus = $null
+if ($postgresContainer) {
+    $postgresStatus = docker inspect --format='{{.State.Health.Status}}' $postgresContainer 2>$null
+}
 if ($postgresStatus -ne 'healthy') {
     docker compose -f deploy/compose/docker-compose.dev.yml up -d postgres
 }
@@ -78,7 +94,7 @@ try {
     Wait-Api
     Write-Host 'Running Stage 3B API integration tests...'
     $env:TEST_API_BASE_URL = 'http://localhost:18080'
-    go test -tags=integration ./tests/api -run 'TestStage3B' -v
+    go test -tags=integration ./tests/api -run 'TestStage3B' -count=1 -v
     if ($LASTEXITCODE -ne 0) {
         $testFailed = $true
         throw 'Stage 3B API integration tests failed'

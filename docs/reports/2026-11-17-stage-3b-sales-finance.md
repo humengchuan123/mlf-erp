@@ -1,9 +1,9 @@
 # Stage 3B 汇总报告：销售、发货出库与应收应付
 
-> 日期：2026-11-17  
-> 分支：`stage-3b-sales-finance`  
-> 提交：`f25db52`（实现）+ `ceb06aa`（范围收紧/API 契约）  
-> 计划：`docs/superpowers/plans/2026-11-17-stage-3b-sales-finance.md`  
+> 日期：2026-11-17
+> 分支：`stage-3b-sales-finance`
+> 提交：`f25db52`（实现）+ `ceb06aa`（范围收紧/API 契约）+ `37c0640`（收付款校验/演示数据）
+> 计划：`docs/superpowers/plans/2026-11-17-stage-3b-sales-finance.md`
 > 状态：待用户审阅
 
 ---
@@ -76,6 +76,25 @@
 - 库存非负约束
 - 7 个销售/财务权限
 - 6 个编码规则：`sales_order`、`sales_shipment`、`sales_receivable`、`purchase_payable`、`finance_receipt`、`finance_payment`
+
+迁移 `000009_inventory_org_repair`：
+
+- 把库存余额和库存流水的 `org_id` 修正为仓库所属组织，修复 Stage 3A 早期按操作人组织归属的数据。
+- Down 为 no-op，数据修复不可安全回滚。
+
+迁移 `000010_legacy_payables`：
+
+- 为 Stage 3B 之前的采购收货补建 `AP-LEGACY-*` 应付发票。
+- Down 为 no-op，避免删除可能已有核销的发票。
+
+迁移 `000011_sales_finance_permission_backfill`：
+
+- 把旧 `sales.read/write`、`finance.read/write` 授权映射到新的销售/财务权限，避免升级后自定义角色失去页面访问。
+- Down 为 no-op。
+
+迁移 `000012_order_line_guards`：
+
+- 订单/发货/收货行数量必须为正，单价/成本非负的数据库检查约束。
 
 关键约束：
 
@@ -150,13 +169,23 @@ pnpm test:api:stage3b
 | 发货 4，订单 partially_shipped，库存 -4，应收 480 | 通过 |
 | 再发货 6，订单 shipped，库存 -10，应收 720 | 通过 |
 | 超发 11/10 | 409 `OVER_SHIPMENT` |
-| 同一请求重复行 10+10 | 409 `OVER_SHIPMENT`，库存和已发数量不变 |
+| 同一请求重复行 10+10 | 409 `OVER_SHIPMENT`，库存、已发数量和发货单数不变 |
 | 无库存物料发货 | 409 `INSUFFICIENT_STOCK` |
 | 草稿订单发货 | 409 `INVALID_STATUS` |
+| 重复审批 | 409 `INVALID_STATUS` |
 | 审批后取消 | 200 |
+| 取消后发货 | 409 `INVALID_STATUS` |
 | 部分发货后取消 | 409 `INVALID_STATUS` |
+| 草稿订单 PUT 编辑 | 金额重算正确 |
+| 负数量/负单价 | 400 `BAD_REQUEST` |
 | 收款 500，核销 480 + 20 | 第一张发票 paid，第二张 partially_paid |
 | 已全额核销收款继续核销 | 409 `PAYMENT_ALLOCATED` |
+| 同一发票先核销 6 再补核销 4 | 发票 paid，核销明细累加 |
+| 核销金额超过发票未核销额 | 400 `OVER_ALLOCATE` |
+| 收款币种与发票不一致 | 400 `CURRENCY_MISMATCH` |
+| 收款往来单位与发票不一致 | 400 `PARTNER_MISMATCH` |
+| 同一请求重复发票 ID | 400 `BAD_REQUEST` |
+| 支付金额 `0.00004` | 400 `BAD_REQUEST` |
 | 付款 1000 核销应付 | 应付发票 paid |
 | 收款核销应付发票 | 400 `PAYMENT_TYPE_MISMATCH` |
 | demo_dept 查看 HQ 销售订单/发票/发货单/收付款 | 0 / 0 / 0 / 0 |
@@ -166,6 +195,8 @@ pnpm test:api:stage3b
 | 零金额发票重复核销 | 409 `INVOICE_PAID` |
 | 采购收货列表返回应付发票号/到期日 | 通过 |
 | 发货单列表返回应收发票号/到期日 | 通过 |
+| 库存平均成本 | 采购 50 后 `avg_cost=50` |
+| 发货成本/库存流水 | 4 × 50，`total_cost=200`，出库流水 `unit_cost=50`、`amount=200` |
 | 分页 `page_size=1`、状态筛选 | 通过 |
 | 精度 0.1 × 3 | `0.3000` |
 | 零数量明细 | 400 |
@@ -203,15 +234,50 @@ pnpm test:api:stage3b
 
 ### 5.2 审核结论
 
-> 待审核结果返回后补充。
+**Ready to merge: With fixes（初次审核）**
+
+- **Critical 1 项**：同一收付款对同一发票第二次核销会命中 `(payment_id, invoice_id)` 唯一约束，导致“部分核销后再补核销”失败。
+- **Important 9 项**：支付金额先校验后四舍五入可能返回 500；销售/采购状态更新缺少数据范围谓词；发票核销记录查询忽略数据范围；收付款组织归属与发票不一致；Stage 3A 历史收货未回填应付；旧角色权限拆分后可能失去访问；前端同一物料多行发货库存提示不准确；测试缺少关键失败路径；`000009` 和报告未提交。
+- 审核同时确认发货事务、库存行锁、收付款核销锁、金额字符串、租户/范围过滤和自动 AR/AP 主流程设计正确。
 
 ### 5.3 已修复问题
 
-> 待审核结果返回后补充。
+- **Critical：同一发票补核销**
+  - 核销明细插入改为 `ON CONFLICT (payment_id, invoice_id) DO UPDATE SET amount = amount + EXCLUDED.amount`。
+  - 新增集成测试：收款 10，先核销 6，再核销 4；发票从 `partially_paid` 变为 `paid`。
+- **支付金额舍入**
+  - 先 `Round(4)` 再校验正数，`0.00004` 返回 400。
+  - `23514` 检查约束错误映射为 `ErrInvalidInput`，销售/采购/财务统一处理。
+- **状态更新数据范围**
+  - 销售/采购 `UpdateStatus` 增加 `scope.Filter` 谓词，避免读取后组织被移出范围的 TOCTOU。
+- **核销记录数据范围**
+  - 发票详情核销记录按收付款数据范围过滤。
+- **历史应付回填**
+  - 新增迁移 `000010_legacy_payables`，为 Stage 3A 历史收货补建 `AP-LEGACY-*` 应付发票。
+- **旧角色权限兼容**
+  - 新增迁移 `000011_sales_finance_permission_backfill`，把旧 `sales.read/write`、`finance.read/write` 映射到新权限。
+- **前端同物料多行发货**
+  - 按物料聚合可用量并递减预填数量，保存时按物料汇总校验，避免逐行都通过、服务端却库存不足。
+- **测试补强**
+  - 增加发货成本/库存流水断言、拒绝发货后的库存/发货单不变断言、超额核销、币种/往来单位不匹配、重复发票 ID、补核销、草稿 PUT 编辑、负数量/负单价、取消后发货、重复审批等用例。
+- **其他**
+  - 发货单列表增加状态列。
+  - 创建订单/发货/收付款响应补 `created_at`。
+  - 发货仓储校验发货仓库/组织/客户与锁定订单一致。
+  - 库存余额 API/SDK/页面增加 `avg_cost`。
+  - 新增迁移 `000012_order_line_guards`，数据库约束订单/发货/收货行数量为正、单价/成本非负。
+  - 新增迁移 `000009_inventory_org_repair`，修复历史库存组织归属。
+  - CI 增加真实 PostgreSQL Stage 3B API 集成测试作业。
 
 ### 5.4 未修复/后续处理
 
-> 待审核结果返回后补充。
+- 发货、收货、收付款创建仍无客户端幂等键，网络重试可能重复扣库存或重复登记收付款。
+- 自动化测试仍缺少并发发货/并发核销、事务故障注入和真实浏览器 E2E。
+- 销售/发货订单列表存在 N+1 查询，后续批量加载行。
+- 前端金额展示/预填仍使用 JavaScript `Number`，后端金额校验和计算是权威的；后续可引入 decimal 前端库。
+- 收付款归属操作人组织；跨组织核销需要 `all` 范围用户，后续可按发票组织或明确业务组织归属。
+- 编码规则只为默认租户初始化，新租户开通时需要复制销售/财务编码规则。
+- 未实现销售退货、反核销、发票红冲、税额拆分、客户信用和账龄分析。
 
 ---
 
@@ -224,7 +290,10 @@ pnpm test:api:stage3b
 - 发货和收付款没有客户端幂等键，网络重试可能重复提交。
 - 收付款核销只支持正向核销，不支持反核销和跨币种核销。
 - 发票到期日固定为业务日期 + 30 天，未接入客户账期主数据。
+- 应收/应付按单据金额开票，未拆分税额、价税分离和税率计算。
 - 数据范围管理 API/UI 仍未提供，仍通过 `org_memberships` 配置。
+- 收付款归属操作人组织；跨组织核销需要 `all` 范围用户。
+- 历史应付回填发票编码为 `AP-LEGACY-*`，与原编码规则格式不同，仅用于升级兼容。
 - OpenAPI 已补充采购、销售、库存、应收应付、收付款路径和 schema，但尚未接入自动契约校验。
 - 前端主包偏大，后续按需引入 Element Plus。
 - 自动化测试覆盖主要业务路径，但缺少并发发货/并发核销、事务故障注入、真实浏览器 E2E。

@@ -70,9 +70,10 @@ func (s *OrderService) Create(ctx context.Context, input OrderInput) (*domain.Or
 		return nil, err
 	}
 
+	now := time.Now()
 	orderDate := input.OrderDate
 	if orderDate.IsZero() {
-		orderDate = time.Now()
+		orderDate = now
 	}
 	currency := strings.ToUpper(strings.TrimSpace(input.Currency))
 	if currency == "" {
@@ -94,6 +95,8 @@ func (s *OrderService) Create(ctx context.Context, input OrderInput) (*domain.Or
 		Remark:        strings.TrimSpace(input.Remark),
 		CreatedBy:     userID,
 		UpdatedBy:     userID,
+		CreatedAt:     now,
+		UpdatedAt:     now,
 	}
 	order.Lines = buildLines(order.ID, tenantID, input.Lines, materials)
 	order.Recalculate()
@@ -137,6 +140,7 @@ func (s *OrderService) UpdateDraft(ctx context.Context, id string, input OrderIn
 	order.Currency = currency
 	order.Remark = strings.TrimSpace(input.Remark)
 	order.UpdatedBy = userID
+	order.UpdatedAt = time.Now()
 	order.Lines = buildLines(order.ID, tenantID, input.Lines, materials)
 	order.Recalculate()
 
@@ -168,7 +172,7 @@ func (s *OrderService) Cancel(ctx context.Context, id string) error {
 			return domain.ErrInvalidStatus
 		}
 	}
-	ok, err := s.orders.UpdateStatus(ctx, tenantID, id, order.Status, domain.StatusCancelled, userID)
+	ok, err := s.orders.UpdateStatus(ctx, scope.FromActor(ctx, tenantID), tenantID, id, order.Status, domain.StatusCancelled, userID)
 	if err != nil {
 		return err
 	}
@@ -187,7 +191,7 @@ func (s *OrderService) transition(ctx context.Context, id string, from, to domai
 	if order.Status != from {
 		return domain.ErrInvalidStatus
 	}
-	ok, err := s.orders.UpdateStatus(ctx, tenantID, id, from, to, userID)
+	ok, err := s.orders.UpdateStatus(ctx, scope.FromActor(ctx, tenantID), tenantID, id, from, to, userID)
 	if err != nil {
 		return err
 	}

@@ -38,7 +38,7 @@ func (r *QueryRepository) ListBalances(
 
 	query := `SELECT b.tenant_id::text, b.org_id::text, b.warehouse_id::text, w.name,
 	                 b.material_id::text, m.name, b.on_hand::text, b.reserved::text,
-	                 b.available::text, b.updated_at
+	                 b.available::text, b.avg_cost::text, b.updated_at
 	          FROM erp.inventory_balances b
 	          JOIN erp.warehouses w ON w.tenant_id = b.tenant_id AND w.id = b.warehouse_id
 	          JOIN erp.materials m ON m.tenant_id = b.tenant_id AND m.id = b.material_id
@@ -54,16 +54,17 @@ func (r *QueryRepository) ListBalances(
 	items := make([]*domain.Balance, 0)
 	for rows.Next() {
 		item := &domain.Balance{}
-		var onHand, reserved, available string
+		var onHand, reserved, available, avgCost string
 		if err := rows.Scan(
 			&item.TenantID, &item.OrgID, &item.WarehouseID, &item.WarehouseName,
-			&item.MaterialID, &item.MaterialName, &onHand, &reserved, &available, &item.UpdatedAt,
+			&item.MaterialID, &item.MaterialName, &onHand, &reserved, &available, &avgCost, &item.UpdatedAt,
 		); err != nil {
 			return nil, 0, fmt.Errorf("scan inventory balance: %w", err)
 		}
 		item.OnHand = decimal.RequireFromString(onHand)
 		item.Reserved = decimal.RequireFromString(reserved)
 		item.Available = decimal.RequireFromString(available)
+		item.AvgCost = decimal.RequireFromString(avgCost)
 		items = append(items, item)
 	}
 	return items, total, rows.Err()

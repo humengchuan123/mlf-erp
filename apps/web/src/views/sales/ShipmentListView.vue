@@ -12,6 +12,13 @@
         <el-table-column prop="customer_name" label="客户" min-width="150" />
         <el-table-column prop="warehouse_name" label="仓库" min-width="120" />
         <el-table-column prop="shipment_date" label="发货日期" width="120" />
+        <el-table-column prop="status" label="状态" width="90">
+          <template #default="{ row }">
+            <el-tag :type="row.status === 'posted' ? 'success' : 'info'" size="small">
+              {{ row.status === 'posted' ? '已过账' : row.status }}
+            </el-tag>
+          </template>
+        </el-table-column>
         <el-table-column prop="total_amount" label="发货金额" width="130" align="right" />
         <el-table-column prop="total_cost" label="出库成本" width="130" align="right" />
         <el-table-column prop="invoice_code" label="应收发票" min-width="150" />

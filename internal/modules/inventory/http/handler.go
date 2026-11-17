@@ -39,6 +39,7 @@ type balanceResponse struct {
 	OnHand        string    `json:"on_hand"`
 	Reserved      string    `json:"reserved"`
 	Available     string    `json:"available"`
+	AvgCost       string    `json:"avg_cost"`
 	UpdatedAt     time.Time `json:"updated_at"`
 }
 
@@ -140,7 +141,7 @@ func toBalanceResponse(item *domain.Balance) balanceResponse {
 		WarehouseID: item.WarehouseID, WarehouseName: item.WarehouseName,
 		MaterialID: item.MaterialID, MaterialName: item.MaterialName,
 		OnHand: item.OnHand.String(), Reserved: item.Reserved.String(),
-		Available: item.Available.String(), UpdatedAt: item.UpdatedAt,
+		Available: item.Available.String(), AvgCost: item.AvgCost.String(), UpdatedAt: item.UpdatedAt,
 	}
 }
 

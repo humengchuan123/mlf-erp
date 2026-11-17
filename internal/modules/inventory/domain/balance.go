@@ -16,6 +16,7 @@ type Balance struct {
 	OnHand        decimal.Decimal `json:"on_hand"`
 	Reserved      decimal.Decimal `json:"reserved"`
 	Available     decimal.Decimal `json:"available"`
+	AvgCost       decimal.Decimal `json:"avg_cost"`
 	UpdatedAt     time.Time       `json:"updated_at"`
 }
 

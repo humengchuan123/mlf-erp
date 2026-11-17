@@ -252,6 +252,7 @@ interface OrderFormLine {
 
 interface ShipFormLine {
   order_line_id: string
+  material_id: string
   material_name: string
   remaining_qty: string
   available_qty: string
@@ -294,6 +295,7 @@ const shipForm = reactive({
   remark: '',
   lines: [] as ShipFormLine[]
 })
+const shipAvailableByMaterial = ref(new Map<string, number>())
 
 const statusOptions = [
   { label: '草稿', value: 'draft' },
@@ -530,21 +532,26 @@ async function openShip(order: SalesOrder) {
       warehouse_id: detail.warehouse_id,
       page_size: 200
     })
-    const availableByMaterial = new Map(
+    const availableByMaterial = new Map<string, number>(
       balanceResult.items.map((item) => [item.material_id, Number(item.available)])
     )
+    const remainingByMaterial = new Map(availableByMaterial)
     shipForm.lines = detail.lines
       .filter((line) => Number(line.remaining_qty) > 0)
       .map((line) => {
-        const available = Number(availableByMaterial.get(line.material_id) ?? 0)
+        const available = Math.max(0, remainingByMaterial.get(line.material_id) ?? 0)
+        const quantity = Math.min(Number(line.remaining_qty), available)
+        remainingByMaterial.set(line.material_id, Math.max(0, available - quantity))
         return {
           order_line_id: line.id,
+          material_id: line.material_id,
           material_name: line.material_name,
           remaining_qty: line.remaining_qty,
-          available_qty: String(available),
-          quantity: Math.min(Number(line.remaining_qty), available).toFixed(4)
+          available_qty: String(availableByMaterial.get(line.material_id) ?? 0),
+          quantity: quantity.toFixed(4)
         }
       })
+    shipAvailableByMaterial.value = availableByMaterial
     shipVisible.value = true
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : '加载发货明细失败')
@@ -573,6 +580,28 @@ async function saveShip() {
       return
     }
   }
+
+  const requestedByMaterial = new Map<string, number>()
+  for (const line of shipForm.lines) {
+    if (line.quantity === '') {
+      continue
+    }
+    const quantity = Number(line.quantity)
+    requestedByMaterial.set(
+      line.material_id,
+      (requestedByMaterial.get(line.material_id) ?? 0) + quantity
+    )
+  }
+  for (const [materialID, requested] of requestedByMaterial) {
+    const available = shipAvailableByMaterial.value.get(materialID) ?? 0
+    if (requested > available) {
+      const name =
+        shipForm.lines.find((line) => line.material_id === materialID)?.material_name ?? materialID
+      ElMessage.warning(`${name} 本次发货合计超过库存可用量`)
+      return
+    }
+  }
+
   const lines = shipForm.lines
     .filter((line) => Number(line.quantity) > 0)
     .map((line) => ({ order_line_id: line.order_line_id, quantity: line.quantity }))

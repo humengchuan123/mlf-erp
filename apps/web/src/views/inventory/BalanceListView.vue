@@ -21,6 +21,7 @@
         <el-table-column prop="on_hand" label="在手" width="120" align="right" />
         <el-table-column prop="reserved" label="占用" width="120" align="right" />
         <el-table-column prop="available" label="可用" width="120" align="right" />
+        <el-table-column prop="avg_cost" label="平均成本" width="120" align="right" />
         <el-table-column prop="updated_at" label="更新时间" min-width="180">
           <template #default="{ row }">{{ formatDate(row.updated_at) }}</template>
         </el-table-column>

@@ -61,7 +61,7 @@ func mapDBError(err error) error {
 		switch pgErr.Code {
 		case "23505", "23503":
 			return domain.ErrConflict
-		case "22P02", "23502", "22003":
+		case "22P02", "23502", "22003", "23514":
 			return domain.ErrInvalidInput
 		}
 	}

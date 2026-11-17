@@ -69,7 +69,8 @@ func (s *PaymentService) Create(ctx context.Context, input PaymentInput) (*domai
 	if paymentType != domain.PaymentTypeReceipt && paymentType != domain.PaymentTypePayment {
 		return nil, domain.ErrInvalidInput
 	}
-	if !input.Amount.IsPositive() {
+	amount := input.Amount.Round(4)
+	if !amount.IsPositive() {
 		return nil, domain.ErrInvalidInput
 	}
 
@@ -112,6 +113,9 @@ func (s *PaymentService) Create(ctx context.Context, input PaymentInput) (*domai
 		return nil, domain.ErrInvalidInput
 	}
 
+	// Payments belong to the acting organization. A cross-org settlement is
+	// visible to users whose data scope covers that org (for example all/admin);
+	// finance users with company/dept scope should settle invoices in their scope.
 	payment := &domain.Payment{
 		ID:              uuid.NewString(),
 		TenantID:        tenantID,
@@ -122,13 +126,14 @@ func (s *PaymentService) Create(ctx context.Context, input PaymentInput) (*domai
 		PartnerName:     partner.Name,
 		PaymentDate:     paymentDate,
 		Currency:        currency,
-		Amount:          input.Amount.Round(4),
+		Amount:          amount,
 		AllocatedAmount: decimal.Zero,
 		Status:          domain.PaymentStatusUnallocated,
 		Method:          method,
 		Reference:       strings.TrimSpace(input.Reference),
 		Remark:          strings.TrimSpace(input.Remark),
 		CreatedBy:       userID,
+		CreatedAt:       time.Now(),
 	}
 	if err := s.payments.Create(ctx, payment); err != nil {
 		return nil, err
@@ -146,7 +151,8 @@ func (s *PaymentService) Allocate(ctx context.Context, paymentID string, input A
 	allocations := make([]*domain.AllocationInput, 0, len(input.Allocations))
 	for _, item := range input.Allocations {
 		invoiceID := strings.TrimSpace(item.InvoiceID)
-		if invoiceID == "" || !item.Amount.IsPositive() {
+		amount := item.Amount.Round(4)
+		if invoiceID == "" || !amount.IsPositive() {
 			return nil, domain.ErrInvalidInput
 		}
 		if _, exists := seen[invoiceID]; exists {
@@ -155,7 +161,7 @@ func (s *PaymentService) Allocate(ctx context.Context, paymentID string, input A
 		seen[invoiceID] = struct{}{}
 		allocations = append(allocations, &domain.AllocationInput{
 			InvoiceID: invoiceID,
-			Amount:    item.Amount.Round(4),
+			Amount:    amount,
 		})
 	}
 

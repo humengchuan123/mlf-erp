@@ -86,15 +86,18 @@ func (r *InvoiceRepository) Get(ctx context.Context, filter scope.Filter, tenant
 }
 
 func (r *InvoiceRepository) ListAllocations(ctx context.Context, filter scope.Filter, tenantID, invoiceID string) ([]*domain.Allocation, error) {
-	_ = filter
+	args := []any{tenantID, invoiceID}
+	where := "a.tenant_id = $1 AND a.invoice_id = $2"
+	appendScope(&where, &args, "p", filter)
+
 	rows, err := r.db.Query(ctx, `
 		SELECT a.id::text, a.tenant_id::text, a.payment_id::text, a.invoice_id::text, a.amount::text,
 		       a.created_by::text, a.created_at,
 		       p.code, p.payment_type, p.payment_date
 		FROM erp.finance_payment_allocations a
 		JOIN erp.finance_payments p ON p.tenant_id = a.tenant_id AND p.id = a.payment_id
-		WHERE a.tenant_id = $1 AND a.invoice_id = $2
-		ORDER BY a.created_at`, tenantID, invoiceID)
+		WHERE `+where+`
+		ORDER BY a.created_at`, args...)
 	if err != nil {
 		return nil, fmt.Errorf("list invoice allocations: %w", err)
 	}

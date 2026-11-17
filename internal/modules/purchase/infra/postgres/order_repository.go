@@ -165,13 +165,21 @@ func (r *Repository) List(
 	return orders, total, nil
 }
 
-func (r *Repository) UpdateStatus(ctx context.Context, tenantID, id string, from, to domain.Status, userID string) (bool, error) {
+func (r *Repository) UpdateStatus(
+	ctx context.Context,
+	filter scope.Filter,
+	tenantID, id string,
+	from, to domain.Status,
+	userID string,
+) (bool, error) {
+	args := []any{tenantID, id, string(to), userID, string(from)}
+	where := "o.tenant_id = $1 AND o.id = $2 AND o.status = $5"
+	appendScope(&where, &args, "o", filter)
+
 	tag, err := r.db.Exec(ctx, `
-		UPDATE erp.purchase_orders
+		UPDATE erp.purchase_orders AS o
 		SET status = $3, updated_by = $4, updated_at = now()
-		WHERE tenant_id = $1 AND id = $2 AND status = $5`,
-		tenantID, id, string(to), userID, string(from),
-	)
+		WHERE `+where, args...)
 	if err != nil {
 		return false, fmt.Errorf("update order status: %w", err)
 	}
@@ -195,6 +203,9 @@ func (r *Repository) Receive(ctx context.Context, filter scope.Filter, receipt *
 	}
 	if !order.Status.CanReceive() {
 		return domain.ErrInvalidStatus
+	}
+	if receipt.WarehouseID != order.WarehouseID || receipt.OrgID != order.OrgID {
+		return domain.ErrInvalidInput
 	}
 
 	lines, err := loadOrderLinesForUpdate(ctx, tx, receipt.TenantID, receipt.OrderID)
@@ -656,7 +667,7 @@ func mapDBError(err error) error {
 		switch pgErr.Code {
 		case "23505", "23503":
 			return domain.ErrConflict
-		case "22P02", "23502", "22003":
+		case "22P02", "23502", "22003", "23514":
 			return domain.ErrInvalidInput
 		}
 	}

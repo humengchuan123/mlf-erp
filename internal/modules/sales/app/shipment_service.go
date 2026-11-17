@@ -117,6 +117,7 @@ func (s *ShipmentService) Ship(ctx context.Context, orderID string, input ShipIn
 		Status:         "posted",
 		Remark:         strings.TrimSpace(input.Remark),
 		CreatedBy:      userID,
+		CreatedAt:      time.Now(),
 		InvoiceID:      uuid.NewString(),
 		InvoiceCode:    invoiceCode,
 		InvoiceDueDate: shipmentDate.AddDate(0, 0, 30),

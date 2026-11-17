@@ -11,6 +11,7 @@ export interface InventoryBalance {
   on_hand: string
   reserved: string
   available: string
+  avg_cost: string
   updated_at: string
 }
 

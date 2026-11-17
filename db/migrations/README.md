@@ -8,6 +8,10 @@
 - `000006_purchase_inventory`：采购订单/行、收货单/行、库存余额/流水、采购/库存权限和收货编码规则。
 - `000007_purchase_inventory_guards`：收货行唯一约束、订单行收货数量检查约束。
 - `000008_sales_finance`：销售订单/行、发货单/行、应收应付发票、收付款与核销、库存平均成本、销售/财务权限和编码规则。
+- `000009_inventory_org_repair`：把库存余额/流水的 `org_id` 修正为仓库所属组织。Down 为 no-op，数据修复不可安全回滚。
+- `000010_legacy_payables`：为 Stage 3B 之前的采购收货单补建应付发票（`AP-LEGACY-*`）。Down 为 no-op。
+- `000011_sales_finance_permission_backfill`：把旧 `sales.read/write`、`finance.read/write` 授权映射到新的销售/财务权限。Down 为 no-op。
+- `000012_order_line_guards`：订单/发货/收货行数量必须为正、单价/成本非负的数据库检查约束。
 - 迁移由 `cmd/migrate` 执行，使用 `golang-migrate`，SQL 文件通过 `embed` 打进二进制。
 - 所有业务表遵循 `tenant_id` 非空、唯一键带租户、外键尽量带租户的原则。
 

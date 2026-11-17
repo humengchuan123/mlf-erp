@@ -116,6 +116,7 @@ func (s *ReceiptService) Receive(ctx context.Context, orderID string, input Rece
 		Status:         "posted",
 		Remark:         strings.TrimSpace(input.Remark),
 		CreatedBy:      userID,
+		CreatedAt:      time.Now(),
 		PayableID:      uuid.NewString(),
 		PayableCode:    payableCode,
 		PayableDueDate: receiptDate.AddDate(0, 0, 30),

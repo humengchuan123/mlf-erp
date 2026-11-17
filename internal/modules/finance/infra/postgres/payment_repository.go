@@ -197,11 +197,17 @@ func (r *PaymentRepository) Allocate(
 			return fmt.Errorf("lock invoice: %w", err)
 		}
 
-		if paymentType == domain.PaymentTypeReceipt && invoiceType != domain.InvoiceTypeReceivable {
-			return domain.ErrTypeMismatch
-		}
-		if paymentType == domain.PaymentTypePayment && invoiceType != domain.InvoiceTypePayable {
-			return domain.ErrTypeMismatch
+		switch paymentType {
+		case domain.PaymentTypeReceipt:
+			if invoiceType != domain.InvoiceTypeReceivable {
+				return domain.ErrTypeMismatch
+			}
+		case domain.PaymentTypePayment:
+			if invoiceType != domain.InvoiceTypePayable {
+				return domain.ErrTypeMismatch
+			}
+		default:
+			return domain.ErrInvalidInput
 		}
 		if invoicePartnerID != partnerID {
 			return domain.ErrPartnerMismatch
@@ -258,7 +264,9 @@ func (r *PaymentRepository) Allocate(
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO erp.finance_payment_allocations (
 				id, tenant_id, payment_id, invoice_id, amount, created_by
-			) VALUES (gen_random_uuid(), $1, $2, $3, $4, $5)`,
+			) VALUES (gen_random_uuid(), $1, $2, $3, $4, $5)
+			ON CONFLICT (payment_id, invoice_id) DO UPDATE
+			SET amount = erp.finance_payment_allocations.amount + EXCLUDED.amount`,
 			tenantID, paymentID, invoiceID, allocationAmount.String(), userID,
 		); err != nil {
 			return fmt.Errorf("insert payment allocation: %w", mapDBError(err))

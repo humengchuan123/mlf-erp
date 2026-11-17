@@ -142,7 +142,7 @@ jobs:
             sleep 1
           done
           curl -fsS http://localhost:18080/readyz > /dev/null
-          TEST_API_BASE_URL=http://localhost:18080 go test -tags=integration ./tests/api -run 'TestStage3B' -v
+          TEST_API_BASE_URL=http://localhost:18080 go test -tags=integration ./tests/api -run 'TestStage3B' -count=1 -v
       - name: Show API log on failure
         if: failure()
         run: cat api-integration.log || true
