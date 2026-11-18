@@ -102,7 +102,7 @@ tax      = gross - net
 - 库存不足返回 409 `INSUFFICIENT_STOCK`；库存流水 `direction=out`、`biz_type=purchase_return`，`occurred_at` 取实际过账时间。
 - 退货凭证：借应付账款（本位币含税）、贷库存商品（本位币净额）、贷进项税（本位币税额，零则省略）；全零不生成凭证。
 - 自动生成 `purchase_return` 贷项单，冲原应付发票未付金额，剩余保留为供应商贷项；详见 finance 模块。
-- 零金额退货跳过贷项单，但仍保留库存出库和成本凭证；金额和成本都为零时不生成凭证。
+- 零金额退货跳过贷项单，库存出库仍执行；采购退货成本取自原收货净额，金额为零时成本也为零，因此不生成凭证。
 - 错误码：`OVER_RETURN`/`INSUFFICIENT_STOCK`/`PERIOD_CLOSED` 409，收货行不存在 404，非法 UUID/数量/日期 400。
 
 ## 状态机
