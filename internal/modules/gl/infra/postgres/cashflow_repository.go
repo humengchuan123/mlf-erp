@@ -19,42 +19,67 @@ type cashFlowQuerier interface {
 
 func (r *ReportRepository) cashCodes(ctx context.Context, q cashFlowQuerier, tenantID string) ([]string, error) {
 	rows, err := q.Query(ctx, `
-		SELECT account_code
+		SELECT key, account_code
 		FROM erp.gl_account_mappings
 		WHERE tenant_id = $1 AND key IN ('cash', 'bank')
-		ORDER BY account_code`, tenantID)
+		ORDER BY key, account_code`, tenantID)
 	if err != nil {
 		return nil, fmt.Errorf("load cash mappings: %w", err)
 	}
 	defer rows.Close()
-	codes := make([]string, 0, 4)
-	seen := map[string]bool{}
+	mappings := make([]struct{ Key, Code string }, 0, 4)
 	for rows.Next() {
-		var code string
-		if err := rows.Scan(&code); err != nil {
+		var mapping struct{ Key, Code string }
+		if err := rows.Scan(&mapping.Key, &mapping.Code); err != nil {
 			return nil, fmt.Errorf("scan cash mapping: %w", err)
 		}
-		code = strings.TrimSpace(code)
-		if code == "" {
-			continue
-		}
-		if !seen[code] {
-			seen[code] = true
-			codes = append(codes, code)
-		}
-		root := domain.CashFlowAccountRoot(code)
-		if root != "" && !seen[root] {
-			seen[root] = true
-			codes = append(codes, root)
-		}
+		mappings = append(mappings, mapping)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iterate cash mappings: %w", err)
 	}
-	if len(codes) == 0 {
-		return []string{"1001", "1002"}, nil
+	return buildCashCodeSet(mappings), nil
+}
+
+// buildCashCodeSet expands mapping rows into exact codes plus numeric roots and
+// fills in the default cash and bank roots when either key is absent.
+func buildCashCodeSet(mappings []struct{ Key, Code string }) []string {
+	codes := make([]string, 0, len(mappings)*2+2)
+	seen := make(map[string]bool, len(mappings)*2+2)
+	add := func(code string) {
+		code = strings.TrimSpace(code)
+		if code == "" || seen[code] {
+			return
+		}
+		seen[code] = true
+		codes = append(codes, code)
 	}
-	return codes, nil
+
+	hasCash := false
+	hasBank := false
+	for _, mapping := range mappings {
+		code := strings.TrimSpace(mapping.Code)
+		if code == "" {
+			continue
+		}
+		switch mapping.Key {
+		case "cash":
+			hasCash = true
+		case "bank":
+			hasBank = true
+		}
+		add(code)
+		if root := domain.CashFlowAccountRoot(code); root != "" {
+			add(root)
+		}
+	}
+	if !hasCash {
+		add("1001")
+	}
+	if !hasBank {
+		add("1002")
+	}
+	return codes
 }
 
 func (r *ReportRepository) CashFlowStatement(
