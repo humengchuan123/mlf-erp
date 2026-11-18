@@ -293,12 +293,13 @@ func (r *ReportRepository) nonCashExpenses(
 	return decimal.RequireFromString(raw), nil
 }
 
+// balanceChange excludes close vouchers for indirect working capital, matching income statement scope.
 func (r *ReportRepository) balanceChange(
 	ctx context.Context, q cashFlowQuerier, filter scope.Filter, tenantID string, codes []string,
 	startDate, endDate time.Time, liability bool,
 ) (decimal.Decimal, error) {
 	args := []any{tenantID, codes, startDate.Format("2006-01-02"), endDate.Format("2006-01-02")}
-	where := "l.tenant_id = $1 AND (a.code = ANY($2::text[]) OR left(a.code, 4) = ANY($2::text[])) AND v.status IN ('posted', 'reversed') AND v.voucher_date <= $4::date"
+	where := "l.tenant_id = $1 AND (a.code = ANY($2::text[]) OR left(a.code, 4) = ANY($2::text[])) AND v.status IN ('posted', 'reversed') AND v.voucher_type NOT IN ('period_close', 'period_close_reversal', 'year_close') AND v.voucher_date <= $4::date"
 	appendScope(&where, &args, "v", filter)
 	var openingRaw, closingRaw string
 	if err := q.QueryRow(ctx, `
