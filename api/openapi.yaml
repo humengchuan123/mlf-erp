@@ -2916,7 +2916,7 @@ components:
           type: string
     GlIndirectCashFlow:
       type: object
-      description: Simplified indirect reconciliation; difference exposes classification or mapping gaps and is not posted as an adjustment.
+      description: Simplified indirect reconciliation; difference can come from simplifications or classification/mapping gaps and is not posted as an adjustment.
       properties:
         net_profit:
           type: string

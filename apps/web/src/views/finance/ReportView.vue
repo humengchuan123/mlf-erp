@@ -239,7 +239,7 @@
                 <el-table-column prop="amount" label="金额" width="150" align="right" />
               </el-table>
               <div class="hint-text">
-                简化调节表，差额用于提示分类或映射缺口，不自动生成调整分录。
+                简化调节表；差额可能来自简化口径、分类或映射缺口，不自动生成调整分录。
               </div>
               <div v-if="hasIndirectDifference" class="warning-text">
                 间接法与直接法经营活动现金流量净额差额：{{ cashFlow.indirect?.difference }}
