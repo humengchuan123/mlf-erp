@@ -2,7 +2,7 @@
 
 > 日期：2026-11-18
 > 分支：`stage-3i-purchase-returns`
-> 提交：`0723c05`（设计/计划）+ `20476a0..`（实现、测试与审核修复）
+> 提交：`0723c05`（设计/计划）+ `20476a0..54605ba`（实现、测试与审核修复）
 > 设计：`docs/superpowers/specs/2026-11-18-stage-3i-purchase-returns-design.md`
 > 计划：`docs/superpowers/plans/2026-11-18-stage-3i-purchase-returns.md`
 > 状态：待用户审阅
@@ -270,7 +270,7 @@ remaining    = return_total - applied
 pnpm test:api:stage3i
 ```
 
-结果：PASS，`TestStage3I` 通过，共 13 个子测试，测试耗时约 3.9 秒：
+结果：PASS，`TestStage3I` 通过，共 13 个子测试，测试耗时约 4 秒：
 
 | 子测试 | 覆盖点 | 结果 |
 |---|---|---|
@@ -332,7 +332,7 @@ go test -tags=integration ./tests/api -run 'TestStage3' -count=1 -v
 - `TestStage3G` 通过。
 - `TestStage3H` 10 个子测试通过。
 - `TestStage3I` 13 个子测试通过。
-- 总耗时约 15.2 秒。
+- 总耗时约 14.5 秒。
 
 数据校验：
 
