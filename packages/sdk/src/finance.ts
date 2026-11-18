@@ -68,6 +68,7 @@ export interface CreditNote {
   source_id: string
   source_code: string
   invoice_id: string
+  invoice_code: string
   partner_id: string
   partner_name: string
   note_date: string

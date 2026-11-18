@@ -32,6 +32,9 @@ func (s *ReturnService) Create(ctx context.Context, shipmentID string, input Ret
 	if shipmentID == "" {
 		return nil, domain.ErrInvalidInput
 	}
+	if _, err := uuid.Parse(shipmentID); err != nil {
+		return nil, domain.ErrInvalidInput
+	}
 
 	returnCode, err := s.codes.Next(ctx, tenantID, "sales_return")
 	if err != nil {
@@ -71,12 +74,24 @@ func (s *ReturnService) List(
 ) ([]*domain.SalesReturn, int, error) {
 	tenantID, _, _ := tenantActor(ctx)
 	page, pageSize = normalizePage(page, pageSize)
+	shipmentID = strings.TrimSpace(shipmentID)
+	customerID = strings.TrimSpace(customerID)
+	if shipmentID != "" {
+		if _, err := uuid.Parse(shipmentID); err != nil {
+			return nil, 0, domain.ErrInvalidInput
+		}
+	}
+	if customerID != "" {
+		if _, err := uuid.Parse(customerID); err != nil {
+			return nil, 0, domain.ErrInvalidInput
+		}
+	}
 	return s.returns.List(
 		ctx,
 		scope.FromActor(ctx, tenantID),
 		tenantID,
-		strings.TrimSpace(shipmentID),
-		strings.TrimSpace(customerID),
+		shipmentID,
+		customerID,
 		strings.TrimSpace(keyword),
 		startDate,
 		endDate,

@@ -31,6 +31,8 @@ type SalesReturn struct {
 	BaseTaxAmount       decimal.Decimal
 	BaseTotalAmount     decimal.Decimal
 	CostAmount          decimal.Decimal
+	InvoiceID           string
+	InvoiceCode         string
 	CreditNoteID        string
 	CreditNoteCode      string
 	CreditNoteAmount    decimal.Decimal

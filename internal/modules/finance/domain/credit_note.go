@@ -23,6 +23,7 @@ type CreditNote struct {
 	SourceID            string
 	SourceCode          string
 	InvoiceID           string
+	InvoiceCode         string
 	PartnerID           string
 	PartnerName         string
 	NoteDate            time.Time

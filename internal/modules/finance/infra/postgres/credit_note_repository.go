@@ -84,13 +84,15 @@ func (r *CreditNoteRepository) Get(ctx context.Context, filter scope.Filter, ten
 const creditNoteSelectSQL = `
 	SELECT c.id::text, c.tenant_id::text, c.org_id::text, c.code, c.credit_type,
 	       c.source_type, c.source_id::text, c.source_code, c.invoice_id::text,
+	       COALESCE(i.code, ''),
 	       c.partner_id::text, COALESCE(p.name, ''), c.note_date, c.currency,
 	       c.exchange_rate::text, c.amount::text, c.base_amount::text,
 	       c.applied_amount::text, c.applied_base_amount::text,
 	       c.remaining_amount::text, c.remaining_base_amount::text,
 	       c.status, c.reason, c.remark, c.created_by::text, c.created_at, c.updated_at
 	FROM erp.finance_credit_notes c
-	LEFT JOIN erp.partners p ON p.tenant_id = c.tenant_id AND p.id = c.partner_id`
+	LEFT JOIN erp.partners p ON p.tenant_id = c.tenant_id AND p.id = c.partner_id
+	LEFT JOIN erp.finance_invoices i ON i.tenant_id = c.tenant_id AND i.id = c.invoice_id`
 
 func scanCreditNote(row rowScanner) (*domain.CreditNote, error) {
 	var item domain.CreditNote
@@ -100,6 +102,7 @@ func scanCreditNote(row rowScanner) (*domain.CreditNote, error) {
 	err := row.Scan(
 		&item.ID, &item.TenantID, &item.OrgID, &item.Code, &item.CreditType,
 		&item.SourceType, &item.SourceID, &item.SourceCode, &item.InvoiceID,
+		&item.InvoiceCode,
 		&item.PartnerID, &item.PartnerName, &item.NoteDate, &item.Currency,
 		&exchangeRate, &amount, &baseAmount,
 		&appliedAmount, &appliedBaseAmount,

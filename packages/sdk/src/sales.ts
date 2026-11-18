@@ -168,6 +168,8 @@ export interface SalesReturn {
   base_tax_amount: string
   base_total_amount: string
   cost_amount: string
+  invoice_id: string
+  invoice_code: string
   credit_note_id: string
   credit_note_code: string
   credit_note_amount: string

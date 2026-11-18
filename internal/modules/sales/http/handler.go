@@ -232,6 +232,8 @@ type salesReturnResponse struct {
 	BaseTaxAmount       string                    `json:"base_tax_amount"`
 	BaseTotalAmount     string                    `json:"base_total_amount"`
 	CostAmount          string                    `json:"cost_amount"`
+	InvoiceID           string                    `json:"invoice_id"`
+	InvoiceCode         string                    `json:"invoice_code"`
 	CreditNoteID        string                    `json:"credit_note_id"`
 	CreditNoteCode      string                    `json:"credit_note_code"`
 	CreditNoteAmount    string                    `json:"credit_note_amount"`
@@ -557,7 +559,7 @@ func (h *Handler) handleError(c *gin.Context, err error) {
 	case errors.Is(err, domain.ErrInsufficientStock):
 		httpx.Error(c, http.StatusConflict, "INSUFFICIENT_STOCK", "insufficient inventory")
 	case errors.Is(err, domain.ErrInvalidStatus):
-		httpx.Error(c, http.StatusConflict, "INVALID_STATUS", "order status does not allow this operation")
+		httpx.Error(c, http.StatusConflict, "INVALID_STATUS", "order or shipment status does not allow this operation")
 	case errors.Is(err, domain.ErrConflict):
 		httpx.Error(c, http.StatusConflict, "CONFLICT", "sales order or shipment is in conflict")
 	case errors.Is(err, gldomain.ErrConflict):
@@ -682,7 +684,8 @@ func toReturnResponse(item *domain.SalesReturn) salesReturnResponse {
 		BaseTaxAmount:   item.BaseTaxAmount.StringFixed(4),
 		BaseTotalAmount: item.BaseTotalAmount.StringFixed(4),
 		CostAmount:      item.CostAmount.StringFixed(4),
-		CreditNoteID:    item.CreditNoteID, CreditNoteCode: item.CreditNoteCode,
+		InvoiceID:       item.InvoiceID, InvoiceCode: item.InvoiceCode,
+		CreditNoteID: item.CreditNoteID, CreditNoteCode: item.CreditNoteCode,
 		CreditNoteAmount:    item.CreditNoteAmount.StringFixed(4),
 		CreditNoteApplied:   item.CreditNoteApplied.StringFixed(4),
 		CreditNoteRemaining: item.CreditNoteRemaining.StringFixed(4),

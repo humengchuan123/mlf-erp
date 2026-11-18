@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 	glpost "github.com/mlf-erp/mlf-erp/internal/modules/gl/infra/postgres"
 	"github.com/mlf-erp/mlf-erp/internal/modules/sales/domain"
@@ -417,11 +418,14 @@ func (r *ReturnRepository) Get(
 	if err != nil {
 		return nil, err
 	}
-	lines, err := loadReturnLines(ctx, r.db, tenantID, id)
+	linesByReturn, err := loadReturnLinesForReturns(ctx, r.db, tenantID, []string{id})
 	if err != nil {
 		return nil, err
 	}
-	ret.Lines = lines
+	ret.Lines = linesByReturn[id]
+	if ret.Lines == nil {
+		ret.Lines = make([]*domain.SalesReturnLine, 0)
+	}
 	return ret, nil
 }
 
@@ -483,7 +487,25 @@ func (r *ReturnRepository) List(
 		}
 		items = append(items, item)
 	}
-	return items, total, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, 0, err
+	}
+
+	returnIDs := make([]string, 0, len(items))
+	for _, item := range items {
+		returnIDs = append(returnIDs, item.ID)
+	}
+	linesByReturn, err := loadReturnLinesForReturns(ctx, r.db, tenantID, returnIDs)
+	if err != nil {
+		return nil, 0, err
+	}
+	for _, item := range items {
+		item.Lines = linesByReturn[item.ID]
+		if item.Lines == nil {
+			item.Lines = make([]*domain.SalesReturnLine, 0)
+		}
+	}
+	return items, total, nil
 }
 
 const returnSelectSQL = `
@@ -497,13 +519,15 @@ const returnSelectSQL = `
 	       COALESCE(c.id::text, ''), COALESCE(c.code, ''), COALESCE(c.amount::text, '0'),
 	       COALESCE(c.applied_amount::text, '0'), COALESCE(c.remaining_amount::text, '0'),
 	       COALESCE(c.status, ''),
+	       COALESCE(i.id::text, ''), COALESCE(i.code, ''),
 	       r.voucher_code, r.reason, r.remark, r.created_by::text, r.created_at
 	FROM erp.sales_returns r
 	JOIN erp.sales_orders o ON o.tenant_id = r.tenant_id AND o.id = r.order_id
 	JOIN erp.sales_shipments s ON s.tenant_id = r.tenant_id AND s.id = r.shipment_id
 	LEFT JOIN erp.partners p ON p.tenant_id = r.tenant_id AND p.id = r.customer_id
 	LEFT JOIN erp.warehouses w ON w.tenant_id = r.tenant_id AND w.id = r.warehouse_id
-	LEFT JOIN erp.finance_credit_notes c ON c.tenant_id = r.tenant_id AND c.id = r.credit_note_id`
+	LEFT JOIN erp.finance_credit_notes c ON c.tenant_id = r.tenant_id AND c.id = r.credit_note_id
+	LEFT JOIN erp.finance_invoices i ON i.tenant_id = r.tenant_id AND i.id = c.invoice_id`
 
 func scanReturnHeader(row rowScanner) (*domain.SalesReturn, error) {
 	var item domain.SalesReturn
@@ -520,6 +544,7 @@ func scanReturnHeader(row rowScanner) (*domain.SalesReturn, error) {
 		&baseNet, &baseTax, &baseTotal, &costAmount,
 		&item.CreditNoteID, &item.CreditNoteCode, &creditAmount,
 		&creditApplied, &creditRemaining, &item.CreditNoteStatus,
+		&item.InvoiceID, &item.InvoiceCode,
 		&item.VoucherCode, &item.Reason, &item.Remark, &item.CreatedBy, &item.CreatedAt,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -542,33 +567,53 @@ func scanReturnHeader(row rowScanner) (*domain.SalesReturn, error) {
 	return &item, nil
 }
 
-func loadReturnLines(ctx context.Context, q querier, tenantID, returnID string) ([]*domain.SalesReturnLine, error) {
-	rows, err := q.Query(ctx, `
-		SELECT rl.id::text, rl.tenant_id::text, rl.return_id::text, rl.line_no,
-		       rl.shipment_line_id::text, rl.order_line_id::text, rl.material_id::text,
-		       COALESCE(m.name, ''), rl.quantity::text, rl.unit_price::text,
-		       COALESCE(rl.tax_rate_id::text, ''), rl.tax_rate::text,
-		       rl.amount::text, rl.tax_amount::text, rl.gross_amount::text,
-		       rl.base_amount::text, rl.base_tax_amount::text, rl.base_gross_amount::text,
-		       rl.unit_cost::text, rl.cost_amount::text
-		FROM erp.sales_return_lines rl
-		LEFT JOIN erp.materials m ON m.tenant_id = rl.tenant_id AND m.id = rl.material_id
-		WHERE rl.tenant_id = $1 AND rl.return_id = $2
-		ORDER BY rl.line_no`, tenantID, returnID)
+const returnLineSelectSQL = `
+	SELECT rl.id::text, rl.tenant_id::text, rl.return_id::text, rl.line_no,
+	       rl.shipment_line_id::text, rl.order_line_id::text, rl.material_id::text,
+	       COALESCE(m.name, ''), rl.quantity::text, rl.unit_price::text,
+	       COALESCE(rl.tax_rate_id::text, ''), rl.tax_rate::text,
+	       rl.amount::text, rl.tax_amount::text, rl.gross_amount::text,
+	       rl.base_amount::text, rl.base_tax_amount::text, rl.base_gross_amount::text,
+	       rl.unit_cost::text, rl.cost_amount::text
+	FROM erp.sales_return_lines rl
+	LEFT JOIN erp.materials m ON m.tenant_id = rl.tenant_id AND m.id = rl.material_id`
+
+func loadReturnLinesForReturns(
+	ctx context.Context,
+	q querier,
+	tenantID string,
+	returnIDs []string,
+) (map[string][]*domain.SalesReturnLine, error) {
+	linesByReturn := make(map[string][]*domain.SalesReturnLine, len(returnIDs))
+	if len(returnIDs) == 0 {
+		return linesByReturn, nil
+	}
+
+	ids := make([]pgtype.UUID, 0, len(returnIDs))
+	for _, id := range returnIDs {
+		parsed, err := uuid.Parse(id)
+		if err != nil {
+			return nil, fmt.Errorf("parse sales return id: %w", err)
+		}
+		ids = append(ids, pgtype.UUID{Bytes: [16]byte(parsed), Valid: true})
+	}
+
+	rows, err := q.Query(ctx, returnLineSelectSQL+`
+		WHERE rl.tenant_id = $1 AND rl.return_id = ANY($2::uuid[])
+		ORDER BY rl.return_id, rl.line_no`, tenantID, ids)
 	if err != nil {
 		return nil, fmt.Errorf("list sales return lines: %w", err)
 	}
 	defer rows.Close()
 
-	lines := make([]*domain.SalesReturnLine, 0)
 	for rows.Next() {
 		line, scanErr := scanReturnLine(rows)
 		if scanErr != nil {
 			return nil, scanErr
 		}
-		lines = append(lines, line)
+		linesByReturn[line.ReturnID] = append(linesByReturn[line.ReturnID], line)
 	}
-	return lines, rows.Err()
+	return linesByReturn, rows.Err()
 }
 
 func scanReturnLine(row rowScanner) (*domain.SalesReturnLine, error) {

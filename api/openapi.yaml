@@ -583,6 +583,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ApiResponse'
+        '404':
+          description: Shipment, shipment line or receivable invoice not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
         '409':
           description: Over return, invalid status or closed accounting period
           content:
@@ -2518,6 +2524,10 @@ components:
           type: string
         cost_amount:
           type: string
+        invoice_id:
+          type: string
+        invoice_code:
+          type: string
         credit_note_id:
           type: string
         credit_note_code:
@@ -2572,6 +2582,7 @@ components:
           type: string
         lines:
           type: array
+          minItems: 1
           items:
             $ref: '#/components/schemas/CreateSalesReturnLineInput'
     InventoryBalance:
@@ -2792,6 +2803,8 @@ components:
         source_code:
           type: string
         invoice_id:
+          type: string
+        invoice_code:
           type: string
         partner_id:
           type: string

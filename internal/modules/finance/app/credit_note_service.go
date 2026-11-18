@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 
+	"github.com/google/uuid"
 	"github.com/mlf-erp/mlf-erp/internal/modules/finance/domain"
 	"github.com/mlf-erp/mlf-erp/internal/platform/scope"
 )
@@ -23,12 +24,22 @@ func (s *CreditNoteService) List(
 ) ([]*domain.CreditNote, int, error) {
 	tenantID, _, _ := tenantActor(ctx)
 	page, pageSize = normalizePage(page, pageSize)
+	status = normalizeString(status)
+	if status != "" && status != domain.CreditNoteStatusOpen && status != domain.CreditNoteStatusApplied {
+		return nil, 0, domain.ErrInvalidInput
+	}
+	partnerID = normalizeString(partnerID)
+	if partnerID != "" {
+		if _, err := uuid.Parse(partnerID); err != nil {
+			return nil, 0, domain.ErrInvalidInput
+		}
+	}
 	return s.notes.List(
 		ctx,
 		scope.FromActor(ctx, tenantID),
 		tenantID,
-		normalizeString(status),
-		normalizeString(partnerID),
+		status,
+		partnerID,
 		strings.TrimSpace(keyword),
 		(page-1)*pageSize,
 		pageSize,
@@ -37,5 +48,9 @@ func (s *CreditNoteService) List(
 
 func (s *CreditNoteService) Get(ctx context.Context, id string) (*domain.CreditNote, error) {
 	tenantID, _, _ := tenantActor(ctx)
+	id = strings.TrimSpace(id)
+	if _, err := uuid.Parse(id); err != nil {
+		return nil, domain.ErrInvalidInput
+	}
 	return s.notes.Get(ctx, scope.FromActor(ctx, tenantID), tenantID, id)
 }

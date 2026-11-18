@@ -159,6 +159,7 @@ var demoViewerPermissions = []string{
 	"inventory.transaction.read",
 	"sales.order.read",
 	"sales.shipment.read",
+	"sales.return.read",
 	"sales.read",
 	"finance.invoice.read",
 	"finance.payment.read",

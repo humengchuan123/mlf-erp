@@ -209,6 +209,8 @@ assertFile('packages/sdk/src/sales.ts', [
   'ship(',
   'shipments(',
   'returns',
+  '/sales/returns',
+  '/sales/shipments/${shipmentID}/returns',
   'SalesReturn',
   'CreateSalesReturnInput',
   'returned_qty',
@@ -227,6 +229,7 @@ assertFile('packages/sdk/src/finance.ts', [
   'voidInvoice(',
   'creditNotes',
   'CreditNote',
+  '/finance/credit-notes',
   'remaining_amount',
   'exchangeRates',
   'exchange_rate',
@@ -239,6 +242,17 @@ assertFile('packages/sdk/src/finance.ts', [
 ])
 
 assertFile('packages/sdk/src/purchase.ts', ['purchaseApi', 'tax_rate_id', 'gross_amount', 'exchange_rate', 'base_total_amount'])
+
+assertFile('api/openapi.yaml', [
+  '/sales/shipments/{id}/returns:',
+  '/sales/returns:',
+  '/sales/returns/{id}:',
+  '/finance/credit-notes:',
+  '/finance/credit-notes/{id}:',
+  'CreateSalesReturnInput',
+  'SalesReturn',
+  'CreditNote'
+])
 
 assertFile('packages/sdk/src/gl.ts', [
   'glApi',

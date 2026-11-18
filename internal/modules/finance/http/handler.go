@@ -119,6 +119,7 @@ type creditNoteResponse struct {
 	SourceID            string    `json:"source_id"`
 	SourceCode          string    `json:"source_code"`
 	InvoiceID           string    `json:"invoice_id"`
+	InvoiceCode         string    `json:"invoice_code"`
 	PartnerID           string    `json:"partner_id"`
 	PartnerName         string    `json:"partner_name"`
 	NoteDate            string    `json:"note_date"`
@@ -644,7 +645,8 @@ func toCreditNoteResponse(item *domain.CreditNote) creditNoteResponse {
 	return creditNoteResponse{
 		ID: item.ID, Code: item.Code, CreditType: item.CreditType,
 		SourceType: item.SourceType, SourceID: item.SourceID, SourceCode: item.SourceCode,
-		InvoiceID: item.InvoiceID, PartnerID: item.PartnerID, PartnerName: item.PartnerName,
+		InvoiceID: item.InvoiceID, InvoiceCode: item.InvoiceCode,
+		PartnerID: item.PartnerID, PartnerName: item.PartnerName,
 		NoteDate: item.NoteDate.Format("2006-01-02"), Currency: item.Currency,
 		ExchangeRate: item.ExchangeRate.StringFixed(8),
 		Amount:       item.Amount.StringFixed(4), BaseAmount: item.BaseAmount.StringFixed(4),
