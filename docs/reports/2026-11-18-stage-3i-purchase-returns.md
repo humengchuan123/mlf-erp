@@ -313,7 +313,33 @@ git diff --check
 
 ### 5.3 干净数据库全链路回归
 
-（待 Task 8 完成后补充 Stage 3B–3I 干净库结果。）
+在全新数据库 `mlf_erp_stage3i_clean` 上执行迁移、seed、demo 和：
+
+```bash
+go test -tags=integration ./tests/api -run 'TestStage3' -count=1 -v
+```
+
+结果：
+
+- `TestStage3B` 11 个子测试通过。
+- `TestStage3C` 9 个子测试通过。
+- `TestStage3D` 4 个子测试通过。
+- `TestStage3E` 6 个子测试通过。
+- `TestStage3F` 7 个子测试通过。
+- `TestStage3G` 通过。
+- `TestStage3H` 10 个子测试通过。
+- `TestStage3I` 10 个子测试通过。
+- 总耗时约 13.7 秒。
+
+数据校验：
+
+- `schema_migrations` version 21，dirty=false。
+- `purchase_returns` 9 条。
+- `purchase_return` 贷项单 8 条（1 条零金额退货无贷项单）。
+- `purchase_return` 凭证 8 张。
+- 借贷不平衡的采购退货凭证 0 张。
+
+Stage 3I API 测试会写入本地开发库并消耗业务数据；完整回归必须使用干净数据库。
 
 ## 6. 代码审核
 
