@@ -1,9 +1,9 @@
 openapi: 3.1.0
 info:
   title: MLF ERP API
-  version: 0.7.0
+  version: 0.8.0
   description: |
-    MLF ERP Stage 1 + Stage 2 + Stage 3A/3B/3C/3D/3E/3F API contract.
+    MLF ERP Stage 1 + Stage 2 + Stage 3A/3B/3C/3D/3E/3F/3G API contract.
     Master data uses a generic CRUD surface under /masterdata/{entity}.
     Purchase, sales, inventory, receivables/payables, payments, general ledger and reports are included.
 servers:
@@ -1403,6 +1403,50 @@ paths:
                     properties:
                       data:
                         $ref: '#/components/schemas/GlIncomeStatement'
+  /finance/reports/cash-flow:
+    get:
+      summary: Cash flow statement
+      parameters:
+        - in: query
+          name: start_date
+          schema:
+            type: string
+            format: date
+        - in: query
+          name: end_date
+          schema:
+            type: string
+            format: date
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/GlCashFlowStatement'
+        '400':
+          description: Invalid date range
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
   /finance/reports/auxiliary-balance:
     get:
       summary: Auxiliary balance report grouped by partner, department or project
@@ -2832,6 +2876,94 @@ components:
           type: string
         net_profit:
           type: string
+    GlCashFlowLine:
+      type: object
+      properties:
+        code:
+          type: string
+        name:
+          type: string
+        amount:
+          type: string
+    GlCashFlowSection:
+      type: object
+      properties:
+        inflows:
+          type: array
+          items:
+            $ref: '#/components/schemas/GlCashFlowLine'
+        outflows:
+          type: array
+          items:
+            $ref: '#/components/schemas/GlCashFlowLine'
+        net:
+          type: string
+    GlCashFlowUnclassified:
+      type: object
+      properties:
+        voucher_id:
+          type: string
+        voucher_code:
+          type: string
+        voucher_date:
+          type: string
+          format: date
+        direction:
+          type: string
+        amount:
+          type: string
+        reason:
+          type: string
+    GlIndirectCashFlow:
+      type: object
+      properties:
+        net_profit:
+          type: string
+        non_cash_expenses:
+          type: string
+        receivable_increase:
+          type: string
+        inventory_increase:
+          type: string
+        payable_increase:
+          type: string
+        tax_payable_increase:
+          type: string
+        employee_payable_increase:
+          type: string
+        operating_net:
+          type: string
+        direct_operating_net:
+          type: string
+        difference:
+          type: string
+    GlCashFlowStatement:
+      type: object
+      properties:
+        start_date:
+          type: string
+          format: date
+        end_date:
+          type: string
+          format: date
+        operating:
+          $ref: '#/components/schemas/GlCashFlowSection'
+        investing:
+          $ref: '#/components/schemas/GlCashFlowSection'
+        financing:
+          $ref: '#/components/schemas/GlCashFlowSection'
+        net_increase:
+          type: string
+        opening_cash:
+          type: string
+        closing_cash:
+          type: string
+        unclassified:
+          type: array
+          items:
+            $ref: '#/components/schemas/GlCashFlowUnclassified'
+        indirect:
+          $ref: '#/components/schemas/GlIndirectCashFlow'
     GlDimension:
       type: object
       properties:

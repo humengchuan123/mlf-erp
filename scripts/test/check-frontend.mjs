@@ -236,7 +236,10 @@ assertFile('packages/sdk/src/gl.ts', [
   'balanceSheet(',
   'incomeStatement(',
   'auxiliaryBalance(',
-  'vatSummary('
+  'vatSummary(',
+  'CashFlowStatement',
+  'cashFlow',
+  '/finance/reports/cash-flow'
 ])
 
 assertFile('package.json', ['test:api:stage3b', 'test:api:stage3e', 'test:api:stage3f', 'test:frontend'])

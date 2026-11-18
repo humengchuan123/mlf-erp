@@ -162,6 +162,53 @@ export interface IncomeStatement {
   net_profit: string
 }
 
+export interface CashFlowLine {
+  code: string
+  name: string
+  amount: string
+}
+
+export interface CashFlowSection {
+  inflows: CashFlowLine[]
+  outflows: CashFlowLine[]
+  net: string
+}
+
+export interface CashFlowUnclassified {
+  voucher_id: string
+  voucher_code: string
+  voucher_date: string
+  direction: string
+  amount: string
+  reason: string
+}
+
+export interface IndirectCashFlow {
+  net_profit: string
+  non_cash_expenses: string
+  receivable_increase: string
+  inventory_increase: string
+  payable_increase: string
+  tax_payable_increase: string
+  employee_payable_increase: string
+  operating_net: string
+  direct_operating_net: string
+  difference: string
+}
+
+export interface CashFlowStatement {
+  start_date: string
+  end_date: string
+  operating: CashFlowSection
+  investing: CashFlowSection
+  financing: CashFlowSection
+  net_increase: string
+  opening_cash: string
+  closing_cash: string
+  unclassified: CashFlowUnclassified[]
+  indirect: IndirectCashFlow
+}
+
 export interface Dimension {
   id: string
   code: string
@@ -301,6 +348,9 @@ export const glApi = {
     },
     incomeStatement(params: { start_date?: string; end_date?: string } = {}): Promise<IncomeStatement> {
       return api.get<IncomeStatement>(`/finance/reports/income-statement${queryString(params)}`)
+    },
+    cashFlow(params: { start_date?: string; end_date?: string } = {}): Promise<CashFlowStatement> {
+      return api.get<CashFlowStatement>(`/finance/reports/cash-flow${queryString(params)}`)
     },
     auxiliaryBalance(params: {
       dimension: string
