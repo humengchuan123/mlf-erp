@@ -112,7 +112,7 @@ func BuildReturnLines(shipment *Shipment, inputs []ReturnLineInput) ([]*SalesRet
 
 		shipmentLine, ok := shipmentLines[input.ShipmentLineID]
 		if !ok {
-			return nil, ErrInvalidInput
+			return nil, ErrShipmentLineNotFound
 		}
 		if !input.Quantity.IsPositive() || !shipmentLine.Quantity.IsPositive() {
 			return nil, ErrInvalidInput

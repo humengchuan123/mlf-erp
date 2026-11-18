@@ -141,9 +141,6 @@ func (r *ReturnRepository) Create(
 		line.ReturnID = ret.ID
 	}
 	ret.RecalculateTotals()
-	if !ret.TotalAmount.IsPositive() {
-		return nil, domain.ErrInvalidInput
-	}
 
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO erp.sales_returns (
@@ -278,10 +275,11 @@ func (r *ReturnRepository) Create(
 		return nil, fmt.Errorf("post sales return voucher: %w", err)
 	}
 
-	var invoiceID, invoicePartnerID, invoiceCurrency, invoiceRateRaw string
-	var invoiceTotalRaw, invoicePaidRaw, invoiceCreditedRaw string
-	var invoiceBaseTotalRaw, invoiceBasePaidRaw, invoiceBaseCreditedRaw string
-	err = tx.QueryRow(ctx, `
+	if ret.TotalAmount.IsPositive() && ret.BaseTotalAmount.IsPositive() {
+		var invoiceID, invoicePartnerID, invoiceCurrency, invoiceRateRaw string
+		var invoiceTotalRaw, invoicePaidRaw, invoiceCreditedRaw string
+		var invoiceBaseTotalRaw, invoiceBasePaidRaw, invoiceBaseCreditedRaw string
+		err = tx.QueryRow(ctx, `
 		SELECT id::text, partner_id::text, currency, exchange_rate::text,
 		       total_amount::text, paid_amount::text, credited_amount::text,
 		       base_total_amount::text, base_paid_amount::text, base_credited_amount::text
@@ -289,62 +287,69 @@ func (r *ReturnRepository) Create(
 		WHERE tenant_id = $1 AND source_type = 'sales_shipment' AND source_id = $2
 		  AND invoice_type = 'receivable'
 		FOR UPDATE`, tenantID, params.ShipmentID).Scan(
-		&invoiceID, &invoicePartnerID, &invoiceCurrency, &invoiceRateRaw,
-		&invoiceTotalRaw, &invoicePaidRaw, &invoiceCreditedRaw,
-		&invoiceBaseTotalRaw, &invoiceBasePaidRaw, &invoiceBaseCreditedRaw,
-	)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, domain.ErrNotFound
-	}
-	if err != nil {
-		return nil, fmt.Errorf("lock receivable invoice: %w", err)
-	}
-	if invoicePartnerID != customerID || invoiceCurrency != currency {
-		return nil, domain.ErrInvalidInput
-	}
-
-	invoiceRate := decimal.RequireFromString(invoiceRateRaw)
-	if !invoiceRate.Equal(ret.ExchangeRate) {
-		return nil, domain.ErrInvalidInput
-	}
-	invoiceTotal := decimal.RequireFromString(invoiceTotalRaw)
-	invoicePaid := decimal.RequireFromString(invoicePaidRaw)
-	invoiceCredited := decimal.RequireFromString(invoiceCreditedRaw)
-	invoiceBaseTotal := decimal.RequireFromString(invoiceBaseTotalRaw)
-	invoiceBasePaid := decimal.RequireFromString(invoiceBasePaidRaw)
-	invoiceBaseCredited := decimal.RequireFromString(invoiceBaseCreditedRaw)
-
-	outstanding := invoiceTotal.Sub(invoicePaid).Sub(invoiceCredited)
-	if outstanding.IsNegative() {
-		outstanding = decimal.Zero
-	}
-	applied := decimal.Zero
-	if outstanding.IsPositive() {
-		applied = ret.TotalAmount
-		if applied.GreaterThan(outstanding) {
-			applied = outstanding
+			&invoiceID, &invoicePartnerID, &invoiceCurrency, &invoiceRateRaw,
+			&invoiceTotalRaw, &invoicePaidRaw, &invoiceCreditedRaw,
+			&invoiceBaseTotalRaw, &invoiceBasePaidRaw, &invoiceBaseCreditedRaw,
+		)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, domain.ErrNotFound
 		}
-	}
-	baseOutstanding := invoiceBaseTotal.Sub(invoiceBasePaid).Sub(invoiceBaseCredited)
-	if baseOutstanding.IsNegative() {
-		baseOutstanding = decimal.Zero
-	}
-	appliedBase := applied.Mul(invoiceRate).Round(4)
-	if appliedBase.GreaterThan(baseOutstanding) {
-		appliedBase = baseOutstanding
-	}
-	if appliedBase.GreaterThan(ret.BaseTotalAmount) {
-		appliedBase = ret.BaseTotalAmount
-	}
-	remaining := ret.TotalAmount.Sub(applied).Round(4)
-	remainingBase := ret.BaseTotalAmount.Sub(appliedBase).Round(4)
-	noteStatus := "open"
-	if remaining.IsZero() && remainingBase.IsZero() {
-		noteStatus = "applied"
-	}
+		if err != nil {
+			return nil, fmt.Errorf("lock receivable invoice: %w", err)
+		}
+		if invoicePartnerID != customerID || invoiceCurrency != currency {
+			return nil, domain.ErrInvalidInput
+		}
 
-	creditNoteID := uuid.NewString()
-	if _, err := tx.Exec(ctx, `
+		invoiceRate := decimal.RequireFromString(invoiceRateRaw)
+		if !invoiceRate.Equal(ret.ExchangeRate) {
+			return nil, domain.ErrInvalidInput
+		}
+		invoiceTotal := decimal.RequireFromString(invoiceTotalRaw)
+		invoicePaid := decimal.RequireFromString(invoicePaidRaw)
+		invoiceCredited := decimal.RequireFromString(invoiceCreditedRaw)
+		invoiceBaseTotal := decimal.RequireFromString(invoiceBaseTotalRaw)
+		invoiceBasePaid := decimal.RequireFromString(invoiceBasePaidRaw)
+		invoiceBaseCredited := decimal.RequireFromString(invoiceBaseCreditedRaw)
+
+		outstanding := invoiceTotal.Sub(invoicePaid).Sub(invoiceCredited)
+		if outstanding.IsNegative() {
+			outstanding = decimal.Zero
+		}
+		applied := decimal.Zero
+		if outstanding.IsPositive() {
+			applied = ret.TotalAmount
+			if applied.GreaterThan(outstanding) {
+				applied = outstanding
+			}
+		}
+		baseOutstanding := invoiceBaseTotal.Sub(invoiceBasePaid).Sub(invoiceBaseCredited)
+		if baseOutstanding.IsNegative() {
+			baseOutstanding = decimal.Zero
+		}
+		appliedBase := applied.Mul(invoiceRate).Round(4)
+		if applied.Equal(ret.TotalAmount) {
+			appliedBase = ret.BaseTotalAmount
+			if baseOutstanding.LessThan(appliedBase) {
+				appliedBase = baseOutstanding
+			}
+		} else {
+			if appliedBase.GreaterThan(baseOutstanding) {
+				appliedBase = baseOutstanding
+			}
+			if appliedBase.GreaterThan(ret.BaseTotalAmount) {
+				appliedBase = ret.BaseTotalAmount
+			}
+		}
+		remaining := ret.TotalAmount.Sub(applied).Round(4)
+		remainingBase := ret.BaseTotalAmount.Sub(appliedBase).Round(4)
+		noteStatus := "open"
+		if remaining.IsZero() && remainingBase.IsZero() {
+			noteStatus = "applied"
+		}
+
+		creditNoteID := uuid.NewString()
+		if _, err := tx.Exec(ctx, `
 		INSERT INTO erp.finance_credit_notes (
 			id, tenant_id, org_id, code, credit_type, source_type, source_id, source_code,
 			invoice_id, partner_id, note_date, currency, exchange_rate, amount, base_amount,
@@ -352,17 +357,17 @@ func (r *ReturnRepository) Create(
 			status, reason, remark, created_by
 		) VALUES ($1,$2,$3,$4,'sales_return','sales_return',$5,$6,$7,$8,$9,$10,$11,$12,$13,
 		          $14,$15,$16,$17,$18,$19,$20,$21)`,
-		creditNoteID, tenantID, ret.OrgID, params.CreditNoteCode, ret.ID, ret.Code,
-		invoiceID, ret.CustomerID, ret.ReturnDate, ret.Currency, invoiceRate.String(),
-		ret.TotalAmount.String(), ret.BaseTotalAmount.String(),
-		applied.String(), appliedBase.String(), remaining.String(), remainingBase.String(),
-		noteStatus, ret.Reason, ret.Remark, userID,
-	); err != nil {
-		return nil, fmt.Errorf("insert credit note: %w", mapDBError(err))
-	}
+			creditNoteID, tenantID, ret.OrgID, params.CreditNoteCode, ret.ID, ret.Code,
+			invoiceID, ret.CustomerID, ret.ReturnDate, ret.Currency, invoiceRate.String(),
+			ret.TotalAmount.String(), ret.BaseTotalAmount.String(),
+			applied.String(), appliedBase.String(), remaining.String(), remainingBase.String(),
+			noteStatus, ret.Reason, ret.Remark, userID,
+		); err != nil {
+			return nil, fmt.Errorf("insert credit note: %w", mapDBError(err))
+		}
 
-	if applied.IsPositive() {
-		tag, updateErr := tx.Exec(ctx, `
+		if applied.IsPositive() {
+			tag, updateErr := tx.Exec(ctx, `
 			UPDATE erp.finance_invoices
 			SET credited_amount = credited_amount + $3,
 			    base_credited_amount = base_credited_amount + $4,
@@ -378,23 +383,24 @@ func (r *ReturnRepository) Create(
 			    updated_by = $5, updated_at = now()
 			WHERE tenant_id = $1 AND id = $2
 			  AND paid_amount + credited_amount + $3 <= total_amount`,
-			tenantID, invoiceID, applied.String(), appliedBase.String(), userID,
-		)
-		if updateErr != nil {
-			return nil, fmt.Errorf("update invoice credited amount: %w", updateErr)
+				tenantID, invoiceID, applied.String(), appliedBase.String(), userID,
+			)
+			if updateErr != nil {
+				return nil, fmt.Errorf("update invoice credited amount: %w", updateErr)
+			}
+			if tag.RowsAffected() != 1 {
+				return nil, domain.ErrInvalidInput
+			}
 		}
-		if tag.RowsAffected() != 1 {
-			return nil, domain.ErrInvalidInput
-		}
-	}
 
-	if _, err := tx.Exec(ctx, `
+		if _, err := tx.Exec(ctx, `
 		UPDATE erp.sales_returns
 		SET credit_note_id = $3
 		WHERE tenant_id = $1 AND id = $2`,
-		tenantID, ret.ID, creditNoteID,
-	); err != nil {
-		return nil, fmt.Errorf("update sales return credit note: %w", err)
+			tenantID, ret.ID, creditNoteID,
+		); err != nil {
+			return nil, fmt.Errorf("update sales return credit note: %w", err)
+		}
 	}
 
 	if err := tx.Commit(ctx); err != nil {

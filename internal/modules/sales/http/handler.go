@@ -550,6 +550,8 @@ func (h *Handler) handleError(c *gin.Context, err error) {
 	switch {
 	case errors.Is(err, domain.ErrNotFound):
 		httpx.Error(c, http.StatusNotFound, httpx.CodeNotFound, "resource not found")
+	case errors.Is(err, domain.ErrShipmentLineNotFound):
+		httpx.Error(c, http.StatusNotFound, httpx.CodeNotFound, "shipment line not found")
 	case errors.Is(err, domain.ErrInvalidInput):
 		httpx.Error(c, http.StatusBadRequest, httpx.CodeBadRequest, "invalid input")
 	case errors.Is(err, domain.ErrOverShipment):

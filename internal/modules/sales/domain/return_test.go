@@ -136,6 +136,85 @@ func TestBuildReturnLinesZeroTaxAndCost(t *testing.T) {
 	assertReturnDecimal(t, "cost amount", line.CostAmount, decimal.Zero)
 }
 
+func TestBuildReturnLinesZeroPricePositiveCost(t *testing.T) {
+	shipment := newReturnTestShipment()
+	shipmentLine := shipment.Lines[0]
+	shipmentLine.Amount = decimal.Zero
+	shipmentLine.TaxAmount = decimal.Zero
+	shipmentLine.GrossAmount = decimal.Zero
+	shipmentLine.BaseAmount = decimal.Zero
+	shipmentLine.BaseTaxAmount = decimal.Zero
+	shipmentLine.BaseGrossAmount = decimal.Zero
+
+	lines, err := BuildReturnLines(shipment, []ReturnLineInput{
+		{ShipmentLineID: shipmentLine.ID, Quantity: returnDec("4")},
+	})
+	if err != nil {
+		t.Fatalf("build return lines: %v", err)
+	}
+
+	line := lines[0]
+	assertReturnDecimal(t, "amount", line.Amount, decimal.Zero)
+	assertReturnDecimal(t, "tax amount", line.TaxAmount, decimal.Zero)
+	assertReturnDecimal(t, "gross amount", line.GrossAmount, decimal.Zero)
+	assertReturnDecimal(t, "base amount", line.BaseAmount, decimal.Zero)
+	assertReturnDecimal(t, "base tax amount", line.BaseTaxAmount, decimal.Zero)
+	assertReturnDecimal(t, "base gross amount", line.BaseGrossAmount, decimal.Zero)
+	assertReturnDecimal(t, "unit cost", line.UnitCost, returnDec("60"))
+	assertReturnDecimal(t, "cost amount", line.CostAmount, returnDec("240"))
+
+	salesReturn := &SalesReturn{Lines: lines}
+	salesReturn.RecalculateTotals()
+	assertReturnDecimal(t, "total amount", salesReturn.TotalAmount, decimal.Zero)
+	assertReturnDecimal(t, "base total amount", salesReturn.BaseTotalAmount, decimal.Zero)
+	assertReturnDecimal(t, "cost amount", salesReturn.CostAmount, returnDec("240"))
+}
+
+func TestBuildReturnLinesZeroPriceZeroCost(t *testing.T) {
+	shipment := newReturnTestShipment()
+	shipmentLine := shipment.Lines[0]
+	shipmentLine.Amount = decimal.Zero
+	shipmentLine.TaxAmount = decimal.Zero
+	shipmentLine.GrossAmount = decimal.Zero
+	shipmentLine.BaseAmount = decimal.Zero
+	shipmentLine.BaseTaxAmount = decimal.Zero
+	shipmentLine.BaseGrossAmount = decimal.Zero
+	shipmentLine.UnitCost = decimal.Zero
+	shipmentLine.CostAmount = decimal.Zero
+
+	lines, err := BuildReturnLines(shipment, []ReturnLineInput{
+		{ShipmentLineID: shipmentLine.ID, Quantity: returnDec("4")},
+	})
+	if err != nil {
+		t.Fatalf("build return lines: %v", err)
+	}
+
+	line := lines[0]
+	assertReturnDecimal(t, "amount", line.Amount, decimal.Zero)
+	assertReturnDecimal(t, "tax amount", line.TaxAmount, decimal.Zero)
+	assertReturnDecimal(t, "gross amount", line.GrossAmount, decimal.Zero)
+	assertReturnDecimal(t, "base amount", line.BaseAmount, decimal.Zero)
+	assertReturnDecimal(t, "base tax amount", line.BaseTaxAmount, decimal.Zero)
+	assertReturnDecimal(t, "base gross amount", line.BaseGrossAmount, decimal.Zero)
+	assertReturnDecimal(t, "unit cost", line.UnitCost, decimal.Zero)
+	assertReturnDecimal(t, "cost amount", line.CostAmount, decimal.Zero)
+
+	salesReturn := &SalesReturn{Lines: lines}
+	salesReturn.RecalculateTotals()
+	assertReturnDecimal(t, "total amount", salesReturn.TotalAmount, decimal.Zero)
+	assertReturnDecimal(t, "base total amount", salesReturn.BaseTotalAmount, decimal.Zero)
+	assertReturnDecimal(t, "cost amount", salesReturn.CostAmount, decimal.Zero)
+}
+
+func TestBuildReturnLinesUnknownShipmentLine(t *testing.T) {
+	_, err := BuildReturnLines(newReturnTestShipment(), []ReturnLineInput{
+		{ShipmentLineID: "other-shipment-line", Quantity: returnDec("1")},
+	})
+	if !errors.Is(err, ErrShipmentLineNotFound) {
+		t.Fatalf("error = %v, want %v", err, ErrShipmentLineNotFound)
+	}
+}
+
 func TestBuildReturnLinesRemainingQuantity(t *testing.T) {
 	shipment := newReturnTestShipment()
 	shipment.Lines[0].ReturnedQty = returnDec("8")
@@ -179,7 +258,7 @@ func TestBuildReturnLinesErrors(t *testing.T) {
 			name:     "unknown shipment line",
 			shipment: newReturnTestShipment,
 			inputs:   []ReturnLineInput{{ShipmentLineID: "missing", Quantity: returnDec("1")}},
-			wantErr:  ErrInvalidInput,
+			wantErr:  ErrShipmentLineNotFound,
 		},
 		{
 			name:     "zero quantity",

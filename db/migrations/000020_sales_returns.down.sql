@@ -2,6 +2,13 @@
 -- migration; dropping the tables loses returns, credit notes and credited
 -- invoice amounts.
 
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM erp.sales_returns LIMIT 1) THEN
+        RAISE EXCEPTION 'cannot roll back 000020_sales_returns while sales return data exists; archive/reverse returns first';
+    END IF;
+END $$;
+
 DELETE FROM erp.role_permissions WHERE permission_code IN ('sales.return.read', 'sales.return.write');
 DELETE FROM erp.permissions WHERE code IN ('sales.return.read', 'sales.return.write');
 DELETE FROM erp.code_rules WHERE entity IN ('sales_return', 'finance_credit_note');

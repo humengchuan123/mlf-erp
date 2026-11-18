@@ -13,7 +13,7 @@ ALTER TABLE erp.finance_invoices
     ADD COLUMN IF NOT EXISTS base_credited_amount numeric(19,4) NOT NULL DEFAULT 0;
 ALTER TABLE erp.finance_invoices
     ADD CONSTRAINT finance_invoices_credited_check
-    CHECK (credited_amount >= 0 AND paid_amount + credited_amount <= total_amount);
+    CHECK (credited_amount >= 0 AND base_credited_amount >= 0 AND paid_amount + credited_amount <= total_amount);
 
 CREATE TABLE IF NOT EXISTS erp.finance_credit_notes (
     id uuid PRIMARY KEY,
@@ -52,6 +52,7 @@ CREATE TABLE IF NOT EXISTS erp.finance_credit_notes (
         AND applied_amount + remaining_amount = amount
         AND applied_base_amount + remaining_base_amount = base_amount
     ),
+    CONSTRAINT finance_credit_notes_exchange_rate_check CHECK (exchange_rate > 0),
     CONSTRAINT finance_credit_notes_status_check CHECK (status IN ('open', 'applied'))
 );
 
@@ -59,6 +60,8 @@ CREATE INDEX IF NOT EXISTS finance_credit_notes_list_idx
     ON erp.finance_credit_notes (tenant_id, org_id, status, note_date DESC);
 CREATE INDEX IF NOT EXISTS finance_credit_notes_partner_idx
     ON erp.finance_credit_notes (tenant_id, partner_id, status);
+CREATE INDEX IF NOT EXISTS finance_credit_notes_invoice_idx
+    ON erp.finance_credit_notes (tenant_id, invoice_id);
 
 CREATE TABLE IF NOT EXISTS erp.sales_returns (
     id uuid PRIMARY KEY,
@@ -94,13 +97,16 @@ CREATE TABLE IF NOT EXISTS erp.sales_returns (
     CONSTRAINT sales_returns_shipment_fk FOREIGN KEY (tenant_id, shipment_id)
         REFERENCES erp.sales_shipments (tenant_id, id),
     CONSTRAINT sales_returns_credit_note_fk FOREIGN KEY (tenant_id, credit_note_id)
-        REFERENCES erp.finance_credit_notes (tenant_id, id)
+        REFERENCES erp.finance_credit_notes (tenant_id, id),
+    CONSTRAINT sales_returns_exchange_rate_check CHECK (exchange_rate > 0)
 );
 
 CREATE INDEX IF NOT EXISTS sales_returns_shipment_idx
     ON erp.sales_returns (tenant_id, shipment_id, return_date DESC);
 CREATE INDEX IF NOT EXISTS sales_returns_customer_idx
     ON erp.sales_returns (tenant_id, customer_id, return_date DESC);
+CREATE INDEX IF NOT EXISTS sales_returns_list_idx
+    ON erp.sales_returns (tenant_id, return_date DESC);
 
 CREATE TABLE IF NOT EXISTS erp.sales_return_lines (
     id uuid PRIMARY KEY,
