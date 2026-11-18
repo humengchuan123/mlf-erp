@@ -1,11 +1,12 @@
 openapi: 3.1.0
 info:
   title: MLF ERP API
-  version: 0.8.0
+  version: 0.9.0
   description: |
-    MLF ERP Stage 1 + Stage 2 + Stage 3A/3B/3C/3D/3E/3F/3G API contract.
+    MLF ERP Stage 1 + Stage 2 + Stage 3A/3B/3C/3D/3E/3F/3G/3H API contract.
     Master data uses a generic CRUD surface under /masterdata/{entity}.
     Purchase, sales, inventory, receivables/payables, payments, general ledger and reports are included.
+    Stage 3H adds sales returns and credit notes.
 servers:
   - url: /api/v1
 security:
@@ -558,6 +559,100 @@ paths:
                               $ref: '#/components/schemas/Shipment'
                           total:
                             type: integer
+  /sales/shipments/{id}/returns:
+    parameters:
+      - $ref: '#/components/parameters/ID'
+    post:
+      summary: Create a sales return, credit note and inventory receipt
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateSalesReturnInput'
+      responses:
+        '201':
+          description: Sales return posted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SalesReturnResponse'
+        '400':
+          description: Invalid return payload
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+        '409':
+          description: Over return, invalid status or closed accounting period
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+  /sales/returns:
+    get:
+      summary: List sales returns
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+        - $ref: '#/components/parameters/Keyword'
+        - in: query
+          name: shipment_id
+          schema:
+            type: string
+            format: uuid
+        - in: query
+          name: customer_id
+          schema:
+            type: string
+            format: uuid
+        - in: query
+          name: start_date
+          schema:
+            type: string
+            format: date
+        - in: query
+          name: end_date
+          schema:
+            type: string
+            format: date
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          items:
+                            type: array
+                            items:
+                              $ref: '#/components/schemas/SalesReturn'
+                          total:
+                            type: integer
+  /sales/returns/{id}:
+    parameters:
+      - $ref: '#/components/parameters/ID'
+    get:
+      summary: Get a sales return with lines
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SalesReturnResponse'
+        '404':
+          description: Sales return not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
   /inventory/balances:
     get:
       summary: List inventory balances
@@ -864,6 +959,65 @@ paths:
                         $ref: '#/components/schemas/Invoice'
         '409':
           description: Invoice status does not allow void
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+  /finance/credit-notes:
+    get:
+      summary: List credit notes
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+        - $ref: '#/components/parameters/Keyword'
+        - in: query
+          name: status
+          schema:
+            type: string
+            enum: [open, applied]
+        - in: query
+          name: partner_id
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          items:
+                            type: array
+                            items:
+                              $ref: '#/components/schemas/CreditNote'
+                          total:
+                            type: integer
+  /finance/credit-notes/{id}:
+    parameters:
+      - $ref: '#/components/parameters/ID'
+    get:
+      summary: Get a credit note
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/CreditNote'
+        '404':
+          description: Credit note not found
           content:
             application/json:
               schema:
@@ -2154,6 +2308,8 @@ components:
     ShipmentLine:
       type: object
       properties:
+        id:
+          type: string
         order_line_id:
           type: string
         material_id:
@@ -2183,6 +2339,10 @@ components:
         unit_cost:
           type: string
         cost_amount:
+          type: string
+        returned_qty:
+          type: string
+        returnable_qty:
           type: string
     Shipment:
       type: object
@@ -2270,6 +2430,150 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/SalesShipLineInput'
+    SalesReturnLine:
+      type: object
+      properties:
+        id:
+          type: string
+        line_no:
+          type: integer
+        shipment_line_id:
+          type: string
+        order_line_id:
+          type: string
+        material_id:
+          type: string
+        material_name:
+          type: string
+        quantity:
+          type: string
+        unit_price:
+          type: string
+        tax_rate_id:
+          type: string
+        tax_rate:
+          type: string
+        amount:
+          type: string
+        tax_amount:
+          type: string
+        gross_amount:
+          type: string
+        base_amount:
+          type: string
+        base_tax_amount:
+          type: string
+        base_gross_amount:
+          type: string
+        unit_cost:
+          type: string
+        cost_amount:
+          type: string
+    SalesReturn:
+      type: object
+      properties:
+        id:
+          type: string
+        code:
+          type: string
+        shipment_id:
+          type: string
+        shipment_code:
+          type: string
+        order_id:
+          type: string
+        order_code:
+          type: string
+        customer_id:
+          type: string
+        customer_name:
+          type: string
+        warehouse_id:
+          type: string
+        warehouse_name:
+          type: string
+        return_date:
+          type: string
+          format: date
+        status:
+          type: string
+          enum: [posted]
+        currency:
+          type: string
+        exchange_rate:
+          type: string
+        price_includes_tax:
+          type: boolean
+        net_amount:
+          type: string
+        tax_amount:
+          type: string
+        total_amount:
+          type: string
+        base_net_amount:
+          type: string
+        base_tax_amount:
+          type: string
+        base_total_amount:
+          type: string
+        cost_amount:
+          type: string
+        credit_note_id:
+          type: string
+        credit_note_code:
+          type: string
+        credit_note_amount:
+          type: string
+        credit_note_applied_amount:
+          type: string
+        credit_note_remaining_amount:
+          type: string
+        credit_note_status:
+          type: string
+          enum: ['', open, applied]
+        voucher_code:
+          type: string
+        reason:
+          type: string
+        remark:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        lines:
+          type: array
+          items:
+            $ref: '#/components/schemas/SalesReturnLine'
+    SalesReturnResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiResponse'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/SalesReturn'
+    CreateSalesReturnLineInput:
+      type: object
+      required: [shipment_line_id, quantity]
+      properties:
+        shipment_line_id:
+          type: string
+        quantity:
+          type: string
+    CreateSalesReturnInput:
+      type: object
+      required: [lines]
+      properties:
+        return_date:
+          type: string
+          format: date
+        reason:
+          type: string
+        remark:
+          type: string
+        lines:
+          type: array
+          items:
+            $ref: '#/components/schemas/CreateSalesReturnLineInput'
     InventoryBalance:
       type: object
       properties:
@@ -2414,6 +2718,10 @@ components:
           type: string
         outstanding_amount:
           type: string
+        credited_amount:
+          type: string
+        base_credited_amount:
+          type: string
         vat_invoice_no:
           type: string
         vat_invoice_type:
@@ -2466,6 +2774,58 @@ components:
               type: array
               items:
                 $ref: '#/components/schemas/InvoiceAllocation'
+    CreditNote:
+      type: object
+      properties:
+        id:
+          type: string
+        code:
+          type: string
+        credit_type:
+          type: string
+          enum: [sales_return]
+        source_type:
+          type: string
+          enum: [sales_return]
+        source_id:
+          type: string
+        source_code:
+          type: string
+        invoice_id:
+          type: string
+        partner_id:
+          type: string
+        partner_name:
+          type: string
+        note_date:
+          type: string
+          format: date
+        currency:
+          type: string
+        exchange_rate:
+          type: string
+        amount:
+          type: string
+        base_amount:
+          type: string
+        applied_amount:
+          type: string
+        applied_base_amount:
+          type: string
+        remaining_amount:
+          type: string
+        remaining_base_amount:
+          type: string
+        status:
+          type: string
+          enum: [open, applied]
+        reason:
+          type: string
+        remark:
+          type: string
+        created_at:
+          type: string
+          format: date-time
     Payment:
       type: object
       properties:

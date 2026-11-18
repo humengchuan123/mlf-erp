@@ -63,6 +63,7 @@ export interface SalesOrderInput {
 }
 
 export interface ShipmentLine {
+  id: string
   order_line_id: string
   material_id: string
   material_name: string
@@ -78,6 +79,8 @@ export interface ShipmentLine {
   base_gross_amount: string
   unit_cost: string
   cost_amount: string
+  returned_qty: string
+  returnable_qty: string
 }
 
 export interface Shipment {
@@ -121,6 +124,75 @@ export interface ShipInput {
   lines: ShipLineInput[]
 }
 
+export interface SalesReturnLine {
+  id: string
+  line_no: number
+  shipment_line_id: string
+  order_line_id: string
+  material_id: string
+  material_name: string
+  quantity: string
+  unit_price: string
+  tax_rate_id: string
+  tax_rate: string
+  amount: string
+  tax_amount: string
+  gross_amount: string
+  base_amount: string
+  base_tax_amount: string
+  base_gross_amount: string
+  unit_cost: string
+  cost_amount: string
+}
+
+export interface SalesReturn {
+  id: string
+  code: string
+  shipment_id: string
+  shipment_code: string
+  order_id: string
+  order_code: string
+  customer_id: string
+  customer_name: string
+  warehouse_id: string
+  warehouse_name: string
+  return_date: string
+  status: string
+  currency: string
+  exchange_rate: string
+  price_includes_tax: boolean
+  net_amount: string
+  tax_amount: string
+  total_amount: string
+  base_net_amount: string
+  base_tax_amount: string
+  base_total_amount: string
+  cost_amount: string
+  credit_note_id: string
+  credit_note_code: string
+  credit_note_amount: string
+  credit_note_applied_amount: string
+  credit_note_remaining_amount: string
+  credit_note_status: string
+  voucher_code: string
+  reason: string
+  remark: string
+  created_at: string
+  lines: SalesReturnLine[]
+}
+
+export interface CreateSalesReturnLineInput {
+  shipment_line_id: string
+  quantity: string
+}
+
+export interface CreateSalesReturnInput {
+  return_date?: string
+  reason?: string
+  remark?: string
+  lines: CreateSalesReturnLineInput[]
+}
+
 function queryString(params: Record<string, string | number | undefined>): string {
   const search = new URLSearchParams()
   for (const [key, value] of Object.entries(params)) {
@@ -159,5 +231,24 @@ export const salesApi = {
   },
   shipments(params: { order_id?: string; page?: number; page_size?: number } = {}): Promise<Paged<Shipment>> {
     return api.get<Paged<Shipment>>(`/sales/shipments${queryString(params)}`)
+  },
+  returns: {
+    list(params: {
+      shipment_id?: string
+      customer_id?: string
+      keyword?: string
+      start_date?: string
+      end_date?: string
+      page?: number
+      page_size?: number
+    } = {}): Promise<Paged<SalesReturn>> {
+      return api.get<Paged<SalesReturn>>(`/sales/returns${queryString(params)}`)
+    },
+    get(id: string): Promise<SalesReturn> {
+      return api.get<SalesReturn>(`/sales/returns/${id}`)
+    },
+    create(shipmentID: string, input: CreateSalesReturnInput): Promise<SalesReturn> {
+      return api.post<SalesReturn>(`/sales/shipments/${shipmentID}/returns`, input)
+    }
   }
 }

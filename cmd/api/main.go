@@ -176,14 +176,18 @@ func main() {
 		exchangeRateRepository,
 	)
 	salesShipmentService := salesapp.NewShipmentService(salesRepository, codeRuleService, exchangeRateRepository)
-	saleshttp.Register(protected, salesOrderService, salesShipmentService, auditService, log)
+	returnRepository := salespostgres.NewReturnRepository(db)
+	returnService := salesapp.NewReturnService(returnRepository, codeRuleService)
+	saleshttp.Register(protected, salesOrderService, salesShipmentService, returnService, auditService, log)
 
 	invoiceRepository := financepostgres.NewInvoiceRepository(db)
+	creditNoteRepository := financepostgres.NewCreditNoteRepository(db)
 	paymentRepository := financepostgres.NewPaymentRepository(db, codeRuleService)
 	invoiceService := financeapp.NewInvoiceService(invoiceRepository)
+	creditNoteService := financeapp.NewCreditNoteService(creditNoteRepository)
 	paymentService := financeapp.NewPaymentService(paymentRepository, codeRuleService, partnerRepository, exchangeRateRepository)
 	exchangeRateService := financeapp.NewExchangeRateService(exchangeRateRepository)
-	financehttp.Register(protected, invoiceService, paymentService, exchangeRateService, auditService, log)
+	financehttp.Register(protected, invoiceService, creditNoteService, paymentService, exchangeRateService, auditService, log)
 
 	glAccountRepository := glpostgres.NewAccountRepository(db)
 	glPeriodRepository := glpostgres.NewPeriodRepository(db)

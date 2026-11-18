@@ -24,6 +24,7 @@ import (
 type Handler struct {
 	orders    *app.OrderService
 	shipments *app.ShipmentService
+	returns   *app.ReturnService
 	audit     *systemapp.AuditService
 	log       *slog.Logger
 }
@@ -32,10 +33,11 @@ func Register(
 	group *gin.RouterGroup,
 	orders *app.OrderService,
 	shipments *app.ShipmentService,
+	returns *app.ReturnService,
 	audit *systemapp.AuditService,
 	log *slog.Logger,
 ) {
-	handler := &Handler{orders: orders, shipments: shipments, audit: audit, log: log}
+	handler := &Handler{orders: orders, shipments: shipments, returns: returns, audit: audit, log: log}
 	sales := group.Group("/sales")
 	sales.GET("/orders", authmw.RequirePermission("sales.order.read"), handler.listOrders)
 	sales.POST("/orders", authmw.RequirePermission("sales.order.write"), handler.createOrder)
@@ -46,6 +48,9 @@ func Register(
 	sales.POST("/orders/:id/cancel", authmw.RequirePermission("sales.order.write"), handler.cancelOrder)
 	sales.POST("/orders/:id/ship", authmw.RequirePermission("sales.order.write"), handler.shipOrder)
 	sales.GET("/shipments", authmw.RequirePermission("sales.shipment.read"), handler.listShipments)
+	sales.POST("/shipments/:id/returns", authmw.RequirePermission("sales.return.write"), handler.createReturn)
+	sales.GET("/returns", authmw.RequirePermission("sales.return.read"), handler.listReturns)
+	sales.GET("/returns/:id", authmw.RequirePermission("sales.return.read"), handler.getReturn)
 }
 
 type orderLineRequest struct {
@@ -76,6 +81,18 @@ type shipRequest struct {
 	ExchangeRate string            `json:"exchange_rate"`
 	Remark       string            `json:"remark"`
 	Lines        []shipLineRequest `json:"lines"`
+}
+
+type returnLineRequest struct {
+	ShipmentLineID string `json:"shipment_line_id"`
+	Quantity       string `json:"quantity"`
+}
+
+type returnRequest struct {
+	ReturnDate string              `json:"return_date"`
+	Reason     string              `json:"reason"`
+	Remark     string              `json:"remark"`
+	Lines      []returnLineRequest `json:"lines"`
 }
 
 type orderLineResponse struct {
@@ -122,6 +139,7 @@ type orderResponse struct {
 }
 
 type shipmentLineResponse struct {
+	ID              string `json:"id"`
 	OrderLineID     string `json:"order_line_id"`
 	MaterialID      string `json:"material_id"`
 	MaterialName    string `json:"material_name"`
@@ -137,6 +155,8 @@ type shipmentLineResponse struct {
 	BaseGrossAmount string `json:"base_gross_amount"`
 	UnitCost        string `json:"unit_cost"`
 	CostAmount      string `json:"cost_amount"`
+	ReturnedQty     string `json:"returned_qty"`
+	ReturnableQty   string `json:"returnable_qty"`
 }
 
 type shipmentResponse struct {
@@ -166,6 +186,63 @@ type shipmentResponse struct {
 	TotalCost        string                 `json:"total_cost"`
 	CreatedAt        time.Time              `json:"created_at"`
 	Lines            []shipmentLineResponse `json:"lines"`
+}
+
+type salesReturnLineResponse struct {
+	ID              string `json:"id"`
+	LineNo          int    `json:"line_no"`
+	ShipmentLineID  string `json:"shipment_line_id"`
+	OrderLineID     string `json:"order_line_id"`
+	MaterialID      string `json:"material_id"`
+	MaterialName    string `json:"material_name"`
+	Quantity        string `json:"quantity"`
+	UnitPrice       string `json:"unit_price"`
+	TaxRateID       string `json:"tax_rate_id"`
+	TaxRate         string `json:"tax_rate"`
+	Amount          string `json:"amount"`
+	TaxAmount       string `json:"tax_amount"`
+	GrossAmount     string `json:"gross_amount"`
+	BaseAmount      string `json:"base_amount"`
+	BaseTaxAmount   string `json:"base_tax_amount"`
+	BaseGrossAmount string `json:"base_gross_amount"`
+	UnitCost        string `json:"unit_cost"`
+	CostAmount      string `json:"cost_amount"`
+}
+
+type salesReturnResponse struct {
+	ID                  string                    `json:"id"`
+	Code                string                    `json:"code"`
+	ShipmentID          string                    `json:"shipment_id"`
+	ShipmentCode        string                    `json:"shipment_code"`
+	OrderID             string                    `json:"order_id"`
+	OrderCode           string                    `json:"order_code"`
+	CustomerID          string                    `json:"customer_id"`
+	CustomerName        string                    `json:"customer_name"`
+	WarehouseID         string                    `json:"warehouse_id"`
+	WarehouseName       string                    `json:"warehouse_name"`
+	ReturnDate          string                    `json:"return_date"`
+	Status              string                    `json:"status"`
+	Currency            string                    `json:"currency"`
+	ExchangeRate        string                    `json:"exchange_rate"`
+	PriceIncludesTax    bool                      `json:"price_includes_tax"`
+	NetAmount           string                    `json:"net_amount"`
+	TaxAmount           string                    `json:"tax_amount"`
+	TotalAmount         string                    `json:"total_amount"`
+	BaseNetAmount       string                    `json:"base_net_amount"`
+	BaseTaxAmount       string                    `json:"base_tax_amount"`
+	BaseTotalAmount     string                    `json:"base_total_amount"`
+	CostAmount          string                    `json:"cost_amount"`
+	CreditNoteID        string                    `json:"credit_note_id"`
+	CreditNoteCode      string                    `json:"credit_note_code"`
+	CreditNoteAmount    string                    `json:"credit_note_amount"`
+	CreditNoteApplied   string                    `json:"credit_note_applied_amount"`
+	CreditNoteRemaining string                    `json:"credit_note_remaining_amount"`
+	CreditNoteStatus    string                    `json:"credit_note_status"`
+	VoucherCode         string                    `json:"voucher_code"`
+	Reason              string                    `json:"reason"`
+	Remark              string                    `json:"remark"`
+	CreatedAt           time.Time                 `json:"created_at"`
+	Lines               []salesReturnLineResponse `json:"lines"`
 }
 
 type pagedResponse[T any] struct {
@@ -286,6 +363,70 @@ func (h *Handler) listShipments(c *gin.Context) {
 	httpx.OK(c, pagedResponse[shipmentResponse]{Items: items, Total: total})
 }
 
+func (h *Handler) createReturn(c *gin.Context) {
+	var request returnRequest
+	if err := c.ShouldBindJSON(&request); err != nil {
+		httpx.Error(c, http.StatusBadRequest, httpx.CodeBadRequest, "invalid sales return payload")
+		return
+	}
+	input, err := parseReturnInput(request)
+	if err != nil {
+		httpx.Error(c, http.StatusBadRequest, httpx.CodeBadRequest, "invalid sales return payload")
+		return
+	}
+	item, err := h.returns.Create(c.Request.Context(), c.Param("id"), input)
+	if err != nil {
+		h.handleError(c, err)
+		return
+	}
+	response := toReturnResponse(item)
+	h.recordAudit(c, "sales.return.create", "sales_return", item.ID, response)
+	httpx.Created(c, response)
+}
+
+func (h *Handler) listReturns(c *gin.Context) {
+	page, pageSize := parsePage(c)
+	startDate, err := parseDate(c.Query("start_date"))
+	if err != nil {
+		httpx.Error(c, http.StatusBadRequest, httpx.CodeBadRequest, "invalid start_date")
+		return
+	}
+	endDate, err := parseDate(c.Query("end_date"))
+	if err != nil {
+		httpx.Error(c, http.StatusBadRequest, httpx.CodeBadRequest, "invalid end_date")
+		return
+	}
+	items, total, err := h.returns.List(
+		c.Request.Context(),
+		c.Query("shipment_id"),
+		c.Query("customer_id"),
+		c.Query("keyword"),
+		startDate,
+		endDate,
+		page,
+		pageSize,
+	)
+	if err != nil {
+		h.handleError(c, err)
+		return
+	}
+
+	responses := make([]salesReturnResponse, 0, len(items))
+	for _, item := range items {
+		responses = append(responses, toReturnResponse(item))
+	}
+	httpx.OK(c, pagedResponse[salesReturnResponse]{Items: responses, Total: total})
+}
+
+func (h *Handler) getReturn(c *gin.Context) {
+	item, err := h.returns.Get(c.Request.Context(), c.Param("id"))
+	if err != nil {
+		h.handleError(c, err)
+		return
+	}
+	httpx.OK(c, toReturnResponse(item))
+}
+
 func parseOrderInput(c *gin.Context) (app.OrderInput, error) {
 	var request orderRequest
 	if err := c.ShouldBindJSON(&request); err != nil {
@@ -348,6 +489,31 @@ func parseShipInput(request shipRequest) (app.ShipInput, error) {
 	return app.ShipInput{ShipmentDate: shipmentDate, ExchangeRate: exchangeRate, Remark: request.Remark, Lines: lines}, nil
 }
 
+func parseReturnInput(request returnRequest) (app.ReturnInput, error) {
+	returnDate, err := parseDate(request.ReturnDate)
+	if err != nil {
+		return app.ReturnInput{}, err
+	}
+	if len(request.Lines) == 0 {
+		return app.ReturnInput{}, domain.ErrInvalidInput
+	}
+	lines := make([]domain.ReturnLineInput, 0, len(request.Lines))
+	for _, line := range request.Lines {
+		quantity, quantityErr := decimal.NewFromString(strings.TrimSpace(line.Quantity))
+		if quantityErr != nil {
+			return app.ReturnInput{}, quantityErr
+		}
+		if strings.TrimSpace(line.ShipmentLineID) == "" || !quantity.IsPositive() {
+			return app.ReturnInput{}, domain.ErrInvalidInput
+		}
+		lines = append(lines, domain.ReturnLineInput{
+			ShipmentLineID: strings.TrimSpace(line.ShipmentLineID),
+			Quantity:       quantity,
+		})
+	}
+	return app.ReturnInput{ReturnDate: returnDate, Reason: request.Reason, Remark: request.Remark, Lines: lines}, nil
+}
+
 func parseOptionalDecimal(value string) (decimal.Decimal, error) {
 	value = strings.TrimSpace(value)
 	if value == "" {
@@ -386,6 +552,8 @@ func (h *Handler) handleError(c *gin.Context, err error) {
 		httpx.Error(c, http.StatusBadRequest, httpx.CodeBadRequest, "invalid input")
 	case errors.Is(err, domain.ErrOverShipment):
 		httpx.Error(c, http.StatusConflict, "OVER_SHIPMENT", "shipped quantity exceeds remaining quantity")
+	case errors.Is(err, domain.ErrOverReturn):
+		httpx.Error(c, http.StatusConflict, "OVER_RETURN", "return quantity exceeds remaining shipment quantity")
 	case errors.Is(err, domain.ErrInsufficientStock):
 		httpx.Error(c, http.StatusConflict, "INSUFFICIENT_STOCK", "insufficient inventory")
 	case errors.Is(err, domain.ErrInvalidStatus):
@@ -450,6 +618,7 @@ func toShipmentResponse(shipment *domain.Shipment) shipmentResponse {
 	lines := make([]shipmentLineResponse, 0, len(shipment.Lines))
 	for _, line := range shipment.Lines {
 		lines = append(lines, shipmentLineResponse{
+			ID:          line.ID,
 			OrderLineID: line.OrderLineID, MaterialID: line.MaterialID, MaterialName: line.MaterialName,
 			Quantity: line.Quantity.String(), UnitPrice: line.UnitPrice.String(),
 			TaxRateID: line.TaxRateID, TaxRate: line.TaxRate.String(),
@@ -457,7 +626,9 @@ func toShipmentResponse(shipment *domain.Shipment) shipmentResponse {
 			GrossAmount: line.GrossAmount.StringFixed(4),
 			BaseAmount:  line.BaseAmount.StringFixed(4), BaseTaxAmount: line.BaseTaxAmount.StringFixed(4),
 			BaseGrossAmount: line.BaseGrossAmount.StringFixed(4), UnitCost: line.UnitCost.String(),
-			CostAmount: line.CostAmount.StringFixed(4),
+			CostAmount:    line.CostAmount.StringFixed(4),
+			ReturnedQty:   line.ReturnedQty.String(),
+			ReturnableQty: line.Quantity.Sub(line.ReturnedQty).String(),
 		})
 	}
 	invoiceDueDate := ""
@@ -477,6 +648,47 @@ func toShipmentResponse(shipment *domain.Shipment) shipmentResponse {
 		InvoiceDueDate: invoiceDueDate, VoucherCode: shipment.VoucherCode,
 		TotalAmount: shipment.TotalAmount().StringFixed(4), TotalCost: shipment.TotalCost().StringFixed(4),
 		CreatedAt: shipment.CreatedAt, Lines: lines,
+	}
+}
+
+func toReturnResponse(item *domain.SalesReturn) salesReturnResponse {
+	lines := make([]salesReturnLineResponse, 0, len(item.Lines))
+	for _, line := range item.Lines {
+		lines = append(lines, salesReturnLineResponse{
+			ID: line.ID, LineNo: line.LineNo,
+			ShipmentLineID: line.ShipmentLineID, OrderLineID: line.OrderLineID,
+			MaterialID: line.MaterialID, MaterialName: line.MaterialName,
+			Quantity: line.Quantity.String(), UnitPrice: line.UnitPrice.String(),
+			TaxRateID: line.TaxRateID, TaxRate: line.TaxRate.String(),
+			Amount: line.Amount.StringFixed(4), TaxAmount: line.TaxAmount.StringFixed(4),
+			GrossAmount: line.GrossAmount.StringFixed(4),
+			BaseAmount:  line.BaseAmount.StringFixed(4), BaseTaxAmount: line.BaseTaxAmount.StringFixed(4),
+			BaseGrossAmount: line.BaseGrossAmount.StringFixed(4),
+			UnitCost:        line.UnitCost.String(), CostAmount: line.CostAmount.StringFixed(4),
+		})
+	}
+	return salesReturnResponse{
+		ID: item.ID, Code: item.Code,
+		ShipmentID: item.ShipmentID, ShipmentCode: item.ShipmentCode,
+		OrderID: item.OrderID, OrderCode: item.OrderCode,
+		CustomerID: item.CustomerID, CustomerName: item.CustomerName,
+		WarehouseID: item.WarehouseID, WarehouseName: item.WarehouseName,
+		ReturnDate: item.ReturnDate.Format("2006-01-02"), Status: item.Status,
+		Currency: item.Currency, ExchangeRate: item.ExchangeRate.StringFixed(8),
+		PriceIncludesTax: item.PriceIncludesTax,
+		NetAmount:        item.NetAmount.StringFixed(4), TaxAmount: item.TaxAmount.StringFixed(4),
+		TotalAmount:     item.TotalAmount.StringFixed(4),
+		BaseNetAmount:   item.BaseNetAmount.StringFixed(4),
+		BaseTaxAmount:   item.BaseTaxAmount.StringFixed(4),
+		BaseTotalAmount: item.BaseTotalAmount.StringFixed(4),
+		CostAmount:      item.CostAmount.StringFixed(4),
+		CreditNoteID:    item.CreditNoteID, CreditNoteCode: item.CreditNoteCode,
+		CreditNoteAmount:    item.CreditNoteAmount.StringFixed(4),
+		CreditNoteApplied:   item.CreditNoteApplied.StringFixed(4),
+		CreditNoteRemaining: item.CreditNoteRemaining.StringFixed(4),
+		CreditNoteStatus:    item.CreditNoteStatus,
+		VoucherCode:         item.VoucherCode, Reason: item.Reason, Remark: item.Remark,
+		CreatedAt: item.CreatedAt, Lines: lines,
 	}
 }
 

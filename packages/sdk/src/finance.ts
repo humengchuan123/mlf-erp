@@ -25,6 +25,8 @@ export interface Invoice {
   base_revalued_amount: string
   paid_amount: string
   outstanding_amount: string
+  credited_amount: string
+  base_credited_amount: string
   vat_invoice_no: string
   vat_invoice_type: string
   vat_invoice_date: string
@@ -56,6 +58,39 @@ export interface InvoiceAllocation {
 
 export interface InvoiceDetail extends Invoice {
   allocations: InvoiceAllocation[]
+}
+
+export interface CreditNote {
+  id: string
+  code: string
+  credit_type: string
+  source_type: string
+  source_id: string
+  source_code: string
+  invoice_id: string
+  partner_id: string
+  partner_name: string
+  note_date: string
+  currency: string
+  exchange_rate: string
+  amount: string
+  base_amount: string
+  applied_amount: string
+  applied_base_amount: string
+  remaining_amount: string
+  remaining_base_amount: string
+  status: string
+  reason: string
+  remark: string
+  created_at: string
+}
+
+export type CreditNoteListParams = {
+  status?: string
+  partner_id?: string
+  keyword?: string
+  page?: number
+  page_size?: number
 }
 
 export interface Payment {
@@ -149,6 +184,14 @@ export const financeApi = {
   },
   voidInvoice(id: string): Promise<Invoice> {
     return api.post<Invoice>(`/finance/invoices/${id}/void`)
+  },
+  creditNotes: {
+    list(params: CreditNoteListParams = {}): Promise<Paged<CreditNote>> {
+      return api.get<Paged<CreditNote>>(`/finance/credit-notes${queryString(params)}`)
+    },
+    get(id: string): Promise<CreditNote> {
+      return api.get<CreditNote>(`/finance/credit-notes/${id}`)
+    }
   },
   payments(params: {
     payment_type?: string

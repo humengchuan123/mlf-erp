@@ -22,6 +22,7 @@ import (
 
 type Handler struct {
 	invoices      *app.InvoiceService
+	creditNotes   *app.CreditNoteService
 	payments      *app.PaymentService
 	exchangeRates *app.ExchangeRateService
 	audit         *systemapp.AuditService
@@ -31,17 +32,23 @@ type Handler struct {
 func Register(
 	group *gin.RouterGroup,
 	invoices *app.InvoiceService,
+	creditNotes *app.CreditNoteService,
 	payments *app.PaymentService,
 	exchangeRates *app.ExchangeRateService,
 	audit *systemapp.AuditService,
 	log *slog.Logger,
 ) {
-	handler := &Handler{invoices: invoices, payments: payments, exchangeRates: exchangeRates, audit: audit, log: log}
+	handler := &Handler{
+		invoices: invoices, creditNotes: creditNotes, payments: payments,
+		exchangeRates: exchangeRates, audit: audit, log: log,
+	}
 	finance := group.Group("/finance")
 	finance.GET("/invoices", authmw.RequirePermission("finance.invoice.read"), handler.listInvoices)
 	finance.GET("/invoices/:id", authmw.RequirePermission("finance.invoice.read"), handler.getInvoice)
 	finance.POST("/invoices/:id/issue", authmw.RequirePermission("finance.invoice.write"), handler.issueInvoice)
 	finance.POST("/invoices/:id/void", authmw.RequirePermission("finance.invoice.write"), handler.voidInvoice)
+	finance.GET("/credit-notes", authmw.RequirePermission("finance.invoice.read"), handler.listCreditNotes)
+	finance.GET("/credit-notes/:id", authmw.RequirePermission("finance.invoice.read"), handler.getCreditNote)
 	finance.GET("/exchange-rates", authmw.RequirePermission("finance.exchange_rate.read"), handler.listExchangeRates)
 	finance.GET("/exchange-rates/latest", authmw.RequirePermission("finance.exchange_rate.read"), handler.latestExchangeRate)
 	finance.POST("/exchange-rates", authmw.RequirePermission("finance.exchange_rate.write"), handler.upsertExchangeRate)
@@ -76,6 +83,8 @@ type invoiceResponse struct {
 	BaseRevaluedAmount string    `json:"base_revalued_amount"`
 	PaidAmount         string    `json:"paid_amount"`
 	OutstandingAmount  string    `json:"outstanding_amount"`
+	CreditedAmount     string    `json:"credited_amount"`
+	BaseCreditedAmount string    `json:"base_credited_amount"`
 	VatInvoiceNo       string    `json:"vat_invoice_no"`
 	VatInvoiceType     string    `json:"vat_invoice_type"`
 	VatInvoiceDate     string    `json:"vat_invoice_date"`
@@ -100,6 +109,31 @@ type allocationResponse struct {
 type invoiceDetailResponse struct {
 	invoiceResponse
 	Allocations []allocationResponse `json:"allocations"`
+}
+
+type creditNoteResponse struct {
+	ID                  string    `json:"id"`
+	Code                string    `json:"code"`
+	CreditType          string    `json:"credit_type"`
+	SourceType          string    `json:"source_type"`
+	SourceID            string    `json:"source_id"`
+	SourceCode          string    `json:"source_code"`
+	InvoiceID           string    `json:"invoice_id"`
+	PartnerID           string    `json:"partner_id"`
+	PartnerName         string    `json:"partner_name"`
+	NoteDate            string    `json:"note_date"`
+	Currency            string    `json:"currency"`
+	ExchangeRate        string    `json:"exchange_rate"`
+	Amount              string    `json:"amount"`
+	BaseAmount          string    `json:"base_amount"`
+	AppliedAmount       string    `json:"applied_amount"`
+	AppliedBaseAmount   string    `json:"applied_base_amount"`
+	RemainingAmount     string    `json:"remaining_amount"`
+	RemainingBaseAmount string    `json:"remaining_base_amount"`
+	Status              string    `json:"status"`
+	Reason              string    `json:"reason"`
+	Remark              string    `json:"remark"`
+	CreatedAt           time.Time `json:"created_at"`
 }
 
 type paymentResponse struct {
@@ -369,6 +403,37 @@ func (h *Handler) getInvoice(c *gin.Context) {
 	})
 }
 
+func (h *Handler) listCreditNotes(c *gin.Context) {
+	page, pageSize := parsePage(c)
+	items, total, err := h.creditNotes.List(
+		c.Request.Context(),
+		c.Query("status"),
+		c.Query("partner_id"),
+		c.Query("keyword"),
+		page,
+		pageSize,
+	)
+	if err != nil {
+		h.handleError(c, err)
+		return
+	}
+
+	responses := make([]creditNoteResponse, 0, len(items))
+	for _, item := range items {
+		responses = append(responses, toCreditNoteResponse(item))
+	}
+	httpx.OK(c, pagedResponse[creditNoteResponse]{Items: responses, Total: total})
+}
+
+func (h *Handler) getCreditNote(c *gin.Context) {
+	item, err := h.creditNotes.Get(c.Request.Context(), c.Param("id"))
+	if err != nil {
+		h.handleError(c, err)
+		return
+	}
+	httpx.OK(c, toCreditNoteResponse(item))
+}
+
 func (h *Handler) listPayments(c *gin.Context) {
 	page, pageSize := parsePage(c)
 	items, total, err := h.payments.List(
@@ -565,11 +630,30 @@ func toInvoiceResponse(item *domain.Invoice) invoiceResponse {
 		BaseRevaluedAmount: item.BaseRevaluedAmount.StringFixed(4),
 		PaidAmount:         item.PaidAmount.StringFixed(4),
 		OutstandingAmount:  item.Outstanding().StringFixed(4),
+		CreditedAmount:     item.CreditedAmount.StringFixed(4),
+		BaseCreditedAmount: item.BaseCreditedAmount.StringFixed(4),
 		VatInvoiceNo:       item.VatInvoiceNo, VatInvoiceType: item.VatInvoiceType,
 		VatInvoiceDate: vatInvoiceDate, VatInvoiceStatus: item.VatInvoiceStatus,
 		BuyerTaxNo: item.BuyerTaxNo, SellerTaxNo: item.SellerTaxNo,
 		Remark:    item.Remark,
 		CreatedAt: item.CreatedAt, UpdatedAt: item.UpdatedAt,
+	}
+}
+
+func toCreditNoteResponse(item *domain.CreditNote) creditNoteResponse {
+	return creditNoteResponse{
+		ID: item.ID, Code: item.Code, CreditType: item.CreditType,
+		SourceType: item.SourceType, SourceID: item.SourceID, SourceCode: item.SourceCode,
+		InvoiceID: item.InvoiceID, PartnerID: item.PartnerID, PartnerName: item.PartnerName,
+		NoteDate: item.NoteDate.Format("2006-01-02"), Currency: item.Currency,
+		ExchangeRate: item.ExchangeRate.StringFixed(8),
+		Amount:       item.Amount.StringFixed(4), BaseAmount: item.BaseAmount.StringFixed(4),
+		AppliedAmount:       item.AppliedAmount.StringFixed(4),
+		AppliedBaseAmount:   item.AppliedBaseAmount.StringFixed(4),
+		RemainingAmount:     item.RemainingAmount.StringFixed(4),
+		RemainingBaseAmount: item.RemainingBaseAmount.StringFixed(4),
+		Status:              item.Status, Reason: item.Reason, Remark: item.Remark,
+		CreatedAt: item.CreatedAt,
 	}
 }
 
