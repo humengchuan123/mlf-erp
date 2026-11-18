@@ -174,6 +174,88 @@
           </template>
           <el-empty v-else description="点击查询生成利润表" />
         </el-tab-pane>
+
+        <el-tab-pane label="现金流量表" name="cash">
+          <div class="toolbar">
+            <el-date-picker v-model="cashRange" type="daterange" value-format="YYYY-MM-DD" start-placeholder="开始日期" end-placeholder="结束日期" />
+            <el-button type="primary" plain @click="loadCashFlow">查询</el-button>
+          </div>
+          <template v-if="cashFlow">
+            <div class="summary">
+              <span>期初现金：{{ cashFlow.opening_cash }}</span>
+              <span>现金净增加额：{{ cashFlow.net_increase }}</span>
+              <span>期末现金：{{ cashFlow.closing_cash }}</span>
+            </div>
+
+            <div class="cash-section">
+              <h3>经营活动</h3>
+              <h4>现金流入</h4>
+              <el-table :data="cashFlow.operating.inflows" border>
+                <el-table-column prop="name" label="项目" min-width="240" />
+                <el-table-column prop="amount" label="金额" width="150" align="right" />
+              </el-table>
+              <h4>现金流出</h4>
+              <el-table :data="cashFlow.operating.outflows" border>
+                <el-table-column prop="name" label="项目" min-width="240" />
+                <el-table-column prop="amount" label="金额" width="150" align="right" />
+              </el-table>
+              <div class="total">经营活动净额：{{ cashFlow.operating.net }}</div>
+            </div>
+
+            <div class="cash-section">
+              <h3>投资活动</h3>
+              <h4>现金流入</h4>
+              <el-table :data="cashFlow.investing.inflows" border>
+                <el-table-column prop="name" label="项目" min-width="240" />
+                <el-table-column prop="amount" label="金额" width="150" align="right" />
+              </el-table>
+              <h4>现金流出</h4>
+              <el-table :data="cashFlow.investing.outflows" border>
+                <el-table-column prop="name" label="项目" min-width="240" />
+                <el-table-column prop="amount" label="金额" width="150" align="right" />
+              </el-table>
+              <div class="total">投资活动净额：{{ cashFlow.investing.net }}</div>
+            </div>
+
+            <div class="cash-section">
+              <h3>筹资活动</h3>
+              <h4>现金流入</h4>
+              <el-table :data="cashFlow.financing.inflows" border>
+                <el-table-column prop="name" label="项目" min-width="240" />
+                <el-table-column prop="amount" label="金额" width="150" align="right" />
+              </el-table>
+              <h4>现金流出</h4>
+              <el-table :data="cashFlow.financing.outflows" border>
+                <el-table-column prop="name" label="项目" min-width="240" />
+                <el-table-column prop="amount" label="金额" width="150" align="right" />
+              </el-table>
+              <div class="total">筹资活动净额：{{ cashFlow.financing.net }}</div>
+            </div>
+
+            <div class="cash-section">
+              <h3>间接法</h3>
+              <el-table :data="indirectRows" border>
+                <el-table-column prop="name" label="项目" min-width="280" />
+                <el-table-column prop="amount" label="金额" width="150" align="right" />
+              </el-table>
+              <div v-if="cashFlow.indirect.difference !== '0.0000'" class="warning-text">
+                间接法与直接法经营活动现金流量净额差额：{{ cashFlow.indirect.difference }}
+              </div>
+            </div>
+
+            <div v-if="cashFlow.unclassified.length" class="cash-section">
+              <h3>未分类现金凭证</h3>
+              <el-table :data="cashFlow.unclassified" border>
+                <el-table-column prop="voucher_code" label="凭证号" min-width="160" />
+                <el-table-column prop="voucher_date" label="日期" width="120" />
+                <el-table-column prop="direction" label="方向" width="90" />
+                <el-table-column prop="amount" label="金额" width="150" align="right" />
+                <el-table-column prop="reason" label="原因" min-width="180" />
+              </el-table>
+            </div>
+          </template>
+          <el-empty v-else description="点击查询生成现金流量表" />
+        </el-tab-pane>
       </el-tabs>
     </el-card>
   </div>
@@ -187,6 +269,7 @@ import {
   glApi,
   type AuxiliaryBalance,
   type BalanceSheet,
+  type CashFlowStatement,
   type GeneralLedger,
   type GlAccount,
   type IncomeStatement,
@@ -201,6 +284,7 @@ const trial = ref<TrialBalance | null>(null)
 const ledger = ref<GeneralLedger | null>(null)
 const balanceSheet = ref<BalanceSheet | null>(null)
 const incomeStatement = ref<IncomeStatement | null>(null)
+const cashFlow = ref<CashFlowStatement | null>(null)
 
 const now = new Date()
 const monthStart = new Date(now.getFullYear(), now.getMonth(), 1)
@@ -210,6 +294,7 @@ const today = localDate(now)
 const trialRange = ref<[string, string]>([firstDay, today])
 const ledgerRange = ref<[string, string]>([firstDay, today])
 const incomeRange = ref<[string, string]>([firstDay, today])
+const cashRange = ref<[string, string]>([firstDay, today])
 const balanceAsOf = ref(today)
 const ledgerAccountID = ref('')
 const auxiliaryDimension = ref('partner')
@@ -220,6 +305,25 @@ const vatRange = ref<[string, string]>([firstDay, today])
 const vatSummary = ref<VATSummary | null>(null)
 
 const accountOptions = computed(() => accounts.value.filter((item) => item.is_leaf && item.status === 'active'))
+
+const indirectRows = computed(() => {
+  const indirect = cashFlow.value?.indirect
+  if (!indirect) {
+    return []
+  }
+  return [
+    { name: '净利润', amount: indirect.net_profit },
+    { name: '加：非付现费用', amount: indirect.non_cash_expenses },
+    { name: '减：经营性应收项目增加', amount: indirect.receivable_increase },
+    { name: '减：存货增加', amount: indirect.inventory_increase },
+    { name: '加：经营性应付项目增加', amount: indirect.payable_increase },
+    { name: '加：应交税费增加', amount: indirect.tax_payable_increase },
+    { name: '加：应付职工薪酬增加', amount: indirect.employee_payable_increase },
+    { name: '经营活动产生的现金流量净额（间接法）', amount: indirect.operating_net },
+    { name: '直接法经营活动现金流量净额', amount: indirect.direct_operating_net },
+    { name: '差额', amount: indirect.difference }
+  ]
+})
 
 function localDate(value: Date) {
   const local = new Date(value.getTime() - value.getTimezoneOffset() * 60_000)
@@ -325,6 +429,20 @@ async function loadIncomeStatement() {
   }
 }
 
+async function loadCashFlow() {
+  loading.value = true
+  try {
+    cashFlow.value = await glApi.reports.cashFlow({
+      start_date: cashRange.value?.[0],
+      end_date: cashRange.value?.[1]
+    })
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : '加载现金流量表失败')
+  } finally {
+    loading.value = false
+  }
+}
+
 async function loadAccounts() {
   try {
     accounts.value = await glApi.accounts.list()
@@ -344,6 +462,7 @@ function onTabChange(tab: string) {
   if (tab === 'auxiliary') loadAuxiliary()
   if (tab === 'vat') loadVATSummary()
   if (tab === 'income') loadIncomeStatement()
+  if (tab === 'cash') loadCashFlow()
 }
 
 onMounted(async () => {
@@ -389,5 +508,15 @@ onMounted(async () => {
 .net-profit {
   font-size: 16px;
   color: #0f766e;
+}
+
+.cash-section {
+  margin-top: 20px;
+}
+
+.warning-text {
+  margin-top: 12px;
+  color: #b45309;
+  font-weight: 600;
 }
 </style>

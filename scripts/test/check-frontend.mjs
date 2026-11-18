@@ -187,7 +187,11 @@ assertFile('apps/web/src/views/finance/ReportView.vue', [
   'glApi.reports.balanceSheet',
   'glApi.reports.incomeStatement',
   'glApi.reports.auxiliaryBalance',
-  'glApi.reports.vatSummary'
+  'glApi.reports.vatSummary',
+  'glApi.reports.cashFlow',
+  '现金流量表',
+  'unclassified',
+  'indirect'
 ])
 
 assertFile('packages/sdk/src/sales.ts', [
