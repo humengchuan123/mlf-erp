@@ -266,11 +266,50 @@ remaining    = return_total - applied
 
 ### 5.1 Stage 3I API 测试
 
-（待 Task 6 完成后补充分测试清单、通过数量和命令输出。）
+```bash
+pnpm test:api:stage3i
+```
+
+结果：PASS，`TestStage3I` 通过，共 10 个子测试，测试耗时约 2.8 秒：
+
+| 子测试 | 覆盖点 | 结果 |
+|---|---|---|
+| partial and full purchase return with credit note inventory and voucher | 部分/全额退货金额、成本、库存出库、平均成本、库存流水、凭证借贷、收货行已退/可退、贷项 applied/remaining、发票 credited/outstanding/状态、超退 409 | 通过 |
+| return list and detail contract | 退货列表/详情字段、行明细、收货/订单/供应商/仓库/贷项/发票/凭证关联、过滤器和 404/400 | 通过 |
+| credit note type filter | `credit_type=purchase_return/sales_return` 过滤、非法类型 400、详情类型/来源 | 通过 |
+| rounding balanced partial returns | 三次部分退货累计差额 33.3333/33.3334/33.3333、合计 100.0000、贷项和发票全额冲减 | 通过 |
+| fully paid payable invoice return leaves open credit | 已付款发票退货 applied=0、贷项 open、发票 credited 保持 0、状态 paid | 通过 |
+| payment allocation respects credited amount | 部分贷项后付款核销扣减 credited、超分配拒绝、最终 paid | 通过 |
+| zero value purchase return | 零价退货 total/cost 为 0、无贷项单、无凭证、库存仍出库 | 通过 |
+| over-return insufficient stock and validation | 超退 409、库存不足 409、非法 UUID/空行/零负数量/非法日期、跨收货单行 404 | 通过 |
+| permissions and validation | 匿名 401、demo_dept 写权限 403、读权限/数据范围、未知退货 404 | 通过 |
+| foreign currency purchase return and period revaluation | USD 部分退货、贷项本位币、期间重估只按剩余 100×7.3 调整 +10 | 通过 |
+
+测试脚本会执行迁移、seed、demo、构建 API 并在 18080 端口启动，会写入本地开发库；完整回归使用干净数据库。
 
 ### 5.2 静态检查与构建
 
-（待 Task 6/7 完成后补充 `go test ./...`、`go vet ./...`、`gofmt`、`pnpm typecheck:web`、`pnpm test:frontend`、`pnpm build:web`、OpenAPI 校验结果。）
+```bash
+gofmt -l ./cmd ./internal ./db ./tests
+go test ./... -count=1
+go vet ./...
+npx -y yaml@2 valid api/openapi.yaml
+pnpm typecheck:web
+pnpm test:frontend
+pnpm build:web
+git diff --check
+```
+
+结果：
+
+- `gofmt` 无输出。
+- `go test ./...` 全部包通过。
+- `go vet ./...` 通过。
+- OpenAPI YAML 校验通过。
+- `pnpm typecheck:web` 通过。
+- `pnpm test:frontend` 通过（前端完整度断言）。
+- `pnpm build:web` 通过，仅有 Vite chunk 体积提示，无构建错误。
+- `git diff --check` 无空白错误。
 
 ### 5.3 干净数据库全链路回归
 
