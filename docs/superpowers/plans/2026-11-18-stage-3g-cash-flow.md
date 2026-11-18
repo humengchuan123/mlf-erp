@@ -476,10 +476,12 @@ func (r *ReportRepository) cashCodes(ctx context.Context, tenantID string) ([]st
 		if err := rows.Scan(&code); err != nil {
 			return nil, fmt.Errorf("scan cash mapping: %w", err)
 		}
-		if !seen[code] {
-			seen[code] = true
-			codes = append(codes, code)
+		root := CashFlowAccountRoot(code)
+		if root == "" || seen[root] {
+			continue
 		}
+		seen[root] = true
+		codes = append(codes, root)
 	}
 	if len(codes) == 0 {
 		return []string{"1001", "1002"}, nil
@@ -547,8 +549,9 @@ func (r *ReportRepository) CashFlowStatement(
 		return nil, err
 	}
 
-	totals := make(map[string]decimal.Decimal, len(CashFlowItems))
-	for _, item := range CashFlowItems {
+	itemDefs := CashFlowItemDefs()
+	totals := make(map[string]decimal.Decimal, len(itemDefs))
+	for _, item := range itemDefs {
 		totals[item.Code] = decimal.Zero
 	}
 	unclassified := make([]*CashFlowUnclassified, 0)
@@ -629,7 +632,7 @@ func (r *ReportRepository) CashFlowStatement(
 
 func buildCashFlowSection(category string, totals map[string]decimal.Decimal) CashFlowSection {
 	section := CashFlowSection{Inflows: make([]*CashFlowLine, 0), Outflows: make([]*CashFlowLine, 0)}
-	for _, item := range CashFlowItems {
+	for _, item := range CashFlowItemDefs() {
 		if item.Category != category {
 			continue
 		}
@@ -654,7 +657,7 @@ func (r *ReportRepository) cashBalance(
 	ctx context.Context, filter scope.Filter, tenantID string, codes []string, asOf time.Time,
 ) (decimal.Decimal, error) {
 	args := []any{tenantID, codes, asOf.Format("2006-01-02")}
-	where := "l.tenant_id = $1 AND a.code = ANY($2::text[]) AND v.status IN ('posted', 'reversed') AND v.voucher_date <= $3::date"
+	where := "l.tenant_id = $1 AND (a.code = ANY($2::text[]) OR left(a.code, 4) = ANY($2::text[])) AND v.status IN ('posted', 'reversed') AND v.voucher_date <= $3::date"
 	appendScope(&where, &args, "v", filter)
 	var raw string
 	if err := r.db.QueryRow(ctx, `
@@ -681,7 +684,8 @@ func (r *ReportRepository) nonCashExpenses(
 		JOIN erp.gl_vouchers v ON v.tenant_id = l.tenant_id AND v.id = l.voucher_id
 		JOIN erp.gl_accounts a ON a.tenant_id = l.tenant_id AND a.id = l.account_id
 		JOIN erp.gl_account_mappings m
-		  ON m.tenant_id = l.tenant_id AND m.account_code = a.code AND m.key = 'non_cash_expense'
+		  ON m.tenant_id = l.tenant_id AND m.key = 'non_cash_expense'
+		 AND (m.account_code = a.code OR m.account_code = left(a.code, 4))
 		WHERE `+where, args...).Scan(&raw); err != nil {
 		return decimal.Zero, fmt.Errorf("non cash expenses: %w", err)
 	}
@@ -693,7 +697,7 @@ func (r *ReportRepository) balanceChange(
 	startDate, endDate time.Time, liability bool,
 ) (decimal.Decimal, error) {
 	args := []any{tenantID, codes, startDate.Format("2006-01-02"), endDate.Format("2006-01-02")}
-	where := "l.tenant_id = $1 AND a.code = ANY($2::text[]) AND v.status IN ('posted', 'reversed') AND v.voucher_date <= $4::date"
+	where := "l.tenant_id = $1 AND (a.code = ANY($2::text[]) OR left(a.code, 4) = ANY($2::text[])) AND v.status IN ('posted', 'reversed') AND v.voucher_date <= $4::date"
 	appendScope(&where, &args, "v", filter)
 	var openingRaw, closingRaw string
 	if err := r.db.QueryRow(ctx, `
