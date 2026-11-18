@@ -1,18 +1,20 @@
 # finance 模块
 
-统一应收/应付发票与收付款核销模块，Stage 3B 覆盖：
+统一应收/应付发票、贷项单与收付款核销模块，Stage 3B 覆盖：
 
 ```text
 销售发货 → 应收发票 ─┐
                       ├→ 收款/付款 → 核销
 采购收货 → 应付发票 ─┘
+
+销售退货 → 贷项单 → 自动冲原应收发票未收金额（剩余保留客户贷项）
 ```
 
 ## 分层
 
-- `domain`：发票、收付款、核销、状态、金额计算、仓储接口。
-- `app`：发票查询、收付款登记、核销用例。
-- `infra/postgres`：PostgreSQL 查询与核销事务；核销时锁定收付款和发票行，校验类型、往来单位、币种、未核销金额。
+- `domain`：发票、贷项单、收付款、核销、状态、金额计算、仓储接口。
+- `app`：发票/贷项单查询、收付款登记、核销用例。
+- `infra/postgres`：PostgreSQL 查询与核销事务；核销时锁定收付款和发票行，校验类型、往来单位、币种、未核销金额，计算时扣减已冲贷项。
 - `http`：Gin Handler、金额字符串转换、权限和审计。
 
 ## API
@@ -21,10 +23,14 @@
 |---|---|---|
 | GET | `/api/v1/finance/invoices` | `finance.invoice.read` |
 | GET | `/api/v1/finance/invoices/:id` | `finance.invoice.read` |
+| GET | `/api/v1/finance/credit-notes` | `finance.invoice.read` |
+| GET | `/api/v1/finance/credit-notes/:id` | `finance.invoice.read` |
 | GET | `/api/v1/finance/payments` | `finance.payment.read` |
 | GET | `/api/v1/finance/payments/:id` | `finance.payment.read` |
 | POST | `/api/v1/finance/payments` | `finance.payment.write` |
 | POST | `/api/v1/finance/payments/:id/allocate` | `finance.payment.write` |
+
+贷项单列表支持 `status`（`open`/`applied`）、`partner_id`、`keyword` 和分页。
 
 创建收付款：
 
@@ -56,13 +62,30 @@
 
 - `invoice_type`：`receivable` / `payable`。
 - `source_type`：`sales_shipment` / `purchase_receipt`。
-- 状态：`open → partially_paid → paid`。
+- 状态：`open → partially_paid → paid`；`paid` 表示已收款或已由贷项冲清，前端显示“已结清”。
 - 应收由销售发货自动生成，应付由采购收货自动生成。
 - 来源唯一约束：`(tenant_id, invoice_type, source_type, source_id)`，防止重复开票。
 - 净额/税额/含税总额：`net_amount`、`tax_amount`、`total_amount`。
+- 已冲贷项：`credited_amount`、`base_credited_amount`。
+- 未收金额：`outstanding_amount = total_amount - paid_amount - credited_amount`。
+- 状态重算同时考虑 `paid_amount` 和 `credited_amount`：
+  - `open`：`paid + credited = 0`。
+  - `partially_paid`：`0 < paid + credited < total`。
+  - `paid`：`paid + credited >= total`。
 - 增值税发票：`vat_invoice_no`、`vat_invoice_type`、`vat_invoice_date`、`vat_invoice_status`、购销方税号。
 - 开票状态：`pending → issued → void`；开票/作废不生成凭证，税额已在发货/收货确认。
 - 发票号租户内唯一（非空）。
+
+## 贷项单（Stage 3H）
+
+- 销售退货自动生成 `sales_return` 贷项单，编码规则 `finance_credit_note`（前缀 `CN`）。
+- 字段：来源退货单、原发票、往来单位、日期、币种、汇率、原币/本位币金额、已冲金额、剩余金额、状态。
+- 状态：`applied`（已全部冲减原发票）或 `open`（仍有未使用贷项）。
+- 自动冲销规则：锁定原应收发票，`outstanding = total - paid - credited`，
+  `applied = min(credit_note.amount, outstanding)`，`remaining = amount - applied`。
+- 原发票已收款时 `applied = 0`，贷项单保持 `open`，剩余金额展示为客户贷项。
+- 原发票 `credited_amount` 和 `base_credited_amount` 同步累加；全额冲减时清空 `base_revalued_amount`。
+- 贷项单只读 API；本期不提供手工创建、抵其他发票或退款。
 
 ## 多币种与汇兑损益（Stage 3F）
 
@@ -73,6 +96,7 @@
   - 应付差额方向相反。
 - 期末关账重估未核销外币应收应付，生成 `fx_revaluation` 和次期 `fx_revaluation_reversal`。
 - 反关账撤销重估和次期反向凭证。
+- 重估原币未核销金额扣减 `credited_amount`，账面本位币扣减 `base_credited_amount`；已由贷项全额冲减的发票不再重估。
 
 ## 收付款
 
@@ -84,12 +108,14 @@
 
 ## 前端
 
-- `/finance/invoices`：应收/应付列表、筛选、到期/逾期提示、发票详情、核销记录、开票/作废。
+- `/finance/invoices`：应收/应付列表、筛选、到期/逾期提示、发票详情、核销记录、已冲贷项、未收金额、开票/作废。
+- `/finance/credit-notes`：贷项单列表和详情，来源退货、原发票、已冲/剩余、状态。
 - `/finance/payments`：收付款列表、新建、按往来单位加载未付清发票、批量核销。
 
 ## 后续
 
 - 反核销、红字发票、完整红冲流程。
+- 贷项单抵其他发票、退款申请。
 - 账龄分析、对账单、信用额度。
 - 多币种汇率和本位币折算。
 - 总账凭证自动生成。
