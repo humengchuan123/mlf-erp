@@ -2,6 +2,7 @@ package domain
 
 import (
 	"context"
+	"time"
 
 	"github.com/mlf-erp/mlf-erp/internal/platform/scope"
 )
@@ -14,4 +15,10 @@ type OrderRepository interface {
 	UpdateStatus(ctx context.Context, filter scope.Filter, tenantID, id string, from, to Status, userID string) (bool, error)
 	Receive(ctx context.Context, filter scope.Filter, receipt *Receipt) error
 	ListReceipts(ctx context.Context, filter scope.Filter, tenantID, orderID string, offset, limit int) ([]*Receipt, int, error)
+}
+
+type ReturnRepository interface {
+	Create(ctx context.Context, filter scope.Filter, tenantID, userID string, params ReturnCreateParams) (*PurchaseReturn, error)
+	List(ctx context.Context, filter scope.Filter, tenantID, receiptID, supplierID, keyword string, startDate, endDate time.Time, offset, limit int) ([]*PurchaseReturn, int, error)
+	Get(ctx context.Context, filter scope.Filter, tenantID, id string) (*PurchaseReturn, error)
 }

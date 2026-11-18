@@ -564,7 +564,8 @@ func loadReceiptLines(ctx context.Context, q querier, tenantID, receiptID string
 		       rl.material_id::text, COALESCE(m.name, ''), rl.quantity::text,
 		       rl.unit_price::text, COALESCE(rl.tax_rate_id::text, ''), rl.tax_rate::text,
 		       rl.amount::text, rl.tax_amount::text, rl.gross_amount::text,
-		       rl.base_amount::text, rl.base_tax_amount::text, rl.base_gross_amount::text
+		       rl.base_amount::text, rl.base_tax_amount::text, rl.base_gross_amount::text,
+		       rl.returned_qty::text
 		FROM erp.purchase_receipt_lines rl
 		LEFT JOIN erp.materials m ON m.tenant_id = rl.tenant_id AND m.id = rl.material_id
 		WHERE rl.tenant_id = $1 AND rl.receipt_id = $2
@@ -685,12 +686,12 @@ func scanReceipt(row rowScanner) (*domain.Receipt, error) {
 func scanReceiptLine(row rowScanner) (*domain.ReceiptLine, error) {
 	var line domain.ReceiptLine
 	var quantity, unitPrice, taxRate, amount, taxAmount, grossAmount string
-	var baseAmount, baseTax, baseGross string
+	var baseAmount, baseTax, baseGross, returnedQty string
 	err := row.Scan(
 		&line.ID, &line.TenantID, &line.ReceiptID, &line.OrderLineID,
 		&line.MaterialID, &line.MaterialName, &quantity, &unitPrice,
 		&line.TaxRateID, &taxRate, &amount, &taxAmount, &grossAmount,
-		&baseAmount, &baseTax, &baseGross,
+		&baseAmount, &baseTax, &baseGross, &returnedQty,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, domain.ErrNotFound
@@ -707,6 +708,7 @@ func scanReceiptLine(row rowScanner) (*domain.ReceiptLine, error) {
 	line.BaseAmount = decimal.RequireFromString(baseAmount)
 	line.BaseTaxAmount = decimal.RequireFromString(baseTax)
 	line.BaseGrossAmount = decimal.RequireFromString(baseGross)
+	line.ReturnedQty = decimal.RequireFromString(returnedQty)
 	return &line, nil
 }
 
