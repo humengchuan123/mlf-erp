@@ -270,7 +270,7 @@ remaining    = return_total - applied
 pnpm test:api:stage3i
 ```
 
-结果：PASS，`TestStage3I` 通过，共 10 个子测试，测试耗时约 2.8 秒：
+结果：PASS，`TestStage3I` 通过，共 13 个子测试，测试耗时约 3.9 秒：
 
 | 子测试 | 覆盖点 | 结果 |
 |---|---|---|
@@ -279,9 +279,12 @@ pnpm test:api:stage3i
 | credit note type filter | `credit_type=purchase_return/sales_return` 过滤、非法类型 400、详情类型/来源 | 通过 |
 | rounding balanced partial returns | 三次部分退货累计差额 33.3333/33.3334/33.3333、合计 100.0000、贷项和发票全额冲减 | 通过 |
 | fully paid payable invoice return leaves open credit | 已付款发票退货 applied=0、贷项 open、发票 credited 保持 0、状态 paid | 通过 |
+| partial credit note application | 发票已付 150 后退货 100：applied=50、remaining=50、贷项 open；发票 credited=50、outstanding=0、状态 paid；退货凭证仍按 100 过账 | 通过 |
 | payment allocation respects credited amount | 部分贷项后付款核销扣减 credited、超分配拒绝、最终 paid | 通过 |
 | zero value purchase return | 零价退货 total/cost 为 0、无贷项单、无凭证、库存仍出库 | 通过 |
-| over-return insufficient stock and validation | 超退 409、库存不足 409、非法 UUID/空行/零负数量/非法日期、跨收货单行 404 | 通过 |
+| over-return insufficient stock and validation | 超退 409、库存不足 409 且 `returned_qty`/库存/退货单/贷项/凭证全部回滚、非法 UUID/空行/零负数量/非法日期、跨收货单行 404、非法收货行 UUID 400 | 通过 |
+| period closed rolls back purchase return | 关账期间退货 409 `PERIOD_CLOSED`，库存/DTO/退货单回滚，测试后重开期间 | 通过 |
+| concurrent returns cannot double return | 两个并发退货请求仅一个成功、另一个 409 `OVER_RETURN`，`returned_qty=1`，只生成一张退货单 | 通过 |
 | permissions and validation | 匿名 401、demo_dept 写权限 403、读权限/数据范围、未知退货 404 | 通过 |
 | foreign currency purchase return and period revaluation | USD 部分退货、贷项本位币、期间重估只按剩余 100×7.3 调整 +10 | 通过 |
 
@@ -303,7 +306,7 @@ git diff --check
 结果：
 
 - `gofmt` 无输出。
-- `go test ./...` 全部包通过。
+- `go test ./...` 全部包通过，包括 `purchaseReturnPostingLines` 的正税额、负税额和零金额单元测试，以及 `applyPurchaseReturnCredit` 的全额/部分/已付款/外币/尾差不变量测试。
 - `go vet ./...` 通过。
 - OpenAPI YAML 校验通过。
 - `pnpm typecheck:web` 通过。
@@ -328,15 +331,15 @@ go test -tags=integration ./tests/api -run 'TestStage3' -count=1 -v
 - `TestStage3F` 7 个子测试通过。
 - `TestStage3G` 通过。
 - `TestStage3H` 10 个子测试通过。
-- `TestStage3I` 10 个子测试通过。
-- 总耗时约 13.7 秒。
+- `TestStage3I` 13 个子测试通过。
+- 总耗时约 15.2 秒。
 
 数据校验：
 
 - `schema_migrations` version 21，dirty=false。
-- `purchase_returns` 9 条。
-- `purchase_return` 贷项单 8 条（1 条零金额退货无贷项单）。
-- `purchase_return` 凭证 8 张。
+- `purchase_returns` 11 条。
+- `purchase_return` 贷项单 10 条（1 条零金额退货无贷项单）。
+- `purchase_return` 凭证 10 张。
 - 借贷不平衡的采购退货凭证 0 张。
 
 Stage 3I API 测试会写入本地开发库并消耗业务数据；完整回归必须使用干净数据库。
@@ -345,19 +348,47 @@ Stage 3I API 测试会写入本地开发库并消耗业务数据；完整回归�
 
 ### 6.1 审核方式
 
-（待 Task 8 独立审核子代理完成后补充。）
+独立代码审核子代理，审查范围 `ba5a3dd..4e32de3`，覆盖迁移、退货域计算、库存出库、退货凭证、应付贷项单、发票 credited、付款核销、期间重估、API、SDK、OpenAPI、前端和测试；并复核修复提交 `4e32de3`。
 
 ### 6.2 审核结论
 
-（待补。）
+初次审核结论：**Ready to merge: With fixes**。
+
+- 审核确认主流程、迁移保护、库存成本、贷项单应用、付款净额和期间重估正确，未发现 Stage 3H/3F 回归。
+- 无 Critical。
+- **Important 1**：库存不足测试只断言 409，未验证事务回滚；缺少 `PERIOD_CLOSED` 和并发双退测试。
+- **Important 2**：贷项单只测试了全额应用和 applied=0，未测试 `applied < 退货金额` 的部分应用分支。
+- **Important 3**：负进项税时 `PostPurchaseReturn` 省略税额行，可能导致凭证不平衡。
+- 其余为多行测试、测试状态依赖、`occurred_at` 和幂等键等非阻塞问题。
+
+第一次修复后的复审又发现一个 Critical：尾差容差将 `remaining_base_amount` 归零但未同步调整 `applied_base_amount`，会违反贷项单 `applied_base_amount + remaining_base_amount = base_amount` 约束。已改为保留存储金额、仅用容差决定状态，并抽取 `applyPurchaseReturnCredit` 补回归测试。
+
+最终复审结论：**Ready to merge: Yes**。新 Critical 已解决，无新增 Critical/Important，剩余为已记录的非阻塞覆盖和边界问题。
 
 ### 6.3 已修复问题
 
-（待补。）
+- 抽取 `purchaseReturnPostingLines`，负税额时借记 `input_vat`，AP/库存/税额均支持正负方向，保证 `gross = net + tax` 凭证平衡；新增正税额、负税额和零金额单元测试。
+- 凭证号清理条件与 GL 过账条件统一为三个本位币字段全零，过账使用 `ret.VoucherCode`，避免有凭证号无凭证或空凭证号过账。
+- 新增部分贷项应用测试：发票已付 150、退货 100 时 applied=50、remaining=50、贷项 open、发票 credited=50 且仍为 paid。
+- 库存不足测试增加回滚断言：`returned_qty`、库存余额、退货单、贷项单和凭证均不变。
+- 新增关账期间退货测试：409 `PERIOD_CLOSED` 后库存、DTO 和退货单全部回滚，并重开期间。
+- 新增并发双退测试：两个并发请求仅一个成功，另一个 409 `OVER_RETURN`，`returned_qty=1` 且只生成一张退货单。
+- 收货行 UUID 非法时返回 400 `BAD_REQUEST`，有效但不存在仍返回 404。
+- 修正迁移 README 中 000021 down 的描述。
+- 抽取 `applyPurchaseReturnCredit`，全额应用时保留 0.0001 本位币尾差并仅用容差决定状态，保证 `applied_base_amount + remaining_base_amount = base_amount` 约束；新增全额/部分/已付款/外币/尾差不变量单元测试。
 
 ### 6.4 剩余问题/已知限制
 
-（待补。）
+- API 测试以单行收货为主，多行/多税率的表头汇总主要靠域测试和辅助函数测试覆盖。
+- 测试使用共享开发库和未来年份，反复运行会累积数据；完整回归使用干净数据库。
+- 关账测试已断言退货单/库存回滚，但未单独断言贷项单和凭证数量不变。
+- 并发测试证明收货行锁串行化，但条件式 `returned_qty` UPDATE 守卫通常被域层超退校验提前拦截。
+- 负税额凭证在 posting helper 层有单元测试，尚未通过完整 API 场景触发。
+- 0.0001 本位币尾差可能保留为 `remaining_base_amount` 且状态为 `applied`；这是有意保留的显示/语义边界，不再违反数据库约束。
+- 库存流水 `occurred_at` 使用实际过账时间，与凭证日期 `return_date` 可能不同。
+- 已全额贷项结清的外币发票在后续反关账时，`base_revalued_amount` 可能显示负值。
+- 采购退货接口暂无幂等键。
+- 缺少浏览器 E2E 和故障注入测试。
 
 ## 7. 已知限制
 
@@ -369,7 +400,7 @@ Stage 3I API 测试会写入本地开发库并消耗业务数据；完整回归�
 - 退货即时生效，不进入审批流。
 - 库存流水 `occurred_at` 使用实际过账时间，与凭证日期 `return_date` 可能不同。
 - 零金额退货不生成贷项单和凭证；库存出库仍执行。
-- 极少情况下全额贷项仍可能保留极小本位币尾差；标准单币种/统一汇率场景不受影响。
+- 全额应用时可能保留 0.0001 本位币尾差，状态按容差标记 `applied`；原币金额和发票结清不受影响。
 - 已全额贷项结清的外币发票在后续反关账时，`base_revalued_amount` 可能显示负值；暂为展示字段问题。
 - 采购退货接口暂无幂等键，客户端重试可能重复退货。
 - 缺少并发退货、故障注入、down/up 数据测试和浏览器 E2E。
