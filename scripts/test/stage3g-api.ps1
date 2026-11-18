@@ -91,6 +91,10 @@ $process = Start-Process -FilePath (Join-Path $root 'dist/api-stage3g.exe') `
 
 $testFailed = $false
 try {
+    Start-Sleep -Milliseconds 500
+    if ($process.HasExited) {
+        throw 'API process exited immediately; port 18080 may already be in use'
+    }
     Wait-Api
     Write-Host 'Running Stage 3G API integration tests...'
     $env:TEST_API_BASE_URL = 'http://localhost:18080'

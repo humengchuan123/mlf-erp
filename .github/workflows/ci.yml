@@ -41,6 +41,8 @@ jobs:
               - 'cmd/glbackfill/**'
               - 'internal/**'
               - 'api/**'
+              - 'tests/api/**'
+              - 'scripts/test/**'
               - 'go.mod'
               - 'go.sum'
               - 'db/migrations/**'

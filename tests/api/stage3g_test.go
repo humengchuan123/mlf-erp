@@ -113,6 +113,23 @@ func TestStage3G(t *testing.T) {
 	if got := cashFlowAmount(t, janFinancing, "outflows", "dividend_interest_payments"); !nearlyEqual(got, 15) {
 		t.Fatalf("January dividend payments = %v, want 15", got)
 	}
+	// The internal 1001/1002 transfer must not leak into any activity.
+	for _, check := range []struct {
+		section   map[string]any
+		direction string
+		code      string
+	}{
+		{janOperating, "inflows", "other_operating_inflows"},
+		{janOperating, "outflows", "other_operating_outflows"},
+		{janInvesting, "inflows", "other_investing_inflows"},
+		{janInvesting, "outflows", "other_investing_outflows"},
+		{janFinancing, "inflows", "other_financing_inflows"},
+		{janFinancing, "outflows", "other_financing_outflows"},
+	} {
+		if got := number(t, cashFlowLine(t, check.section, check.direction, check.code), "amount"); !nearlyEqual(got, 0) {
+			t.Fatalf("January %s/%s = %v, want 0", check.direction, check.code, got)
+		}
+	}
 	if got := number(t, janOperating, "net"); !nearlyEqual(got, 30) {
 		t.Fatalf("January operating net = %v, want 30", got)
 	}
@@ -138,7 +155,10 @@ func TestStage3G(t *testing.T) {
 	if got := number(t, janIndirect, "difference"); !nearlyEqual(got, 0) {
 		t.Fatalf("January indirect difference = %v, want 0", got)
 	}
-	if items, _ := janReport["unclassified"].([]any); len(items) != 0 {
+	if got := text(janIndirect, "non_cash_expenses"); got != "0.0000" {
+		t.Fatalf("January non-cash expenses = %s, want 0.0000", got)
+	}
+	if items := cashFlowUnclassified(t, janReport); len(items) != 0 {
 		t.Fatalf("January unclassified count = %d, want 0", len(items))
 	}
 	if got := text(cashFlowLine(t, janOperating, "inflows", "tax_refunds"), "amount"); got != "0.0000" {
@@ -158,7 +178,7 @@ func TestStage3G(t *testing.T) {
 	if got := number(t, febOperating, "net"); !nearlyEqual(got, 5) {
 		t.Fatalf("February operating net = %v, want 5", got)
 	}
-	febUnclassified, _ := febReport["unclassified"].([]any)
+	febUnclassified := cashFlowUnclassified(t, febReport)
 	if len(febUnclassified) != 1 {
 		t.Fatalf("February unclassified count = %d, want 1", len(febUnclassified))
 	}
@@ -171,6 +191,19 @@ func TestStage3G(t *testing.T) {
 	}
 	if got := text(febItem, "reason"); !strings.Contains(got, "4103") {
 		t.Fatalf("February unclassified reason = %s, want it to contain 4103", got)
+	}
+	if got := text(febItem, "direction"); got != "inflow" {
+		t.Fatalf("February unclassified direction = %s, want inflow", got)
+	}
+	if got := text(febItem, "voucher_code"); got == "" {
+		t.Fatal("February unclassified voucher_code is empty")
+	}
+	voucherDate := text(febItem, "voucher_date")
+	if voucherDate == "" {
+		t.Fatal("February unclassified voucher_date is empty")
+	}
+	if _, err := time.Parse("2006-01-02", voucherDate); err != nil {
+		t.Fatalf("February unclassified voucher_date = %s, want YYYY-MM-DD: %v", voucherDate, err)
 	}
 	febIndirect := cashFlowSection(t, febReport, "indirect")
 	if got := number(t, febIndirect, "direct_operating_net"); !nearlyEqual(got, 5) {
@@ -229,10 +262,19 @@ func TestStage3G(t *testing.T) {
 	if got := number(t, marIndirect, "difference"); !nearlyEqual(got, 0) {
 		t.Fatalf("March indirect difference = %v, want 0", got)
 	}
+	if got := text(marIndirect, "non_cash_expenses"); got != "0.0000" {
+		t.Fatalf("March non-cash expenses = %s, want 0.0000", got)
+	}
+	if got := text(marIndirect, "tax_payable_increase"); got != "0.0000" {
+		t.Fatalf("March tax payable increase = %s, want 0.0000", got)
+	}
+	if got := text(marIndirect, "employee_payable_increase"); got != "0.0000" {
+		t.Fatalf("March employee payable increase = %s, want 0.0000", got)
+	}
 	if got := number(t, marReport, "opening_cash") + 7; !nearlyEqual(got, number(t, marReport, "closing_cash")) {
 		t.Fatalf("March closing cash = %v, want opening + 7", number(t, marReport, "closing_cash"))
 	}
-	if items, _ := marReport["unclassified"].([]any); len(items) != 0 {
+	if items := cashFlowUnclassified(t, marReport); len(items) != 0 {
 		t.Fatalf("March unclassified count = %d, want 0", len(items))
 	}
 
@@ -245,13 +287,30 @@ func TestStage3G(t *testing.T) {
 	if got := number(t, aprReport, "opening_cash"); !nearlyEqual(got, number(t, aprReport, "closing_cash")) {
 		t.Fatalf("April opening cash = %v, closing cash = %v, want equal", got, number(t, aprReport, "closing_cash"))
 	}
-	if items, _ := aprReport["unclassified"].([]any); len(items) != 0 {
+	if items := cashFlowUnclassified(t, aprReport); len(items) != 0 {
 		t.Fatalf("April unclassified count = %d, want 0", len(items))
 	}
 	aprOperating := cashFlowSection(t, aprReport, "operating")
-	if got := text(cashFlowLine(t, aprOperating, "inflows", "tax_refunds"), "amount"); got != "0.0000" {
-		t.Fatalf("April tax refunds = %s, want 0.0000", got)
-	}
+	aprInvesting := cashFlowSection(t, aprReport, "investing")
+	aprFinancing := cashFlowSection(t, aprReport, "financing")
+	assertZeroCashFlowItems(t, aprOperating, "inflows", []string{
+		"sales_receipts", "tax_refunds", "other_operating_inflows",
+	})
+	assertZeroCashFlowItems(t, aprOperating, "outflows", []string{
+		"purchase_payments", "employee_payments", "tax_payments", "other_operating_outflows",
+	})
+	assertZeroCashFlowItems(t, aprInvesting, "inflows", []string{
+		"disposal_asset_receipts", "other_investing_inflows",
+	})
+	assertZeroCashFlowItems(t, aprInvesting, "outflows", []string{
+		"asset_purchases", "investment_payments", "other_investing_outflows",
+	})
+	assertZeroCashFlowItems(t, aprFinancing, "inflows", []string{
+		"capital_injections", "borrowings", "other_financing_inflows",
+	})
+	assertZeroCashFlowItems(t, aprFinancing, "outflows", []string{
+		"debt_repayments", "dividend_interest_payments", "other_financing_outflows",
+	})
 	for _, name := range []string{"operating", "investing", "financing"} {
 		if got := text(cashFlowSection(t, aprReport, name), "net"); got != "0.0000" {
 			t.Fatalf("April %s net = %s, want 0.0000", name, got)
@@ -260,6 +319,11 @@ func TestStage3G(t *testing.T) {
 
 	admin.expectError(http.MethodGet, "/finance/reports/cash-flow?start_date=2026-02-01&end_date=2026-01-01", nil, http.StatusBadRequest, "BAD_REQUEST")
 	admin.expectError(http.MethodGet, "/finance/reports/cash-flow?start_date=bad-date", nil, http.StatusBadRequest, "BAD_REQUEST")
+	admin.expectError(http.MethodGet, "/finance/reports/cash-flow?end_date=bad-date", nil, http.StatusBadRequest, "BAD_REQUEST")
+	defaultReport := admin.mustGet("/finance/reports/cash-flow", http.StatusOK)
+	if text(defaultReport, "start_date") == "" || text(defaultReport, "end_date") == "" {
+		t.Fatalf("default cash flow range is empty: %v", defaultReport)
+	}
 	unauthorized := newClient(t)
 	unauthorized.expectError(http.MethodGet, "/finance/reports/cash-flow", nil, http.StatusUnauthorized, "UNAUTHORIZED")
 
@@ -300,11 +364,23 @@ func cashFlowSection(t *testing.T, report map[string]any, name string) map[strin
 	return section
 }
 
+func cashFlowUnclassified(t *testing.T, report map[string]any) []any {
+	t.Helper()
+	raw, ok := report["unclassified"].([]any)
+	if !ok || raw == nil {
+		t.Fatalf("unclassified = %v, want array", report["unclassified"])
+	}
+	return raw
+}
+
 func cashFlowLine(t *testing.T, section map[string]any, direction, code string) map[string]any {
 	t.Helper()
 	items, _ := section[direction].([]any)
 	for _, raw := range items {
-		line := raw.(map[string]any)
+		line, ok := raw.(map[string]any)
+		if !ok {
+			t.Fatalf("cash flow line %s/%s has invalid payload %v", direction, code, raw)
+		}
 		if text(line, "code") == code {
 			return line
 		}
@@ -316,4 +392,14 @@ func cashFlowLine(t *testing.T, section map[string]any, direction, code string) 
 func cashFlowAmount(t *testing.T, section map[string]any, direction, code string) float64 {
 	t.Helper()
 	return number(t, cashFlowLine(t, section, direction, code), "amount")
+}
+
+func assertZeroCashFlowItems(t *testing.T, section map[string]any, direction string, codes []string) {
+	t.Helper()
+	for _, code := range codes {
+		line := cashFlowLine(t, section, direction, code)
+		if got := text(line, "amount"); got != "0.0000" {
+			t.Fatalf("%s/%s = %s, want 0.0000", direction, code, got)
+		}
+	}
 }

@@ -271,6 +271,7 @@ pnpm test:api:stage3e
 pnpm test:api:stage3f
 
 # Stage 3G API integration test (cash flow statement)
+# Writes to the local dev database and consumes a clean year; use a clean database for full regression.
 pnpm test:api:stage3g
 
 # Docker
