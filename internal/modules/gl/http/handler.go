@@ -64,6 +64,7 @@ func Register(
 	finance.GET("/reports/general-ledger", authmw.RequirePermission("finance.report.read"), handler.generalLedger)
 	finance.GET("/reports/balance-sheet", authmw.RequirePermission("finance.report.read"), handler.balanceSheet)
 	finance.GET("/reports/income-statement", authmw.RequirePermission("finance.report.read"), handler.incomeStatement)
+	finance.GET("/reports/cash-flow", authmw.RequirePermission("finance.report.read"), handler.cashFlowStatement)
 	finance.GET("/reports/auxiliary-balance", authmw.RequirePermission("finance.report.read"), handler.auxiliaryBalance)
 	finance.GET("/reports/vat-summary", authmw.RequirePermission("finance.report.read"), handler.vatSummary)
 }
@@ -276,6 +277,53 @@ type incomeStatementResponse struct {
 	TotalRevenue  string               `json:"total_revenue"`
 	TotalExpenses string               `json:"total_expenses"`
 	NetProfit     string               `json:"net_profit"`
+}
+
+type cashFlowLineResponse struct {
+	Code   string `json:"code"`
+	Name   string `json:"name"`
+	Amount string `json:"amount"`
+}
+
+type cashFlowSectionResponse struct {
+	Inflows  []cashFlowLineResponse `json:"inflows"`
+	Outflows []cashFlowLineResponse `json:"outflows"`
+	Net      string                 `json:"net"`
+}
+
+type cashFlowUnclassifiedResponse struct {
+	VoucherID   string `json:"voucher_id"`
+	VoucherCode string `json:"voucher_code"`
+	VoucherDate string `json:"voucher_date"`
+	Direction   string `json:"direction"`
+	Amount      string `json:"amount"`
+	Reason      string `json:"reason"`
+}
+
+type indirectCashFlowResponse struct {
+	NetProfit               string `json:"net_profit"`
+	NonCashExpenses         string `json:"non_cash_expenses"`
+	ReceivableIncrease      string `json:"receivable_increase"`
+	InventoryIncrease       string `json:"inventory_increase"`
+	PayableIncrease         string `json:"payable_increase"`
+	TaxPayableIncrease      string `json:"tax_payable_increase"`
+	EmployeePayableIncrease string `json:"employee_payable_increase"`
+	OperatingNet            string `json:"operating_net"`
+	DirectOperatingNet      string `json:"direct_operating_net"`
+	Difference              string `json:"difference"`
+}
+
+type cashFlowStatementResponse struct {
+	StartDate    string                         `json:"start_date"`
+	EndDate      string                         `json:"end_date"`
+	Operating    cashFlowSectionResponse        `json:"operating"`
+	Investing    cashFlowSectionResponse        `json:"investing"`
+	Financing    cashFlowSectionResponse        `json:"financing"`
+	NetIncrease  string                         `json:"net_increase"`
+	OpeningCash  string                         `json:"opening_cash"`
+	ClosingCash  string                         `json:"closing_cash"`
+	Unclassified []cashFlowUnclassifiedResponse `json:"unclassified"`
+	Indirect     indirectCashFlowResponse       `json:"indirect"`
 }
 
 func (h *Handler) listAccounts(c *gin.Context) {
@@ -673,6 +721,39 @@ func (h *Handler) incomeStatement(c *gin.Context) {
 	})
 }
 
+func (h *Handler) cashFlowStatement(c *gin.Context) {
+	startDate, endDate, err := parseRange(c)
+	if err != nil {
+		httpx.Error(c, http.StatusBadRequest, httpx.CodeBadRequest, "invalid date range")
+		return
+	}
+	report, err := h.reports.CashFlowStatement(c.Request.Context(), startDate, endDate)
+	if err != nil {
+		h.handleError(c, err)
+		return
+	}
+	httpx.OK(c, cashFlowStatementResponse{
+		StartDate: report.StartDate.Format("2006-01-02"), EndDate: report.EndDate.Format("2006-01-02"),
+		Operating: toCashFlowSection(report.Operating), Investing: toCashFlowSection(report.Investing),
+		Financing:   toCashFlowSection(report.Financing),
+		NetIncrease: report.NetIncrease.StringFixed(4), OpeningCash: report.OpeningCash.StringFixed(4),
+		ClosingCash:  report.ClosingCash.StringFixed(4),
+		Unclassified: toCashFlowUnclassified(report.Unclassified),
+		Indirect: indirectCashFlowResponse{
+			NetProfit:               report.Indirect.NetProfit.StringFixed(4),
+			NonCashExpenses:         report.Indirect.NonCashExpenses.StringFixed(4),
+			ReceivableIncrease:      report.Indirect.ReceivableIncrease.StringFixed(4),
+			InventoryIncrease:       report.Indirect.InventoryIncrease.StringFixed(4),
+			PayableIncrease:         report.Indirect.PayableIncrease.StringFixed(4),
+			TaxPayableIncrease:      report.Indirect.TaxPayableIncrease.StringFixed(4),
+			EmployeePayableIncrease: report.Indirect.EmployeePayableIncrease.StringFixed(4),
+			OperatingNet:            report.Indirect.OperatingNet.StringFixed(4),
+			DirectOperatingNet:      report.Indirect.DirectOperatingNet.StringFixed(4),
+			Difference:              report.Indirect.Difference.StringFixed(4),
+		},
+	})
+}
+
 func parseVoucherInput(c *gin.Context) (app.VoucherInput, error) {
 	var request voucherRequest
 	if err := c.ShouldBindJSON(&request); err != nil {
@@ -824,6 +905,35 @@ func toReportLines(items []*domain.ReportLine) []reportLineResponse {
 		})
 	}
 	return lines
+}
+
+func toCashFlowSection(section domain.CashFlowSection) cashFlowSectionResponse {
+	return cashFlowSectionResponse{
+		Inflows: toCashFlowLines(section.Inflows), Outflows: toCashFlowLines(section.Outflows),
+		Net: section.Net.StringFixed(4),
+	}
+}
+
+func toCashFlowLines(lines []*domain.CashFlowLine) []cashFlowLineResponse {
+	responses := make([]cashFlowLineResponse, 0, len(lines))
+	for _, line := range lines {
+		responses = append(responses, cashFlowLineResponse{
+			Code: line.Code, Name: line.Name, Amount: line.Amount.StringFixed(4),
+		})
+	}
+	return responses
+}
+
+func toCashFlowUnclassified(items []*domain.CashFlowUnclassified) []cashFlowUnclassifiedResponse {
+	responses := make([]cashFlowUnclassifiedResponse, 0, len(items))
+	for _, item := range items {
+		responses = append(responses, cashFlowUnclassifiedResponse{
+			VoucherID: item.VoucherID, VoucherCode: item.VoucherCode,
+			VoucherDate: item.VoucherDate.Format("2006-01-02"), Direction: item.Direction,
+			Amount: item.Amount.StringFixed(4), Reason: item.Reason,
+		})
+	}
+	return responses
 }
 
 func (h *Handler) recordAudit(c *gin.Context, action, resourceType, resourceID string, after any) {
