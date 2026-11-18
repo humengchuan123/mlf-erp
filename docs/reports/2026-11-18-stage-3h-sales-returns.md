@@ -2,7 +2,7 @@
 
 > 日期：2026-11-18
 > 分支：`stage-3h-sales-returns`
-> 提交：`a3e5c6a`（设计/计划）+ `f6b667d..a103db3`（实现与测试）
+> 提交：`a3e5c6a`（设计/计划）+ `f6b667d..3bdfa9f`（实现、测试与审核修复）
 > 设计：`docs/superpowers/specs/2026-11-18-stage-3h-sales-returns-design.md`
 > 计划：`docs/superpowers/plans/2026-11-18-stage-3h-sales-returns.md`
 > 状态：待用户审阅
@@ -279,7 +279,7 @@ open        : paid_amount + credited_amount = 0
 pnpm test:api:stage3h
 ```
 
-结果：PASS，`TestStage3H` 通过，共 7 个子测试：
+结果：PASS，`TestStage3H` 通过，共 10 个子测试：
 
 | 子测试 | 覆盖点 | 结果 |
 |---|---|---|
@@ -288,8 +288,11 @@ pnpm test:api:stage3h
 | credit note list and detail | 贷项单列表/详情、来源退货、原发票、金额/已冲/剩余/状态 | 通过 |
 | rounding balanced partial returns | 三次部分退货的 4 位小数尾差、合计与原发货一致、发票全额冲减 | 通过 |
 | fully paid invoice return leaves open credit | 已收款发票退货时 applied=0，贷项单全部 `open`，发票保持已结清 | 通过 |
+| zero value return posts inventory only | 零价退货跳过贷项单，只回库存/冲成本；无收入/应收/税额凭证行 | 通过 |
+| payment allocation respects credited amount | 部分贷项后付款核销，未收金额扣减 credited，超分配拒绝 | 通过 |
 | permissions and validation | 401/403、非法 UUID、空行、零/负数量、非法日期、404 | 通过 |
 | foreign currency return | USD 退货原币/本位币金额、贷项单、发票 base credited、凭证本位币金额 | 通过 |
+| fx revaluation uses remaining receivable after partial return | 外币部分退货后，期末只按剩余 100×7.3 重估，调整 +10 | 通过 |
 
 领域单元测试额外覆盖：
 
@@ -314,7 +317,22 @@ pnpm test:api:stage3h
 
 ### 5.3 干净数据库全链路回归
 
-干净数据库 Stage 3B–3H 全链路回归：**待最终验证**，由控制方执行，本任务未运行。
+在全新数据库 `mlf_erp_stage3h_clean` 上执行迁移、seed、demo 和：
+
+```bash
+go test -tags=integration ./tests/api -run 'TestStage3' -count=1 -v
+```
+
+结果：
+
+- `TestStage3B` 11 个子测试通过。
+- `TestStage3C` 9 个子测试通过。
+- `TestStage3D` 4 个子测试通过。
+- `TestStage3E` 6 个子测试通过。
+- `TestStage3F` 7 个子测试通过。
+- `TestStage3G` 通过。
+- `TestStage3H` 10 个子测试通过。
+- 总耗时约 11.6 秒。
 
 Stage 3H API 测试会写入本地开发库并消耗业务数据；完整回归必须使用干净数据库。
 
@@ -324,28 +342,39 @@ Stage 3H API 测试会写入本地开发库并消耗业务数据；完整回归�
 
 ### 6.1 审核方式
 
-待独立代码审核子代理执行。建议审核范围：
-
-- `f6b667d..a103db3`（Stage 3H 实现、API、UI 和测试）。
-- 重点覆盖迁移、退货事务、库存回库、凭证、贷项单、发票 credited、期间重估、API、前端和测试。
+独立代码审核子代理，审查范围 `ed73322..56fa0ed`，并复核后续修复提交 `deba1ac`、`25f00de`、`3bdfa9f`。覆盖迁移、退货事务、库存回库、凭证、贷项单、发票 credited、付款核销、期间重估、API、前端和测试。
 
 ### 6.2 审核结论
 
-**待独立审核，本报告不作审核通过结论。** 本节将在 Task 8 审核完成后补充结论、修复记录和最终复审意见。
+初次审核结论：**Ready to merge: With fixes**。
 
-### 6.3 重点审核项
+- 审核确认累计舍入、超退锁、库存平均成本、退货凭证、贷项单冲应收、付款核销和期间重估整体正确。
+- **Critical**：down 迁移在已有退货数据时会删除 credited 列但保留 paid 状态、GL 和库存，造成矛盾状态。
+- **Important**：零价/零金额退货被拒绝；未知发货行返回 400 而设计为 404；外币重估和部分贷项后付款核销缺少 Stage 3H 测试。
+- 其余为边界和文档问题。
 
-- [ ] 退货数量并发锁和超退校验是否正确，重复行/非法数量是否拦截。
-- [ ] 退货金额累计差额和 4 位舍入是否正确，多次部分退货是否与原发货金额一致。
-- [ ] 外币退货的本位币金额、贷项单 applied/remaining 和凭证金额是否一致。
-- [ ] 库存回库、平均成本重算和库存流水是否正确；并发退货是否可能死锁或覆盖余额。
-- [ ] 退货凭证借贷是否平衡，零金额行处理是否正确。
-- [ ] 贷项单自动冲原发票、剩余客户贷项、发票状态和付款核销 outstanding 是否正确。
-- [ ] 期间外币重估是否正确扣减 credited，已全额冲减发票是否排除。
-- [ ] 迁移 up/down、约束、索引、权限和编码规则是否完整。
-- [ ] API 权限、错误码、组织数据范围和响应字段是否符合设计。
-- [ ] SDK、OpenAPI、前端页面和完整度断言是否同步。
-- [ ] 测试覆盖和干净库 Stage 3B–3H 全链路是否通过。
+修复后最终复审结论：**Ready to merge: Yes**。所有 Critical/Important 已解决，剩余为已记录 Minor/已知限制。
+
+### 6.3 已修复问题
+
+- down 迁移增加有退货数据时的 `RAISE EXCEPTION`，禁止静默回滚；README 说明需先归档/反冲。
+- 支持零价/零金额退货：跳过贷项单，保留库存回库和成本凭证；零金额零成本时不生成凭证且清空凭证号。
+- 未知/跨发货单的发货行返回 `ErrShipmentLineNotFound` 和 404。
+- 全额贷项时 base applied 取 `min(退货本位币金额, 发票未收本位币金额)`，避免外币多行尾差留下 open 贷项。
+- 迁移增加 exchange_rate > 0、credited base 非负检查、贷项单 invoice 索引和退货日期索引。
+- 补 Stage 3H API 测试：零价退货、部分贷项后付款核销、外币部分退货后期间重估。
+- 报告和模块文档同步更新。
+
+### 6.4 剩余问题/已知限制
+
+- 零价且零成本的退货不生成凭证，也不校验期间是否已关账；无会计影响，但属于关账控制例外。
+- 极少情况下 `applied == 退货原币金额` 但发票未收本位币小于退货本位币时，贷项单仍可能保留极小 base 余额；当前标准单币种/统一汇率场景不受影响。
+- 已全额贷项结清的外币发票在后续反关账时，`base_revalued_amount` 可能显示负值；暂为展示字段问题。
+- 库存流水 `occurred_at` 使用实际过账时间 `now()`，与凭证日期 `return_date` 可能不同。
+- 前端退货金额预览按当前输入数量/原发货数量估算，未考虑累计已退数量的累计舍入差异；后端为权威。
+- 退货/贷项单接口没有幂等键，客户端重试可能重复退货；后续可增加 request id。
+- 贷项单剩余余额不能抵其他发票或退款，未用贷项不参与外币重估。
+- Repository 主要靠 Stage 3H HTTP 测试覆盖，缺少并发退货、故障注入和 down/up 数据测试。
 
 ---
 
