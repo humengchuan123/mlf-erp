@@ -1405,7 +1405,7 @@ paths:
                         $ref: '#/components/schemas/GlIncomeStatement'
   /finance/reports/cash-flow:
     get:
-      summary: Cash flow statement
+      summary: Cash flow statement (direct method with simplified indirect reconciliation)
       parameters:
         - in: query
           name: start_date
@@ -2916,6 +2916,7 @@ components:
           type: string
     GlIndirectCashFlow:
       type: object
+      description: Simplified indirect reconciliation; difference exposes classification or mapping gaps and is not posted as an adjustment.
       properties:
         net_profit:
           type: string

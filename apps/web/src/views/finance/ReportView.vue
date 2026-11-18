@@ -233,11 +233,14 @@
             </div>
 
             <div class="cash-section">
-              <h3>间接法</h3>
+              <h3>间接法调节表（简化）</h3>
               <el-table :data="indirectRows" border>
                 <el-table-column prop="name" label="项目" min-width="280" />
                 <el-table-column prop="amount" label="金额" width="150" align="right" />
               </el-table>
+              <div class="hint-text">
+                简化调节表，差额用于提示分类或映射缺口，不自动生成调整分录。
+              </div>
               <div v-if="hasIndirectDifference" class="warning-text">
                 间接法与直接法经营活动现金流量净额差额：{{ cashFlow.indirect?.difference }}
               </div>
@@ -535,5 +538,11 @@ onMounted(async () => {
   margin-top: 12px;
   color: #b45309;
   font-weight: 600;
+}
+
+.hint-text {
+  margin-top: 8px;
+  color: #64748b;
+  font-size: 13px;
 }
 </style>
