@@ -270,6 +270,9 @@ pnpm test:api:stage3e
 # Stage 3F API integration test (multi-currency, FX settlement and revaluation)
 pnpm test:api:stage3f
 
+# Stage 3G API integration test (cash flow statement)
+pnpm test:api:stage3g
+
 # Docker
 docker build -f deploy/docker/api.Dockerfile -t mlf-erp/api:dev .
 docker build -f deploy/docker/worker.Dockerfile -t mlf-erp/worker:dev .

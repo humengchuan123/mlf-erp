@@ -23,6 +23,7 @@
     "test:api:stage3d": "powershell -ExecutionPolicy Bypass -File ./scripts/test/stage3d-api.ps1",
     "test:api:stage3e": "powershell -ExecutionPolicy Bypass -File ./scripts/test/stage3e-api.ps1",
     "test:api:stage3f": "powershell -ExecutionPolicy Bypass -File ./scripts/test/stage3f-api.ps1",
+    "test:api:stage3g": "powershell -ExecutionPolicy Bypass -File ./scripts/test/stage3g-api.ps1",
     "test:frontend": "node ./scripts/test/check-frontend.mjs",
     "vet:go": "go vet ./...",
     "fmt:go": "gofmt -w ./cmd ./internal ./db",
