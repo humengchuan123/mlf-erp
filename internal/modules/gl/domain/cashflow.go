@@ -23,6 +23,16 @@ type CashFlowItemDef struct {
 	Direction string
 }
 
+// CashFlowContext captures the non-cash counterpart accounts of a voucher so
+// VAT accounts can follow the business transaction they belong to.
+type CashFlowContext struct {
+	HasRevenueCredit            bool
+	HasAccountsReceivableCredit bool
+	HasOperatingCostDebit       bool
+	HasFixedAssetCredit         bool
+	HasFixedAssetDebit          bool
+}
+
 var cashFlowItems = []CashFlowItemDef{
 	{Code: "sales_receipts", Name: "销售商品、提供劳务收到的现金", Category: CashFlowOperating, Direction: CashFlowInflow},
 	{Code: "tax_refunds", Name: "收到的税费返还", Category: CashFlowOperating, Direction: CashFlowInflow},
@@ -207,7 +217,12 @@ func CashFlowAccountRoot(code string) string {
 	return string(digits)
 }
 
+// ClassifyCashFlow classifies an account without voucher context.
 func ClassifyCashFlow(accountCode string, inflow bool) (CashFlowItemDef, bool) {
+	return ClassifyCashFlowWithContext(accountCode, inflow, CashFlowContext{})
+}
+
+func ClassifyCashFlowWithContext(accountCode string, inflow bool, ctx CashFlowContext) (CashFlowItemDef, bool) {
 	code := CashFlowAccountRoot(accountCode)
 	fallback := "other_operating_inflows"
 	if !inflow {
@@ -236,7 +251,13 @@ func ClassifyCashFlow(accountCode string, inflow bool) (CashFlowItemDef, bool) {
 		return mustCashFlowItem("employee_payments"), true
 	case strings.HasPrefix(code, "2221"):
 		if inflow {
+			if ctx.HasRevenueCredit || ctx.HasAccountsReceivableCredit {
+				return mustCashFlowItem("sales_receipts"), true
+			}
 			return mustCashFlowItem("tax_refunds"), true
+		}
+		if ctx.HasOperatingCostDebit {
+			return mustCashFlowItem("purchase_payments"), true
 		}
 		return mustCashFlowItem("tax_payments"), true
 	case code == "1501" || code == "1511":
@@ -244,7 +265,7 @@ func ClassifyCashFlow(accountCode string, inflow bool) (CashFlowItemDef, bool) {
 			return mustCashFlowItem("other_investing_inflows"), true
 		}
 		return mustCashFlowItem("investment_payments"), true
-	case strings.HasPrefix(code, "16") || strings.HasPrefix(code, "17"):
+	case isFixedAssetAccount(code):
 		if inflow {
 			return mustCashFlowItem("disposal_asset_receipts"), true
 		}
@@ -269,15 +290,39 @@ func ClassifyCashFlow(accountCode string, inflow bool) (CashFlowItemDef, bool) {
 			return mustCashFlowItem("sales_receipts"), true
 		}
 		return mustCashFlowItem("other_operating_outflows"), true
+	case strings.HasPrefix(code, "6603"):
+		// Financial expense inflows are rare; keep them in operating inflows
+		// instead of treating refunds or corrections as financing activity.
+		if inflow {
+			return mustCashFlowItem("other_operating_inflows"), true
+		}
+		return mustCashFlowItem("dividend_interest_payments"), true
+	case strings.HasPrefix(code, "6801"):
+		if inflow {
+			return mustCashFlowItem("tax_refunds"), true
+		}
+		return mustCashFlowItem("tax_payments"), true
 	case strings.HasPrefix(code, "6401") || strings.HasPrefix(code, "6601") ||
-		strings.HasPrefix(code, "6602") || strings.HasPrefix(code, "6603") ||
-		strings.HasPrefix(code, "6801"):
+		strings.HasPrefix(code, "6602"):
 		if inflow {
 			return mustCashFlowItem("other_operating_inflows"), true
 		}
 		return mustCashFlowItem("other_operating_outflows"), true
 	default:
 		return mustCashFlowItem(fallback), false
+	}
+}
+
+func isFixedAssetAccount(root string) bool {
+	return strings.HasPrefix(root, "16") || strings.HasPrefix(root, "17")
+}
+
+func isOperatingCostAccount(root string) bool {
+	switch root {
+	case "1405", "6401", "6601", "6602", "6603", "6801":
+		return true
+	default:
+		return false
 	}
 }
 
@@ -295,8 +340,10 @@ func AllocateCashFlow(voucher CashFlowVoucher, cashCodes map[string]bool) []Cash
 	debitTotal := decimal.Zero
 	credits := make([]CashFlowVoucherLine, 0)
 	debits := make([]CashFlowVoucherLine, 0)
+	ctx := CashFlowContext{}
 	for _, line := range voucher.Lines {
-		if cashCodes[line.AccountCode] || cashRoots[CashFlowAccountRoot(line.AccountCode)] {
+		root := CashFlowAccountRoot(line.AccountCode)
+		if cashCodes[line.AccountCode] || cashRoots[root] {
 			cashIn = cashIn.Add(line.Debit)
 			cashOut = cashOut.Add(line.Credit)
 			continue
@@ -304,10 +351,24 @@ func AllocateCashFlow(voucher CashFlowVoucher, cashCodes map[string]bool) []Cash
 		if line.Credit.IsPositive() {
 			credits = append(credits, line)
 			creditTotal = creditTotal.Add(line.Credit)
+			switch {
+			case root == "6001" || root == "6051":
+				ctx.HasRevenueCredit = true
+			case root == "1122":
+				ctx.HasAccountsReceivableCredit = true
+			case isFixedAssetAccount(root):
+				ctx.HasFixedAssetCredit = true
+			}
 		}
 		if line.Debit.IsPositive() {
 			debits = append(debits, line)
 			debitTotal = debitTotal.Add(line.Debit)
+			switch {
+			case isOperatingCostAccount(root):
+				ctx.HasOperatingCostDebit = true
+			case isFixedAssetAccount(root):
+				ctx.HasFixedAssetDebit = true
+			}
 		}
 	}
 
@@ -321,10 +382,10 @@ func AllocateCashFlow(voucher CashFlowVoucher, cashCodes map[string]bool) []Cash
 
 	allocations := make([]CashFlowAllocation, 0)
 	if businessIn.IsPositive() {
-		allocations = append(allocations, allocateCashFlowSide(voucher, businessIn, credits, true)...)
+		allocations = append(allocations, allocateCashFlowSide(voucher, businessIn, credits, true, ctx)...)
 	}
 	if businessOut.IsPositive() {
-		allocations = append(allocations, allocateCashFlowSide(voucher, businessOut, debits, false)...)
+		allocations = append(allocations, allocateCashFlowSide(voucher, businessOut, debits, false, ctx)...)
 	}
 	if unmatchedIn.IsPositive() {
 		allocations = append(allocations, unclassifiedCashFlowAllocation(voucher, "other_operating_inflows", unmatchedIn))
@@ -335,7 +396,14 @@ func AllocateCashFlow(voucher CashFlowVoucher, cashCodes map[string]bool) []Cash
 	return allocations
 }
 
-func allocateCashFlowSide(voucher CashFlowVoucher, amount decimal.Decimal, counterparts []CashFlowVoucherLine, inflow bool) []CashFlowAllocation {
+func allocateCashFlowSide(voucher CashFlowVoucher, amount decimal.Decimal, counterparts []CashFlowVoucherLine, inflow bool, ctx CashFlowContext) []CashFlowAllocation {
+	if inflow && ctx.HasFixedAssetCredit {
+		return []CashFlowAllocation{classifiedCashFlowAllocation(voucher, "disposal_asset_receipts", amount)}
+	}
+	if !inflow && ctx.HasFixedAssetDebit {
+		return []CashFlowAllocation{classifiedCashFlowAllocation(voucher, "asset_purchases", amount)}
+	}
+
 	total := decimal.Zero
 	for _, line := range counterparts {
 		weight := line.Credit
@@ -360,7 +428,7 @@ func allocateCashFlowSide(voucher CashFlowVoucher, amount decimal.Decimal, count
 			allocated = remaining.Round(4)
 		}
 		remaining = remaining.Sub(allocated)
-		item, classified := ClassifyCashFlow(line.AccountCode, inflow)
+		item, classified := ClassifyCashFlowWithContext(line.AccountCode, inflow, ctx)
 		reason := ""
 		if !classified {
 			reason = "未识别科目 " + strings.TrimSpace(line.AccountCode)
@@ -372,6 +440,15 @@ func allocateCashFlowSide(voucher CashFlowVoucher, amount decimal.Decimal, count
 		})
 	}
 	return allocations
+}
+
+func classifiedCashFlowAllocation(voucher CashFlowVoucher, itemCode string, amount decimal.Decimal) CashFlowAllocation {
+	item := mustCashFlowItem(itemCode)
+	return CashFlowAllocation{
+		VoucherID: voucher.VoucherID, VoucherCode: voucher.VoucherCode, VoucherDate: voucher.VoucherDate,
+		ItemCode: item.Code, Category: item.Category, Direction: item.Direction,
+		Amount: amount.Round(4),
+	}
 }
 
 func unclassifiedCashFlowAllocation(voucher CashFlowVoucher, itemCode string, amount decimal.Decimal) CashFlowAllocation {

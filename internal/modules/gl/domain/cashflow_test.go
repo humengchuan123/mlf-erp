@@ -145,9 +145,9 @@ func TestClassifyCashFlow(t *testing.T) {
 		{"6602 inflow", "6602", true, "other_operating_inflows", CashFlowOperating, CashFlowInflow, true},
 		{"6602 outflow", "6602", false, "other_operating_outflows", CashFlowOperating, CashFlowOutflow, true},
 		{"6603 inflow", "6603", true, "other_operating_inflows", CashFlowOperating, CashFlowInflow, true},
-		{"6603 outflow", "6603", false, "other_operating_outflows", CashFlowOperating, CashFlowOutflow, true},
-		{"6801 inflow", "6801", true, "other_operating_inflows", CashFlowOperating, CashFlowInflow, true},
-		{"6801 outflow", "6801", false, "other_operating_outflows", CashFlowOperating, CashFlowOutflow, true},
+		{"6603 outflow", "6603", false, "dividend_interest_payments", CashFlowFinancing, CashFlowOutflow, true},
+		{"6801 inflow", "6801", true, "tax_refunds", CashFlowOperating, CashFlowInflow, true},
+		{"6801 outflow", "6801", false, "tax_payments", CashFlowOperating, CashFlowOutflow, true},
 		{"1601 inflow", "1601", true, "disposal_asset_receipts", CashFlowInvesting, CashFlowInflow, true},
 		{"1601 outflow", "1601", false, "asset_purchases", CashFlowInvesting, CashFlowOutflow, true},
 		{"1701 inflow", "1701", true, "disposal_asset_receipts", CashFlowInvesting, CashFlowInflow, true},
@@ -190,6 +190,177 @@ func TestClassifyCashFlow(t *testing.T) {
 			}
 			if classified != tt.wantClassified {
 				t.Fatalf("classified = %v, want %v", classified, tt.wantClassified)
+			}
+		})
+	}
+}
+
+func TestClassifyCashFlowWithContext(t *testing.T) {
+	tests := []struct {
+		name           string
+		code           string
+		inflow         bool
+		ctx            CashFlowContext
+		wantCode       string
+		wantCategory   string
+		wantDirection  string
+		wantClassified bool
+	}{
+		{"VAT inflow from cash sale", "222101", true, CashFlowContext{HasRevenueCredit: true}, "sales_receipts", CashFlowOperating, CashFlowInflow, true},
+		{"VAT inflow from receivable collection", "222101", true, CashFlowContext{HasAccountsReceivableCredit: true}, "sales_receipts", CashFlowOperating, CashFlowInflow, true},
+		{"VAT inflow without business context", "222101", true, CashFlowContext{}, "tax_refunds", CashFlowOperating, CashFlowInflow, true},
+		{"VAT outflow from cash purchase", "222101", false, CashFlowContext{HasOperatingCostDebit: true}, "purchase_payments", CashFlowOperating, CashFlowOutflow, true},
+		{"VAT outflow without business context", "222101", false, CashFlowContext{}, "tax_payments", CashFlowOperating, CashFlowOutflow, true},
+		{"financial expense outflow", "6603", false, CashFlowContext{}, "dividend_interest_payments", CashFlowFinancing, CashFlowOutflow, true},
+		{"financial expense inflow", "6603", true, CashFlowContext{}, "other_operating_inflows", CashFlowOperating, CashFlowInflow, true},
+		{"income tax expense outflow", "6801", false, CashFlowContext{}, "tax_payments", CashFlowOperating, CashFlowOutflow, true},
+		{"income tax expense inflow", "6801", true, CashFlowContext{}, "tax_refunds", CashFlowOperating, CashFlowInflow, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			item, classified := ClassifyCashFlowWithContext(tt.code, tt.inflow, tt.ctx)
+			if item.Code != tt.wantCode {
+				t.Fatalf("item code = %s, want %s", item.Code, tt.wantCode)
+			}
+			if item.Category != tt.wantCategory {
+				t.Fatalf("category = %s, want %s", item.Category, tt.wantCategory)
+			}
+			if item.Direction != tt.wantDirection {
+				t.Fatalf("direction = %s, want %s", item.Direction, tt.wantDirection)
+			}
+			if classified != tt.wantClassified {
+				t.Fatalf("classified = %v, want %v", classified, tt.wantClassified)
+			}
+		})
+	}
+}
+
+func TestAllocateCashFlowCommonVoucherScenarios(t *testing.T) {
+	tests := []struct {
+		name           string
+		lines          []CashFlowVoucherLine
+		wantDirection  string
+		wantItems      map[string]string
+		forbiddenItems []string
+	}{
+		{
+			name: "cash sale with output VAT",
+			lines: []CashFlowVoucherLine{
+				{AccountCode: "1002", Debit: decimal.NewFromInt(113)},
+				{AccountCode: "6001", Credit: decimal.NewFromInt(100)},
+				{AccountCode: "222101", Credit: decimal.NewFromInt(13)},
+			},
+			wantDirection:  CashFlowInflow,
+			wantItems:      map[string]string{"sales_receipts": "113"},
+			forbiddenItems: []string{"tax_refunds"},
+		},
+		{
+			name: "cash purchase with input VAT",
+			lines: []CashFlowVoucherLine{
+				{AccountCode: "1405", Debit: decimal.NewFromInt(100)},
+				{AccountCode: "222101", Debit: decimal.NewFromInt(13)},
+				{AccountCode: "1002", Credit: decimal.NewFromInt(113)},
+			},
+			wantDirection:  CashFlowOutflow,
+			wantItems:      map[string]string{"purchase_payments": "113"},
+			forbiddenItems: []string{"tax_payments"},
+		},
+		{
+			name: "tax payment",
+			lines: []CashFlowVoucherLine{
+				{AccountCode: "222101", Debit: decimal.NewFromInt(10)},
+				{AccountCode: "1002", Credit: decimal.NewFromInt(10)},
+			},
+			wantDirection: CashFlowOutflow,
+			wantItems:     map[string]string{"tax_payments": "10"},
+		},
+		{
+			name: "tax refund",
+			lines: []CashFlowVoucherLine{
+				{AccountCode: "1002", Debit: decimal.NewFromInt(10)},
+				{AccountCode: "222101", Credit: decimal.NewFromInt(10)},
+			},
+			wantDirection: CashFlowInflow,
+			wantItems:     map[string]string{"tax_refunds": "10"},
+		},
+		{
+			name: "financial expense payment",
+			lines: []CashFlowVoucherLine{
+				{AccountCode: "6603", Debit: decimal.NewFromInt(5)},
+				{AccountCode: "1002", Credit: decimal.NewFromInt(5)},
+			},
+			wantDirection:  CashFlowOutflow,
+			wantItems:      map[string]string{"dividend_interest_payments": "5"},
+			forbiddenItems: []string{"other_operating_outflows"},
+		},
+		{
+			name: "income tax expense paid directly",
+			lines: []CashFlowVoucherLine{
+				{AccountCode: "6801", Debit: decimal.NewFromInt(5)},
+				{AccountCode: "1002", Credit: decimal.NewFromInt(5)},
+			},
+			wantDirection:  CashFlowOutflow,
+			wantItems:      map[string]string{"tax_payments": "5"},
+			forbiddenItems: []string{"other_operating_outflows"},
+		},
+		{
+			name: "fixed asset disposal with gain",
+			lines: []CashFlowVoucherLine{
+				{AccountCode: "1002", Debit: decimal.NewFromInt(100)},
+				{AccountCode: "1602", Debit: decimal.NewFromInt(80)},
+				{AccountCode: "1601", Credit: decimal.NewFromInt(160)},
+				{AccountCode: "6301", Credit: decimal.NewFromInt(20)},
+			},
+			wantDirection:  CashFlowInflow,
+			wantItems:      map[string]string{"disposal_asset_receipts": "100"},
+			forbiddenItems: []string{"other_operating_inflows"},
+		},
+		{
+			name: "fixed asset purchase with input VAT",
+			lines: []CashFlowVoucherLine{
+				{AccountCode: "1601", Debit: decimal.NewFromInt(100)},
+				{AccountCode: "222101", Debit: decimal.NewFromInt(13)},
+				{AccountCode: "1002", Credit: decimal.NewFromInt(113)},
+			},
+			wantDirection:  CashFlowOutflow,
+			wantItems:      map[string]string{"asset_purchases": "113"},
+			forbiddenItems: []string{"tax_payments"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			voucher := CashFlowVoucher{
+				VoucherID: "v-common", VoucherCode: "GL-COMMON", VoucherDate: cashFlowTestDate,
+				Lines: tt.lines,
+			}
+			allocations := AllocateCashFlow(voucher, map[string]bool{"1001": true, "1002": true})
+			if len(allocations) == 0 {
+				t.Fatal("allocations = 0, want at least 1")
+			}
+			got := make(map[string]decimal.Decimal, len(allocations))
+			for _, allocation := range allocations {
+				assertCashFlowAllocationSource(t, allocation, voucher)
+				if allocation.Direction != tt.wantDirection {
+					t.Fatalf("item %s direction = %s, want %s", allocation.ItemCode, allocation.Direction, tt.wantDirection)
+				}
+				got[allocation.ItemCode] = got[allocation.ItemCode].Add(allocation.Amount)
+			}
+			if len(got) != len(tt.wantItems) {
+				t.Fatalf("allocated items = %v, want %v", got, tt.wantItems)
+			}
+			for itemCode, wantAmount := range tt.wantItems {
+				amount, ok := got[itemCode]
+				if !ok {
+					t.Fatalf("missing item %s, got %v", itemCode, got)
+				}
+				if !amount.Equal(decimal.RequireFromString(wantAmount)) {
+					t.Fatalf("item %s amount = %s, want %s", itemCode, amount, wantAmount)
+				}
+			}
+			for _, forbidden := range tt.forbiddenItems {
+				if _, ok := got[forbidden]; ok {
+					t.Fatalf("unexpected item %s in %v", forbidden, got)
+				}
 			}
 		})
 	}
@@ -412,7 +583,7 @@ func TestAllocateCashFlowMixedTransferAndBusiness(t *testing.T) {
 				{AccountCode: "6603", Debit: decimal.NewFromInt(5)},
 				{AccountCode: "1002", Credit: decimal.NewFromInt(5)},
 			},
-			wantItem:      "other_operating_outflows",
+			wantItem:      "dividend_interest_payments",
 			wantDirection: CashFlowOutflow,
 			wantAmount:    "5",
 		},
