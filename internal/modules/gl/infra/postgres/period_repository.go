@@ -673,12 +673,12 @@ func revalueForeignInvoicesTx(
 ) error {
 	rows, err := tx.Query(ctx, `
 		SELECT i.id::text, i.invoice_type, i.partner_id::text, i.currency,
-		       i.total_amount::text, i.paid_amount::text, i.exchange_rate::text,
-		       i.base_total_amount::text, i.base_paid_amount::text
+		       i.total_amount::text, i.paid_amount::text, i.credited_amount::text, i.exchange_rate::text,
+		       i.base_total_amount::text, i.base_paid_amount::text, i.base_credited_amount::text
 		FROM erp.finance_invoices i
 		WHERE i.tenant_id = $1
 		  AND i.currency <> 'CNY'
-		  AND i.total_amount > i.paid_amount
+		  AND i.total_amount > i.paid_amount + i.credited_amount
 		  AND i.invoice_date <= $2::date
 		FOR UPDATE OF i`,
 		tenantID, period.EndDate.Format("2006-01-02"),
@@ -688,26 +688,28 @@ func revalueForeignInvoicesTx(
 	}
 
 	type invoiceRow struct {
-		id, invoiceType, partnerID, currency string
-		foreign, rate, baseTotal, basePaid   decimal.Decimal
+		id, invoiceType, partnerID, currency             string
+		foreign, rate, baseTotal, basePaid, baseCredited decimal.Decimal
 	}
 	invoices := make([]invoiceRow, 0)
 	for rows.Next() {
 		var item invoiceRow
-		var totalRaw, paidRaw, rateRaw, baseTotalRaw, basePaidRaw string
+		var totalRaw, paidRaw, creditedRaw, rateRaw, baseTotalRaw, basePaidRaw, baseCreditedRaw string
 		if err := rows.Scan(
 			&item.id, &item.invoiceType, &item.partnerID, &item.currency,
-			&totalRaw, &paidRaw, &rateRaw, &baseTotalRaw, &basePaidRaw,
+			&totalRaw, &paidRaw, &creditedRaw, &rateRaw, &baseTotalRaw, &basePaidRaw, &baseCreditedRaw,
 		); err != nil {
 			rows.Close()
 			return fmt.Errorf("scan foreign invoice: %w", err)
 		}
 		total := decimal.RequireFromString(totalRaw)
 		paid := decimal.RequireFromString(paidRaw)
-		item.foreign = total.Sub(paid).Round(4)
+		credited := decimal.RequireFromString(creditedRaw)
+		item.foreign = total.Sub(paid).Sub(credited).Round(4)
 		item.rate = decimal.RequireFromString(rateRaw)
 		item.baseTotal = decimal.RequireFromString(baseTotalRaw)
 		item.basePaid = decimal.RequireFromString(basePaidRaw)
+		item.baseCredited = decimal.RequireFromString(baseCreditedRaw)
 		invoices = append(invoices, item)
 	}
 	if err := rows.Err(); err != nil {
@@ -748,9 +750,9 @@ func revalueForeignInvoicesTx(
 		target := invoice.foreign.Mul(closingRate).Round(4)
 		// The prior period's revaluation was already reversed in this period,
 		// so the carrying amount before this close is the invoice-rate base
-		// less base-currency payments. base_revalued_amount is replaced, not
-		// accumulated, with this period's adjustment.
-		book := invoice.baseTotal.Sub(invoice.basePaid).Round(4)
+		// less base-currency payments and credits. base_revalued_amount is
+		// replaced, not accumulated, with this period's adjustment.
+		book := invoice.baseTotal.Sub(invoice.basePaid).Sub(invoice.baseCredited).Round(4)
 		adjustment := target.Sub(book).Round(4)
 		if adjustment.IsZero() {
 			zeroIDs = append(zeroIDs, invoice.id)

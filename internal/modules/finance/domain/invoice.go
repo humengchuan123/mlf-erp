@@ -48,8 +48,10 @@ type Invoice struct {
 	BaseTaxAmount      decimal.Decimal
 	BaseTotalAmount    decimal.Decimal
 	BasePaidAmount     decimal.Decimal
+	BaseCreditedAmount decimal.Decimal
 	BaseRevaluedAmount decimal.Decimal
 	PaidAmount         decimal.Decimal
+	CreditedAmount     decimal.Decimal
 	VatInvoiceNo       string
 	VatInvoiceType     string
 	VatInvoiceDate     *time.Time
@@ -64,7 +66,18 @@ type Invoice struct {
 }
 
 func (i *Invoice) Outstanding() decimal.Decimal {
-	return i.TotalAmount.Sub(i.PaidAmount)
+	return i.TotalAmount.Sub(i.PaidAmount).Sub(i.CreditedAmount).Round(4)
+}
+
+func (i *Invoice) StatusAfterSettlement() string {
+	settled := i.PaidAmount.Add(i.CreditedAmount)
+	if settled.GreaterThanOrEqual(i.TotalAmount) {
+		return InvoiceStatusPaid
+	}
+	if settled.IsPositive() {
+		return InvoiceStatusPartiallyPaid
+	}
+	return InvoiceStatusOpen
 }
 
 type IssueInput struct {

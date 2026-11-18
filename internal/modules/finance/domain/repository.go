@@ -16,6 +16,11 @@ type InvoiceRepository interface {
 	Void(ctx context.Context, filter scope.Filter, tenantID, id, userID string) (*Invoice, error)
 }
 
+type CreditNoteRepository interface {
+	List(ctx context.Context, filter scope.Filter, tenantID, status, partnerID, keyword string, offset, limit int) ([]*CreditNote, int, error)
+	Get(ctx context.Context, filter scope.Filter, tenantID, id string) (*CreditNote, error)
+}
+
 type PaymentRepository interface {
 	Create(ctx context.Context, payment *Payment) error
 	Get(ctx context.Context, filter scope.Filter, tenantID, id string) (*Payment, error)

@@ -213,6 +213,7 @@ func (r *PaymentRepository) Allocate(
 		status      string
 		total       decimal.Decimal
 		paid        decimal.Decimal
+		credited    decimal.Decimal
 		rate        decimal.Decimal
 		basePaid    decimal.Decimal
 	}
@@ -226,16 +227,16 @@ func (r *PaymentRepository) Allocate(
 		appendScope(&invoiceWhere, &invoiceArgs, "i", filter)
 
 		var invoiceType, invoicePartnerID, invoiceCurrency, invoiceStatus, invoiceTotalRaw, invoicePaidRaw string
-		var invoiceRateRaw, basePaidRaw string
+		var invoiceRateRaw, basePaidRaw, invoiceCreditedRaw string
 		err = tx.QueryRow(ctx, `
 			SELECT i.invoice_type, i.partner_id::text, i.currency, i.status,
 			       i.total_amount::text, i.paid_amount::text, i.exchange_rate::text,
-			       i.base_paid_amount::text
+			       i.base_paid_amount::text, i.credited_amount::text
 			FROM erp.finance_invoices i
 			WHERE `+invoiceWhere+`
 			FOR UPDATE OF i`, invoiceArgs...).Scan(
 			&invoiceType, &invoicePartnerID, &invoiceCurrency, &invoiceStatus,
-			&invoiceTotalRaw, &invoicePaidRaw, &invoiceRateRaw, &basePaidRaw,
+			&invoiceTotalRaw, &invoicePaidRaw, &invoiceRateRaw, &basePaidRaw, &invoiceCreditedRaw,
 		)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return domain.ErrNotFound
@@ -268,16 +269,18 @@ func (r *PaymentRepository) Allocate(
 
 		invoiceTotal := decimal.RequireFromString(invoiceTotalRaw)
 		invoicePaid := decimal.RequireFromString(invoicePaidRaw)
+		invoiceCredited := decimal.RequireFromString(invoiceCreditedRaw)
 		invoiceRate := decimal.RequireFromString(invoiceRateRaw)
 		basePaid := decimal.RequireFromString(basePaidRaw)
-		outstanding := invoiceTotal.Sub(invoicePaid)
+		outstanding := invoiceTotal.Sub(invoicePaid).Sub(invoiceCredited)
 		if allocationAmount.GreaterThan(outstanding) {
 			return domain.ErrOverAllocate
 		}
 
 		locked[invoiceID] = lockedInvoice{
 			id: invoiceID, invoiceType: invoiceType, status: invoiceStatus,
-			total: invoiceTotal, paid: invoicePaid, rate: invoiceRate, basePaid: basePaid,
+			total: invoiceTotal, paid: invoicePaid, credited: invoiceCredited,
+			rate: invoiceRate, basePaid: basePaid,
 		}
 		total = total.Add(allocationAmount)
 	}
@@ -292,7 +295,7 @@ func (r *PaymentRepository) Allocate(
 		newPaid := invoice.paid.Add(allocationAmount)
 		newBasePaid := invoice.basePaid.Add(allocationAmount.Mul(invoice.rate).Round(4))
 		newStatus := domain.InvoiceStatusPartiallyPaid
-		if newPaid.Equal(invoice.total) {
+		if newPaid.Add(invoice.credited).GreaterThanOrEqual(invoice.total) {
 			newStatus = domain.InvoiceStatusPaid
 		}
 
@@ -301,7 +304,7 @@ func (r *PaymentRepository) Allocate(
 			SET paid_amount = $3, base_paid_amount = $4, status = $5,
 			    base_revalued_amount = CASE WHEN $5 = 'paid' THEN 0 ELSE base_revalued_amount END,
 			    updated_by = $6, updated_at = now()
-			WHERE tenant_id = $1 AND id = $2 AND paid_amount + $7 <= total_amount`,
+			WHERE tenant_id = $1 AND id = $2 AND paid_amount + credited_amount + $7 <= total_amount`,
 			tenantID, invoiceID, newPaid.String(), newBasePaid.String(), newStatus, userID, allocationAmount.String(),
 		)
 		if updateErr != nil {
