@@ -3,6 +3,7 @@
 package api_test
 
 import (
+	"fmt"
 	"net/http"
 	"testing"
 	"time"
@@ -491,6 +492,167 @@ func TestStage3H(t *testing.T) {
 		}
 	})
 
+	t.Run("zero value return posts inventory only", func(t *testing.T) {
+		_, shipmentID, shipmentLineID, invoiceID, lineCost := createShippedOrder(
+			t, admin, customerID, warehouseID, materialID, vat0ID,
+			"1", "0.00", true, "stage3h-zero-value-return",
+		)
+		invoice := admin.mustGet("/finance/invoices/"+invoiceID, http.StatusOK)
+		if got := text(invoice, "total_amount"); got != "0.0000" {
+			t.Fatalf("zero value invoice total = %s, want 0.0000", got)
+		}
+		if got := text(invoice, "status"); got != "paid" {
+			t.Fatalf("zero value invoice status = %s, want paid", got)
+		}
+		baseline := inventoryBalance(t, admin, warehouseID, materialID)
+		baselineOnHand := number(t, baseline, "on_hand")
+
+		item := postReturn(t, admin, shipmentID, shipmentLineID, "1", today, "stage3h-zero-value-return-post")
+		if got := text(item, "net_amount"); got != "0.0000" {
+			t.Fatalf("zero value return net = %s, want 0.0000", got)
+		}
+		if got := text(item, "tax_amount"); got != "0.0000" {
+			t.Fatalf("zero value return tax = %s, want 0.0000", got)
+		}
+		if got := text(item, "total_amount"); got != "0.0000" {
+			t.Fatalf("zero value return total = %s, want 0.0000", got)
+		}
+		if got := text(item, "credit_note_id"); got != "" {
+			t.Fatalf("zero value return credit_note_id = %s, want empty", got)
+		}
+		if got := text(item, "credit_note_code"); got != "" {
+			t.Fatalf("zero value return credit_note_code = %s, want empty", got)
+		}
+
+		after := inventoryBalance(t, admin, warehouseID, materialID)
+		if got := number(t, after, "on_hand"); !nearlyEqual(got, baselineOnHand+1) {
+			t.Fatalf("on_hand after zero value return = %v, want %v", got, baselineOnHand+1)
+		}
+		if lineCost > 0 {
+			if got := text(item, "voucher_code"); got == "" {
+				t.Fatal("zero value return voucher_code is empty with positive cost")
+			}
+			voucherLines := returnVoucherLines(t, admin, text(item, "id"), text(item, "code"))
+			if len(voucherLines) != 2 {
+				t.Fatalf("zero value return voucher lines = %d, want 2", len(voucherLines))
+			}
+			assertVoucherBalanced(t, voucherLines)
+			if got := number(t, findLineByAccount(t, voucherLines, "1405"), "debit"); !nearlyEqual(got, lineCost) {
+				t.Fatalf("zero value return inventory debit = %v, want %v", got, lineCost)
+			}
+			if got := number(t, findLineByAccount(t, voucherLines, "6401"), "credit"); !nearlyEqual(got, lineCost) {
+				t.Fatalf("zero value return COGS credit = %v, want %v", got, lineCost)
+			}
+			for _, raw := range voucherLines {
+				code := text(raw.(map[string]any), "account_code")
+				if code == "6001" || code == "1122" || code == "222102" {
+					t.Fatalf("zero value return voucher unexpectedly contains account %s", code)
+				}
+			}
+		} else {
+			if got := text(item, "voucher_code"); got != "" {
+				t.Fatalf("zero cost return voucher_code = %s, want empty", got)
+			}
+			if voucher := findVoucherBySource(admin, text(item, "code")); voucher != nil {
+				t.Fatalf("zero cost return should not post a voucher: %v", voucher)
+			}
+		}
+
+		invoice = admin.mustGet("/finance/invoices/"+invoiceID, http.StatusOK)
+		if got := text(invoice, "credited_amount"); got != "0.0000" {
+			t.Fatalf("zero value invoice credited = %s, want 0.0000", got)
+		}
+		if got := text(invoice, "outstanding_amount"); got != "0.0000" {
+			t.Fatalf("zero value invoice outstanding = %s, want 0.0000", got)
+		}
+		if got := text(invoice, "status"); got != "paid" {
+			t.Fatalf("zero value invoice status after return = %s, want paid", got)
+		}
+
+		shipmentLine := shipmentLineByID(t, admin, text(item, "order_id"), shipmentID, shipmentLineID)
+		if got := number(t, shipmentLine, "returned_qty"); !nearlyEqual(got, 1) {
+			t.Fatalf("zero value shipment returned_qty = %v, want 1", got)
+		}
+	})
+
+	t.Run("payment allocation respects credited amount", func(t *testing.T) {
+		_, shipmentID, shipmentLineID, invoiceID, _ := createShippedOrder(
+			t, admin, customerID, warehouseID, materialID, vat0ID,
+			"2", "100.00", true, "stage3h-credit-payment",
+		)
+		item := postReturn(t, admin, shipmentID, shipmentLineID, "1", today, "stage3h-credit-payment-return")
+		if got := text(item, "total_amount"); got != "100.0000" {
+			t.Fatalf("credit payment return total = %s, want 100.0000", got)
+		}
+
+		invoice := admin.mustGet("/finance/invoices/"+invoiceID, http.StatusOK)
+		if got := text(invoice, "total_amount"); got != "200.0000" {
+			t.Fatalf("credit payment invoice total = %s, want 200.0000", got)
+		}
+		if got := text(invoice, "credited_amount"); got != "100.0000" {
+			t.Fatalf("credit payment invoice credited = %s, want 100.0000", got)
+		}
+		if got := text(invoice, "outstanding_amount"); got != "100.0000" {
+			t.Fatalf("credit payment invoice outstanding = %s, want 100.0000", got)
+		}
+		if got := text(invoice, "status"); got != "partially_paid" {
+			t.Fatalf("credit payment invoice status = %s, want partially_paid", got)
+		}
+
+		overPayment := admin.mustPost("/finance/payments", map[string]any{
+			"payment_type": "receipt",
+			"partner_id":   customerID,
+			"payment_date": today,
+			"currency":     "CNY",
+			"amount":       "101.00",
+			"method":       "bank",
+			"reference":    "stage3h-credit-payment-over",
+		}, http.StatusCreated)
+		admin.expectError(http.MethodPost, "/finance/payments/"+text(overPayment, "id")+"/allocate", map[string]any{
+			"allocations": []map[string]any{
+				{"invoice_id": invoiceID, "amount": "101.00"},
+			},
+		}, http.StatusBadRequest, "OVER_ALLOCATE")
+
+		payment := admin.mustPost("/finance/payments", map[string]any{
+			"payment_type": "receipt",
+			"partner_id":   customerID,
+			"payment_date": today,
+			"currency":     "CNY",
+			"amount":       "100.00",
+			"method":       "bank",
+			"reference":    "stage3h-credit-payment",
+		}, http.StatusCreated)
+		admin.mustPost("/finance/payments/"+text(payment, "id")+"/allocate", map[string]any{
+			"allocations": []map[string]any{
+				{"invoice_id": invoiceID, "amount": "100.00"},
+			},
+		}, http.StatusOK)
+
+		invoice = admin.mustGet("/finance/invoices/"+invoiceID, http.StatusOK)
+		if got := text(invoice, "paid_amount"); got != "100.0000" {
+			t.Fatalf("credit payment invoice paid = %s, want 100.0000", got)
+		}
+		if got := text(invoice, "credited_amount"); got != "100.0000" {
+			t.Fatalf("credit payment invoice credited after payment = %s, want 100.0000", got)
+		}
+		if got := text(invoice, "outstanding_amount"); got != "0.0000" {
+			t.Fatalf("credit payment invoice outstanding after payment = %s, want 0.0000", got)
+		}
+		if got := text(invoice, "status"); got != "paid" {
+			t.Fatalf("credit payment invoice status after payment = %s, want paid", got)
+		}
+
+		status, payload := admin.request(http.MethodPost, "/finance/payments/"+text(overPayment, "id")+"/allocate", map[string]any{
+			"allocations": []map[string]any{
+				{"invoice_id": invoiceID, "amount": "1.00"},
+			},
+		}, admin.token)
+		if status != http.StatusBadRequest && status != http.StatusConflict {
+			t.Fatalf("allocate after credited payment status = %d, want 400 or 409, payload = %v", status, payload)
+		}
+	})
+
 	t.Run("permissions and validation", func(t *testing.T) {
 		unauthorized := newClient(t)
 		unauthorized.expectError(http.MethodGet, "/sales/returns", nil, http.StatusUnauthorized, "UNAUTHORIZED")
@@ -628,6 +790,128 @@ func TestStage3H(t *testing.T) {
 		}
 		if got := number(t, findLineByAccount(t, voucherLines, "1122"), "credit"); !nearlyEqual(got, 720) {
 			t.Fatalf("USD return AR credit = %v, want 720", got)
+		}
+	})
+
+	t.Run("fx revaluation uses remaining receivable after partial return", func(t *testing.T) {
+		year := cleanRevaluationYear(t, admin)
+		ensureTestYear(t, admin, year)
+		orderDate := fmt.Sprintf("%04d-01-15", year)
+		returnDate := fmt.Sprintf("%04d-01-20", year)
+		closeDate := fmt.Sprintf("%04d-01-31", year)
+
+		order := admin.mustPost("/sales/orders", map[string]any{
+			"customer_id":        customerID,
+			"warehouse_id":       warehouseID,
+			"order_date":         orderDate,
+			"currency":           "USD",
+			"exchange_rate":      "7.2",
+			"price_includes_tax": true,
+			"remark":             "stage3h-fx-revaluation-return",
+			"lines": []map[string]any{
+				{"material_id": materialID, "quantity": "2", "unit_price": "100.00", "tax_rate_id": vat0ID},
+			},
+		}, http.StatusCreated)
+		orderID := text(order, "id")
+		admin.mustPost("/sales/orders/"+orderID+"/submit", nil, http.StatusOK)
+		admin.mustPost("/sales/orders/"+orderID+"/approve", nil, http.StatusOK)
+		detail := admin.mustGet("/sales/orders/"+orderID, http.StatusOK)
+		lines, _ := detail["lines"].([]any)
+		if len(lines) != 1 {
+			t.Fatalf("FX revaluation order lines = %d, want 1", len(lines))
+		}
+		shipment := admin.mustPost("/sales/orders/"+orderID+"/ship", map[string]any{
+			"shipment_date": orderDate,
+			"exchange_rate": "7.2",
+			"remark":        "stage3h-fx-revaluation-return-ship",
+			"lines": []map[string]any{
+				{"order_line_id": text(lines[0].(map[string]any), "id"), "quantity": "2"},
+			},
+		}, http.StatusCreated)
+		shipmentID := text(shipment, "id")
+		shipmentLines, _ := shipment["lines"].([]any)
+		if len(shipmentLines) != 1 {
+			t.Fatalf("FX revaluation shipment lines = %d, want 1", len(shipmentLines))
+		}
+		shipmentLineID := text(shipmentLines[0].(map[string]any), "id")
+		invoiceID := text(shipment, "invoice_id")
+		invoice := admin.mustGet("/finance/invoices/"+invoiceID, http.StatusOK)
+		if got := text(invoice, "total_amount"); got != "200.0000" {
+			t.Fatalf("FX revaluation invoice total = %s, want 200.0000", got)
+		}
+		if got := text(invoice, "base_total_amount"); got != "1440.0000" {
+			t.Fatalf("FX revaluation invoice base total = %s, want 1440.0000", got)
+		}
+
+		item := postReturn(t, admin, shipmentID, shipmentLineID, "1", returnDate, "stage3h-fx-revaluation-return-post")
+		if got := text(item, "net_amount"); got != "100.0000" {
+			t.Fatalf("FX revaluation return net = %s, want 100.0000", got)
+		}
+		if got := text(item, "base_net_amount"); got != "720.0000" {
+			t.Fatalf("FX revaluation return base net = %s, want 720.0000", got)
+		}
+		invoice = admin.mustGet("/finance/invoices/"+invoiceID, http.StatusOK)
+		if got := text(invoice, "credited_amount"); got != "100.0000" {
+			t.Fatalf("FX revaluation invoice credited = %s, want 100.0000", got)
+		}
+		if got := text(invoice, "base_credited_amount"); got != "720.0000" {
+			t.Fatalf("FX revaluation invoice base credited = %s, want 720.0000", got)
+		}
+		if got := text(invoice, "outstanding_amount"); got != "100.0000" {
+			t.Fatalf("FX revaluation invoice outstanding = %s, want 100.0000", got)
+		}
+		baseOutstanding := number(t, invoice, "base_total_amount") - number(t, invoice, "base_credited_amount")
+		if !nearlyEqual(baseOutstanding, 720) {
+			t.Fatalf("FX revaluation base outstanding = %v, want 720", baseOutstanding)
+		}
+		if got := text(invoice, "status"); got != "partially_paid" {
+			t.Fatalf("FX revaluation invoice status = %s, want partially_paid", got)
+		}
+
+		admin.mustPost("/finance/exchange-rates", map[string]any{
+			"currency_code": "USD",
+			"rate_date":     closeDate,
+			"rate":          "7.3",
+		}, http.StatusCreated)
+
+		periods := getArray(admin, periodsPath(year), http.StatusOK)
+		var january map[string]any
+		for _, period := range periods {
+			if month, ok := period["month"].(float64); ok && int(month) == 1 {
+				january = period
+				break
+			}
+		}
+		if january == nil {
+			t.Fatalf("January %d period not found", year)
+		}
+		if text(january, "status") == "closed" {
+			admin.mustPost("/finance/periods/"+text(january, "id")+"/reopen", nil, http.StatusOK)
+		}
+		admin.mustPost("/finance/periods/"+text(january, "id")+"/close", nil, http.StatusOK)
+
+		janStart := fmt.Sprintf("%04d-01-01", year)
+		janEnd := closeDate
+		revaluations := listItems(admin,
+			"/finance/vouchers?voucher_type=fx_revaluation&start_date="+janStart+"&end_date="+janEnd+"&page_size=50",
+			http.StatusOK,
+		)
+		revaluation := findItem(revaluations, "source_code", fmt.Sprintf("%04d-01", year))
+		if revaluation == nil {
+			t.Fatalf("FX revaluation voucher for %04d-01 not found", year)
+		}
+		revaluationDetail := admin.mustGet("/finance/vouchers/"+text(revaluation, "id"), http.StatusOK)
+		revaluationLines, _ := revaluationDetail["lines"].([]any)
+		assertVoucherBalanced(t, revaluationLines)
+		if got := number(t, findLineByAccount(t, revaluationLines, "1122"), "debit"); !nearlyEqual(got, 10) {
+			t.Fatalf("FX revaluation AR debit = %v, want 10", got)
+		}
+		if got := number(t, findLineByAccount(t, revaluationLines, "660302"), "credit"); !nearlyEqual(got, 10) {
+			t.Fatalf("FX revaluation gain credit = %v, want 10", got)
+		}
+		revalued := admin.mustGet("/finance/invoices/"+invoiceID, http.StatusOK)
+		if got := text(revalued, "base_revalued_amount"); got != "10.0000" {
+			t.Fatalf("FX revaluated invoice base revalued = %s, want 10.0000", got)
 		}
 	})
 }
