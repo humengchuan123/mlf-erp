@@ -271,4 +271,145 @@ func TestSalesReturnRecalculateTotals(t *testing.T) {
 	assertReturnDecimal(t, "base tax amount", salesReturn.BaseTaxAmount, returnDec("187.2"))
 	assertReturnDecimal(t, "base total amount", salesReturn.BaseTotalAmount, returnDec("3427.2"))
 	assertReturnDecimal(t, "cost amount", salesReturn.CostAmount, returnDec("120"))
+
+	if !salesReturn.NetAmount.Add(salesReturn.TaxAmount).Equal(salesReturn.TotalAmount) {
+		t.Fatalf("header net + tax = %s, want total %s",
+			salesReturn.NetAmount.Add(salesReturn.TaxAmount), salesReturn.TotalAmount)
+	}
+	if !salesReturn.BaseNetAmount.Add(salesReturn.BaseTaxAmount).Equal(salesReturn.BaseTotalAmount) {
+		t.Fatalf("header base net + base tax = %s, want base total %s",
+			salesReturn.BaseNetAmount.Add(salesReturn.BaseTaxAmount), salesReturn.BaseTotalAmount)
+	}
+}
+
+func newReturnRoundingShipment() *Shipment {
+	return &Shipment{
+		ID: "shipment-rounding",
+		Lines: []*ShipmentLine{
+			{
+				ID:              "shipment-line-rounding",
+				TenantID:        "tenant-1",
+				OrderLineID:     "order-line-rounding",
+				MaterialID:      "material-rounding",
+				MaterialName:    "Material Rounding",
+				Quantity:        returnDec("3"),
+				UnitPrice:       returnDec("33.333333"),
+				TaxRateID:       "tax-rate-1",
+				TaxRate:         returnDec("0.13"),
+				Amount:          returnDec("100"),
+				TaxAmount:       returnDec("13"),
+				GrossAmount:     returnDec("113"),
+				BaseAmount:      returnDec("720"),
+				BaseTaxAmount:   returnDec("93.6"),
+				BaseGrossAmount: returnDec("813.6"),
+				UnitCost:        returnDec("20"),
+				CostAmount:      returnDec("60"),
+			},
+		},
+	}
+}
+
+func assertReturnLineBalanced(t *testing.T, line *SalesReturnLine) {
+	t.Helper()
+	if !line.Amount.Add(line.TaxAmount).Equal(line.GrossAmount) {
+		t.Fatalf("line net + tax = %s, want gross %s",
+			line.Amount.Add(line.TaxAmount), line.GrossAmount)
+	}
+	if !line.BaseAmount.Add(line.BaseTaxAmount).Equal(line.BaseGrossAmount) {
+		t.Fatalf("line base net + base tax = %s, want base gross %s",
+			line.BaseAmount.Add(line.BaseTaxAmount), line.BaseGrossAmount)
+	}
+}
+
+func TestBuildReturnLinesPartialBalances(t *testing.T) {
+	lines, err := BuildReturnLines(newReturnRoundingShipment(), []ReturnLineInput{
+		{ShipmentLineID: "shipment-line-rounding", Quantity: returnDec("1")},
+	})
+	if err != nil {
+		t.Fatalf("build return lines: %v", err)
+	}
+
+	line := lines[0]
+	assertReturnDecimal(t, "amount", line.Amount, returnDec("33.3333"))
+	assertReturnDecimal(t, "tax amount", line.TaxAmount, returnDec("4.3334"))
+	assertReturnDecimal(t, "gross amount", line.GrossAmount, returnDec("37.6667"))
+	assertReturnDecimal(t, "base amount", line.BaseAmount, returnDec("240"))
+	assertReturnDecimal(t, "base tax amount", line.BaseTaxAmount, returnDec("31.2"))
+	assertReturnDecimal(t, "base gross amount", line.BaseGrossAmount, returnDec("271.2"))
+	assertReturnDecimal(t, "cost amount", line.CostAmount, returnDec("20"))
+	assertReturnLineBalanced(t, line)
+
+	salesReturn := &SalesReturn{Lines: lines}
+	salesReturn.RecalculateTotals()
+	assertReturnDecimal(t, "net amount", salesReturn.NetAmount, returnDec("33.3333"))
+	assertReturnDecimal(t, "tax amount", salesReturn.TaxAmount, returnDec("4.3334"))
+	assertReturnDecimal(t, "total amount", salesReturn.TotalAmount, returnDec("37.6667"))
+	assertReturnDecimal(t, "base net amount", salesReturn.BaseNetAmount, returnDec("240"))
+	assertReturnDecimal(t, "base tax amount", salesReturn.BaseTaxAmount, returnDec("31.2"))
+	assertReturnDecimal(t, "base total amount", salesReturn.BaseTotalAmount, returnDec("271.2"))
+	if !salesReturn.NetAmount.Add(salesReturn.TaxAmount).Equal(salesReturn.TotalAmount) {
+		t.Fatalf("header net + tax = %s, want total %s",
+			salesReturn.NetAmount.Add(salesReturn.TaxAmount), salesReturn.TotalAmount)
+	}
+	if !salesReturn.BaseNetAmount.Add(salesReturn.BaseTaxAmount).Equal(salesReturn.BaseTotalAmount) {
+		t.Fatalf("header base net + base tax = %s, want base total %s",
+			salesReturn.BaseNetAmount.Add(salesReturn.BaseTaxAmount), salesReturn.BaseTotalAmount)
+	}
+}
+
+func TestBuildReturnLinesSequentialReturnsNoResidual(t *testing.T) {
+	shipment := newReturnRoundingShipment()
+	shipmentLine := shipment.Lines[0]
+
+	totalNet := decimal.Zero
+	totalTax := decimal.Zero
+	totalGross := decimal.Zero
+	totalBaseNet := decimal.Zero
+	totalBaseTax := decimal.Zero
+	totalBaseGross := decimal.Zero
+	totalCost := decimal.Zero
+
+	for i := 0; i < 3; i++ {
+		lines, err := BuildReturnLines(shipment, []ReturnLineInput{
+			{ShipmentLineID: shipmentLine.ID, Quantity: returnDec("1")},
+		})
+		if err != nil {
+			t.Fatalf("return %d: %v", i+1, err)
+		}
+		line := lines[0]
+		assertReturnLineBalanced(t, line)
+
+		salesReturn := &SalesReturn{Lines: lines}
+		salesReturn.RecalculateTotals()
+		if !salesReturn.NetAmount.Add(salesReturn.TaxAmount).Equal(salesReturn.TotalAmount) {
+			t.Fatalf("return %d header net + tax = %s, want total %s",
+				i+1, salesReturn.NetAmount.Add(salesReturn.TaxAmount), salesReturn.TotalAmount)
+		}
+
+		totalNet = totalNet.Add(line.Amount)
+		totalTax = totalTax.Add(line.TaxAmount)
+		totalGross = totalGross.Add(line.GrossAmount)
+		totalBaseNet = totalBaseNet.Add(line.BaseAmount)
+		totalBaseTax = totalBaseTax.Add(line.BaseTaxAmount)
+		totalBaseGross = totalBaseGross.Add(line.BaseGrossAmount)
+		totalCost = totalCost.Add(line.CostAmount)
+
+		shipmentLine.ReturnedQty = shipmentLine.ReturnedQty.Add(returnDec("1"))
+	}
+
+	assertReturnDecimal(t, "total net", totalNet, shipmentLine.Amount)
+	assertReturnDecimal(t, "total tax", totalTax, shipmentLine.TaxAmount)
+	assertReturnDecimal(t, "total gross", totalGross, shipmentLine.GrossAmount)
+	assertReturnDecimal(t, "total base net", totalBaseNet, shipmentLine.BaseAmount)
+	assertReturnDecimal(t, "total base tax", totalBaseTax, shipmentLine.BaseTaxAmount)
+	assertReturnDecimal(t, "total base gross", totalBaseGross, shipmentLine.BaseGrossAmount)
+	assertReturnDecimal(t, "total cost", totalCost, shipmentLine.CostAmount)
+	assertReturnDecimal(t, "returned quantity", shipmentLine.ReturnedQty, returnDec("3"))
+
+	_, err := BuildReturnLines(shipment, []ReturnLineInput{
+		{ShipmentLineID: shipmentLine.ID, Quantity: returnDec("1")},
+	})
+	if !errors.Is(err, ErrOverReturn) {
+		t.Fatalf("return after full return error = %v, want %v", err, ErrOverReturn)
+	}
 }

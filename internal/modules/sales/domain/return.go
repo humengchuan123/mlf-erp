@@ -120,7 +120,32 @@ func BuildReturnLines(shipment *Shipment, inputs []ReturnLineInput) ([]*SalesRet
 			return nil, ErrOverReturn
 		}
 
-		ratio := input.Quantity.Div(shipmentLine.Quantity)
+		quantity := shipmentLine.Quantity
+		priorQty := shipmentLine.ReturnedQty
+		newQty := priorQty.Add(input.Quantity)
+
+		priorNet := shipmentLine.Amount.Mul(priorQty).Div(quantity).Round(4)
+		newNet := shipmentLine.Amount.Mul(newQty).Div(quantity).Round(4)
+		amount := newNet.Sub(priorNet)
+
+		priorGross := shipmentLine.GrossAmount.Mul(priorQty).Div(quantity).Round(4)
+		newGross := shipmentLine.GrossAmount.Mul(newQty).Div(quantity).Round(4)
+		gross := newGross.Sub(priorGross)
+		tax := gross.Sub(amount)
+
+		priorBaseNet := shipmentLine.BaseAmount.Mul(priorQty).Div(quantity).Round(4)
+		newBaseNet := shipmentLine.BaseAmount.Mul(newQty).Div(quantity).Round(4)
+		baseAmount := newBaseNet.Sub(priorBaseNet)
+
+		priorBaseGross := shipmentLine.BaseGrossAmount.Mul(priorQty).Div(quantity).Round(4)
+		newBaseGross := shipmentLine.BaseGrossAmount.Mul(newQty).Div(quantity).Round(4)
+		baseGross := newBaseGross.Sub(priorBaseGross)
+		baseTax := baseGross.Sub(baseAmount)
+
+		priorCost := shipmentLine.CostAmount.Mul(priorQty).Div(quantity).Round(4)
+		newCost := shipmentLine.CostAmount.Mul(newQty).Div(quantity).Round(4)
+		cost := newCost.Sub(priorCost)
+
 		lines = append(lines, &SalesReturnLine{
 			TenantID:        shipmentLine.TenantID,
 			LineNo:          i + 1,
@@ -132,14 +157,14 @@ func BuildReturnLines(shipment *Shipment, inputs []ReturnLineInput) ([]*SalesRet
 			UnitPrice:       shipmentLine.UnitPrice,
 			TaxRateID:       shipmentLine.TaxRateID,
 			TaxRate:         shipmentLine.TaxRate,
-			Amount:          shipmentLine.Amount.Mul(ratio).Round(4),
-			TaxAmount:       shipmentLine.TaxAmount.Mul(ratio).Round(4),
-			GrossAmount:     shipmentLine.GrossAmount.Mul(ratio).Round(4),
-			BaseAmount:      shipmentLine.BaseAmount.Mul(ratio).Round(4),
-			BaseTaxAmount:   shipmentLine.BaseTaxAmount.Mul(ratio).Round(4),
-			BaseGrossAmount: shipmentLine.BaseGrossAmount.Mul(ratio).Round(4),
+			Amount:          amount,
+			TaxAmount:       tax,
+			GrossAmount:     gross,
+			BaseAmount:      baseAmount,
+			BaseTaxAmount:   baseTax,
+			BaseGrossAmount: baseGross,
 			UnitCost:        shipmentLine.UnitCost,
-			CostAmount:      shipmentLine.CostAmount.Mul(ratio).Round(4),
+			CostAmount:      cost,
 		})
 	}
 	return lines, nil

@@ -65,6 +65,10 @@ func (r *ReturnRepository) Create(
 	if status != "posted" {
 		return nil, domain.ErrInvalidStatus
 	}
+	if params.ReturnDate.IsZero() ||
+		params.ReturnDate.Format("2006-01-02") < shipmentDate.Format("2006-01-02") {
+		return nil, domain.ErrInvalidInput
+	}
 
 	lineRows, err := tx.Query(ctx, shipmentLineSelectSQL+`
 		WHERE sl.tenant_id = $1 AND sl.shipment_id = $2
@@ -247,13 +251,30 @@ func (r *ReturnRepository) Create(
 			INSERT INTO erp.inventory_transactions (
 				id, tenant_id, org_id, warehouse_id, material_id, direction, biz_type,
 				biz_id, biz_code, quantity, unit_cost, amount, occurred_at, created_by
-			) VALUES ($1,$2,$3,$4,$5,'in','sales_return',$6,$7,$8,$9,$10,$11,$12)`,
+			) VALUES ($1,$2,$3,$4,$5,'in','sales_return',$6,$7,$8,$9,$10,now(),$11)`,
 			uuid.NewString(), tenantID, ret.OrgID, ret.WarehouseID, line.MaterialID,
 			ret.ID, ret.Code, line.Quantity.String(), line.UnitCost.String(),
-			line.CostAmount.String(), ret.ReturnDate, userID,
+			line.CostAmount.String(), userID,
 		); err != nil {
 			return nil, fmt.Errorf("insert inventory transaction: %w", err)
 		}
+	}
+
+	if err := glpost.PostSalesReturn(ctx, tx, glpost.SalesReturnPosting{
+		TenantID:        tenantID,
+		OrgID:           ret.OrgID,
+		VoucherCode:     params.VoucherCode,
+		SourceID:        ret.ID,
+		SourceCode:      ret.Code,
+		CustomerID:      ret.CustomerID,
+		CreatedBy:       userID,
+		VoucherDate:     ret.ReturnDate,
+		BaseNetAmount:   ret.BaseNetAmount,
+		BaseTaxAmount:   ret.BaseTaxAmount,
+		BaseGrossAmount: ret.BaseTotalAmount,
+		CostAmount:      ret.CostAmount,
+	}); err != nil {
+		return nil, fmt.Errorf("post sales return voucher: %w", err)
 	}
 
 	var invoiceID, invoicePartnerID, invoiceCurrency, invoiceRateRaw string
@@ -282,6 +303,9 @@ func (r *ReturnRepository) Create(
 	}
 
 	invoiceRate := decimal.RequireFromString(invoiceRateRaw)
+	if !invoiceRate.Equal(ret.ExchangeRate) {
+		return nil, domain.ErrInvalidInput
+	}
 	invoiceTotal := decimal.RequireFromString(invoiceTotalRaw)
 	invoicePaid := decimal.RequireFromString(invoicePaidRaw)
 	invoiceCredited := decimal.RequireFromString(invoiceCreditedRaw)
@@ -314,7 +338,7 @@ func (r *ReturnRepository) Create(
 	remaining := ret.TotalAmount.Sub(applied).Round(4)
 	remainingBase := ret.BaseTotalAmount.Sub(appliedBase).Round(4)
 	noteStatus := "open"
-	if remaining.IsZero() {
+	if remaining.IsZero() && remainingBase.IsZero() {
 		noteStatus = "applied"
 	}
 
@@ -372,34 +396,11 @@ func (r *ReturnRepository) Create(
 		return nil, fmt.Errorf("update sales return credit note: %w", err)
 	}
 
-	if err := glpost.PostSalesReturn(ctx, tx, glpost.SalesReturnPosting{
-		TenantID:        tenantID,
-		OrgID:           ret.OrgID,
-		VoucherCode:     params.VoucherCode,
-		SourceID:        ret.ID,
-		SourceCode:      ret.Code,
-		CustomerID:      ret.CustomerID,
-		CreatedBy:       userID,
-		VoucherDate:     ret.ReturnDate,
-		BaseNetAmount:   ret.BaseNetAmount,
-		BaseTaxAmount:   ret.BaseTaxAmount,
-		BaseGrossAmount: ret.BaseTotalAmount,
-		CostAmount:      ret.CostAmount,
-	}); err != nil {
-		return nil, fmt.Errorf("post sales return voucher: %w", err)
-	}
-
 	if err := tx.Commit(ctx); err != nil {
 		return nil, fmt.Errorf("commit create sales return: %w", err)
 	}
 
-	ret.CreditNoteID = creditNoteID
-	ret.CreditNoteCode = params.CreditNoteCode
-	ret.CreditNoteAmount = ret.TotalAmount
-	ret.CreditNoteApplied = applied
-	ret.CreditNoteRemaining = remaining
-	ret.CreditNoteStatus = noteStatus
-	return ret, nil
+	return r.Get(ctx, filter, tenantID, ret.ID)
 }
 
 func (r *ReturnRepository) Get(
@@ -447,12 +448,12 @@ func (r *ReturnRepository) List(
 		where += fmt.Sprintf(" AND (r.code ILIKE $%d OR r.shipment_code ILIKE $%d OR p.name ILIKE $%d)", index, index, index)
 	}
 	if !startDate.IsZero() {
-		args = append(args, startDate)
-		where += fmt.Sprintf(" AND r.return_date >= $%d", len(args))
+		args = append(args, startDate.Format("2006-01-02"))
+		where += fmt.Sprintf(" AND r.return_date >= $%d::date", len(args))
 	}
 	if !endDate.IsZero() {
-		args = append(args, endDate)
-		where += fmt.Sprintf(" AND r.return_date <= $%d", len(args))
+		args = append(args, endDate.Format("2006-01-02"))
+		where += fmt.Sprintf(" AND r.return_date <= $%d::date", len(args))
 	}
 	appendScope(&where, &args, "r", filter)
 
