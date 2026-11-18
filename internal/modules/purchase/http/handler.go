@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	gldomain "github.com/mlf-erp/mlf-erp/internal/modules/gl/domain"
 	"github.com/mlf-erp/mlf-erp/internal/modules/purchase/app"
 	"github.com/mlf-erp/mlf-erp/internal/modules/purchase/domain"
@@ -501,11 +502,15 @@ func parseReturnInput(request returnRequest) (app.ReturnInput, error) {
 		if quantityErr != nil {
 			return app.ReturnInput{}, quantityErr
 		}
-		if strings.TrimSpace(line.ReceiptLineID) == "" || !quantity.IsPositive() {
+		receiptLineID := strings.TrimSpace(line.ReceiptLineID)
+		if receiptLineID == "" || !quantity.IsPositive() {
+			return app.ReturnInput{}, domain.ErrInvalidInput
+		}
+		if _, parseErr := uuid.Parse(receiptLineID); parseErr != nil {
 			return app.ReturnInput{}, domain.ErrInvalidInput
 		}
 		lines = append(lines, domain.ReturnLineInput{
-			ReceiptLineID: strings.TrimSpace(line.ReceiptLineID),
+			ReceiptLineID: receiptLineID,
 			Quantity:      quantity,
 		})
 	}

@@ -3,9 +3,13 @@
 package api_test
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
+	"sync"
 	"testing"
 	"time"
 )
@@ -663,6 +667,80 @@ func TestStage3I(t *testing.T) {
 		}
 	})
 
+	t.Run("partial credit note application", func(t *testing.T) {
+		receiptID, receiptLineID, _, invoiceID, _ := stage3ICreatePurchaseReceipt(
+			t, admin, supplierID, warehouseID, materialID, vat0ID,
+			"2", "100.00", true, "CNY", "", today, today, "stage3i-partial-credit-note",
+		)
+		invoice := admin.mustGet("/finance/invoices/"+invoiceID, http.StatusOK)
+		if got := text(invoice, "total_amount"); got != "200.0000" {
+			t.Fatalf("partial credit invoice total = %s, want 200.0000", got)
+		}
+
+		payment := admin.mustPost("/finance/payments", map[string]any{
+			"payment_type": "payment",
+			"partner_id":   supplierID,
+			"payment_date": today,
+			"currency":     "CNY",
+			"amount":       "150.00",
+			"method":       "bank",
+			"reference":    "stage3i-partial-credit-note",
+		}, http.StatusCreated)
+		admin.mustPost("/finance/payments/"+text(payment, "id")+"/allocate", map[string]any{
+			"allocations": []map[string]any{
+				{"invoice_id": invoiceID, "amount": "150.00"},
+			},
+		}, http.StatusOK)
+
+		invoice = admin.mustGet("/finance/invoices/"+invoiceID, http.StatusOK)
+		if got := text(invoice, "paid_amount"); got != "150.0000" {
+			t.Fatalf("partial credit invoice paid = %s, want 150.0000", got)
+		}
+		if got := text(invoice, "outstanding_amount"); got != "50.0000" {
+			t.Fatalf("partial credit invoice outstanding = %s, want 50.0000", got)
+		}
+
+		item := stage3IPostPurchaseReturn(t, admin, receiptID, receiptLineID, "1", today, "supplier return", "stage3i-partial-credit-note-return")
+		if got := text(item, "credit_note_amount"); got != "100.0000" {
+			t.Fatalf("partial credit note amount = %s, want 100.0000", got)
+		}
+		if got := text(item, "credit_note_applied_amount"); got != "50.0000" {
+			t.Fatalf("partial credit note applied = %s, want 50.0000", got)
+		}
+		if got := text(item, "credit_note_remaining_amount"); got != "50.0000" {
+			t.Fatalf("partial credit note remaining = %s, want 50.0000", got)
+		}
+		if got := text(item, "credit_note_status"); got != "open" {
+			t.Fatalf("partial credit note status = %s, want open", got)
+		}
+
+		invoice = admin.mustGet("/finance/invoices/"+invoiceID, http.StatusOK)
+		if got := text(invoice, "paid_amount"); got != "150.0000" {
+			t.Fatalf("partial credit invoice paid after return = %s, want 150.0000", got)
+		}
+		if got := text(invoice, "credited_amount"); got != "50.0000" {
+			t.Fatalf("partial credit invoice credited after return = %s, want 50.0000", got)
+		}
+		if got := text(invoice, "base_credited_amount"); got != "50.0000" {
+			t.Fatalf("partial credit invoice base credited after return = %s, want 50.0000", got)
+		}
+		if got := text(invoice, "outstanding_amount"); got != "0.0000" {
+			t.Fatalf("partial credit invoice outstanding after return = %s, want 0.0000", got)
+		}
+		if got := text(invoice, "status"); got != "paid" {
+			t.Fatalf("partial credit invoice status after return = %s, want paid", got)
+		}
+
+		voucherLines := stage3IPurchaseReturnVoucherLines(t, admin, text(item, "id"), text(item, "code"))
+		assertVoucherBalanced(t, voucherLines)
+		if got := number(t, findLineByAccount(t, voucherLines, "2202"), "debit"); !nearlyEqual(got, 100) {
+			t.Fatalf("partial credit return AP debit = %v, want 100", got)
+		}
+		if got := number(t, findLineByAccount(t, voucherLines, "1405"), "credit"); !nearlyEqual(got, 100) {
+			t.Fatalf("partial credit return inventory credit = %v, want 100", got)
+		}
+	})
+
 	t.Run("payment allocation respects credited amount", func(t *testing.T) {
 		receiptID, receiptLineID, _, invoiceID, _ := stage3ICreatePurchaseReceipt(
 			t, admin, supplierID, warehouseID, materialID, vat0ID,
@@ -796,7 +874,7 @@ func TestStage3I(t *testing.T) {
 			}
 		}
 
-		receiptID, receiptLineID, _, _, _ := stage3ICreatePurchaseReceipt(
+		receiptID, receiptLineID, receiptOrderID, _, _ := stage3ICreatePurchaseReceipt(
 			t, admin, supplierID, warehouseID, emptyMaterialID, vat0ID,
 			"5", "10.00", true, "CNY", "", today, today, "stage3i-insufficient-stock",
 		)
@@ -818,12 +896,40 @@ func TestStage3I(t *testing.T) {
 		if got := number(t, balance, "on_hand"); !nearlyEqual(got, 2) {
 			t.Fatalf("on_hand after shipping empty material = %v, want 2", got)
 		}
+		onHandBeforeReturn := number(t, balance, "on_hand")
+		beforeLine := stage3IReceiptLineByID(t, admin, receiptOrderID, receiptID, receiptLineID)
+		if got := number(t, beforeLine, "returned_qty"); !nearlyEqual(got, 0) {
+			t.Fatalf("receipt returned_qty before insufficient stock return = %v, want 0", got)
+		}
+		creditNoteCountBefore := len(listItems(admin, "/finance/credit-notes?credit_type=purchase_return&page_size=200", http.StatusOK))
+		returnVoucherCountBefore := len(listItems(admin, "/finance/vouchers?voucher_type=purchase_return&page_size=200", http.StatusOK))
 		admin.expectError(http.MethodPost, "/purchase/receipts/"+receiptID+"/returns", map[string]any{
 			"return_date": today,
 			"lines": []map[string]any{
 				{"receipt_line_id": receiptLineID, "quantity": "5"},
 			},
 		}, http.StatusConflict, "INSUFFICIENT_STOCK")
+
+		afterLine := stage3IReceiptLineByID(t, admin, receiptOrderID, receiptID, receiptLineID)
+		if got := number(t, afterLine, "returned_qty"); !nearlyEqual(got, 0) {
+			t.Fatalf("receipt returned_qty after insufficient stock return = %v, want 0", got)
+		}
+		afterBalance := stage3IBalanceMaybe(t, admin, warehouseID, emptyMaterialID)
+		if afterBalance == nil {
+			t.Fatal("inventory balance missing after insufficient stock return")
+		}
+		if got := number(t, afterBalance, "on_hand"); !nearlyEqual(got, onHandBeforeReturn) {
+			t.Fatalf("on_hand after insufficient stock return = %v, want %v", got, onHandBeforeReturn)
+		}
+		if items := listItems(admin, "/purchase/returns?receipt_id="+receiptID+"&page_size=200", http.StatusOK); len(items) != 0 {
+			t.Fatalf("purchase returns for rolled back receipt = %d, want 0", len(items))
+		}
+		if got := len(listItems(admin, "/finance/credit-notes?credit_type=purchase_return&page_size=200", http.StatusOK)); got != creditNoteCountBefore {
+			t.Fatalf("purchase return credit notes after rollback = %d, want %d", got, creditNoteCountBefore)
+		}
+		if got := len(listItems(admin, "/finance/vouchers?voucher_type=purchase_return&page_size=200", http.StatusOK)); got != returnVoucherCountBefore {
+			t.Fatalf("purchase return vouchers after rollback = %d, want %d", got, returnVoucherCountBefore)
+		}
 
 		overReceiptID, overReceiptLineID, _, _, _ := stage3ICreatePurchaseReceipt(
 			t, admin, supplierID, warehouseID, materialID, vat0ID,
@@ -862,6 +968,12 @@ func TestStage3I(t *testing.T) {
 			},
 		}, http.StatusBadRequest, "BAD_REQUEST")
 		admin.expectError(http.MethodPost, "/purchase/receipts/"+freshReceiptID+"/returns", map[string]any{
+			"return_date": today,
+			"lines": []map[string]any{
+				{"receipt_line_id": "not-a-uuid", "quantity": "1"},
+			},
+		}, http.StatusBadRequest, "BAD_REQUEST")
+		admin.expectError(http.MethodPost, "/purchase/receipts/"+freshReceiptID+"/returns", map[string]any{
 			"return_date": "bad-date",
 			"lines": []map[string]any{
 				{"receipt_line_id": freshReceiptLineID, "quantity": "1"},
@@ -889,6 +1001,126 @@ func TestStage3I(t *testing.T) {
 
 		admin.expectError(http.MethodGet, "/purchase/returns/00000000-0000-0000-0000-000000000000", nil, http.StatusNotFound, "NOT_FOUND")
 		admin.expectError(http.MethodGet, "/purchase/returns/not-a-uuid", nil, http.StatusBadRequest, "BAD_REQUEST")
+	})
+
+	t.Run("period closed rolls back purchase return", func(t *testing.T) {
+		year := cleanRevaluationYear(t, admin)
+		ensureTestYear(t, admin, year)
+		orderDate := fmt.Sprintf("%04d-03-10", year)
+		returnDate := fmt.Sprintf("%04d-03-15", year)
+
+		receiptID, receiptLineID, receiptOrderID, _, _ := stage3ICreatePurchaseReceipt(
+			t, admin, supplierID, warehouseID, materialID, vat0ID,
+			"1", "10.00", true, "CNY", "", orderDate, orderDate, "stage3i-period-closed",
+		)
+		onHandBefore := number(t, inventoryBalance(t, admin, warehouseID, materialID), "on_hand")
+		lineBefore := stage3IReceiptLineByID(t, admin, receiptOrderID, receiptID, receiptLineID)
+		if got := number(t, lineBefore, "returned_qty"); !nearlyEqual(got, 0) {
+			t.Fatalf("period closed receipt returned_qty before return = %v, want 0", got)
+		}
+
+		periods := getArray(admin, periodsPath(year), http.StatusOK)
+		var march map[string]any
+		for _, period := range periods {
+			if month, ok := period["month"].(float64); ok && int(month) == 3 {
+				march = period
+				break
+			}
+		}
+		if march == nil {
+			t.Fatalf("March %d period not found", year)
+		}
+		marchID := text(march, "id")
+		if text(march, "status") == "closed" {
+			admin.mustPost("/finance/periods/"+marchID+"/reopen", nil, http.StatusOK)
+		}
+		admin.mustPost("/finance/periods/"+marchID+"/close", nil, http.StatusOK)
+		defer func() {
+			admin.mustPost("/finance/periods/"+marchID+"/reopen", nil, http.StatusOK)
+		}()
+
+		admin.expectError(http.MethodPost, "/purchase/receipts/"+receiptID+"/returns", map[string]any{
+			"return_date": returnDate,
+			"reason":      "supplier return",
+			"remark":      "stage3i-period-closed-return",
+			"lines": []map[string]any{
+				{"receipt_line_id": receiptLineID, "quantity": "1"},
+			},
+		}, http.StatusConflict, "PERIOD_CLOSED")
+
+		lineAfter := stage3IReceiptLineByID(t, admin, receiptOrderID, receiptID, receiptLineID)
+		if got := number(t, lineAfter, "returned_qty"); !nearlyEqual(got, 0) {
+			t.Fatalf("period closed receipt returned_qty after return = %v, want 0", got)
+		}
+		if got := number(t, inventoryBalance(t, admin, warehouseID, materialID), "on_hand"); !nearlyEqual(got, onHandBefore) {
+			t.Fatalf("on_hand after period closed return = %v, want %v", got, onHandBefore)
+		}
+		if items := listItems(admin, "/purchase/returns?receipt_id="+receiptID+"&page_size=200", http.StatusOK); len(items) != 0 {
+			t.Fatalf("purchase returns for period closed receipt = %d, want 0", len(items))
+		}
+	})
+
+	t.Run("concurrent returns cannot double return", func(t *testing.T) {
+		receiptID, receiptLineID, receiptOrderID, _, _ := stage3ICreatePurchaseReceipt(
+			t, admin, supplierID, warehouseID, materialID, vat0ID,
+			"1", "10.00", true, "CNY", "", today, today, "stage3i-concurrent-return",
+		)
+		body := map[string]any{
+			"return_date": today,
+			"reason":      "supplier return",
+			"remark":      "stage3i-concurrent-return-post",
+			"lines": []map[string]any{
+				{"receipt_line_id": receiptLineID, "quantity": "1"},
+			},
+		}
+
+		type result struct {
+			status int
+			code   string
+			err    error
+		}
+		results := make(chan result, 2)
+		var wg sync.WaitGroup
+		for i := 0; i < 2; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				status, code, err := stage3IRawPost(admin, "/purchase/receipts/"+receiptID+"/returns", body)
+				results <- result{status: status, code: code, err: err}
+			}()
+		}
+		wg.Wait()
+		close(results)
+
+		created := 0
+		overReturn := 0
+		for res := range results {
+			if res.err != nil {
+				t.Fatalf("concurrent purchase return request failed: %v", res.err)
+			}
+			switch res.status {
+			case http.StatusCreated:
+				created++
+			case http.StatusConflict:
+				if res.code != "OVER_RETURN" {
+					t.Fatalf("concurrent purchase return conflict code = %q, want OVER_RETURN", res.code)
+				}
+				overReturn++
+			default:
+				t.Fatalf("concurrent purchase return status = %d, code = %q, want 201 or 409", res.status, res.code)
+			}
+		}
+		if created != 1 || overReturn != 1 {
+			t.Fatalf("concurrent purchase returns created = %d, over-return = %d, want 1/1", created, overReturn)
+		}
+
+		line := stage3IReceiptLineByID(t, admin, receiptOrderID, receiptID, receiptLineID)
+		if got := number(t, line, "returned_qty"); !nearlyEqual(got, 1) {
+			t.Fatalf("concurrent receipt returned_qty = %v, want 1", got)
+		}
+		if items := listItems(admin, "/purchase/returns?receipt_id="+receiptID+"&page_size=200", http.StatusOK); len(items) != 1 {
+			t.Fatalf("concurrent purchase returns for receipt = %d, want 1", len(items))
+		}
 	})
 
 	t.Run("permissions and validation", func(t *testing.T) {
@@ -1190,4 +1422,28 @@ func stage3IBalanceMaybe(t *testing.T, admin *client, warehouseID, materialID st
 		t.Fatalf("inventory balance payload = %v", items[0])
 	}
 	return balance
+}
+
+func stage3IRawPost(c *client, path string, body any) (int, string, error) {
+	raw, err := json.Marshal(body)
+	if err != nil {
+		return 0, "", err
+	}
+	req, err := http.NewRequest(http.MethodPost, c.baseURL+apiPrefix+path, bytes.NewReader(raw))
+	if err != nil {
+		return 0, "", err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+c.token)
+	resp, err := (&http.Client{Timeout: 30 * time.Second}).Do(req)
+	if err != nil {
+		return 0, "", err
+	}
+	defer resp.Body.Close()
+	data, _ := io.ReadAll(resp.Body)
+	var payload apiPayload
+	if len(data) > 0 {
+		_ = json.Unmarshal(data, &payload)
+	}
+	return resp.StatusCode, payload.Code, nil
 }

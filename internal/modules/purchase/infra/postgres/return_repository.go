@@ -148,7 +148,7 @@ func (r *ReturnRepository) Create(
 		line.ReturnID = ret.ID
 	}
 	ret.RecalculateTotals()
-	if !ret.TotalAmount.IsPositive() && !ret.CostAmount.IsPositive() {
+	if ret.BaseTotalAmount.IsZero() && ret.BaseNetAmount.IsZero() && ret.BaseTaxAmount.IsZero() {
 		ret.VoucherCode = ""
 	}
 
@@ -274,7 +274,7 @@ func (r *ReturnRepository) Create(
 	if err := glpost.PostPurchaseReturn(ctx, tx, glpost.PurchaseReturnPosting{
 		TenantID:        tenantID,
 		OrgID:           ret.OrgID,
-		VoucherCode:     params.VoucherCode,
+		VoucherCode:     ret.VoucherCode,
 		SourceID:        ret.ID,
 		SourceCode:      ret.Code,
 		SupplierID:      ret.SupplierID,
@@ -355,6 +355,9 @@ func (r *ReturnRepository) Create(
 		}
 		remaining := ret.TotalAmount.Sub(applied).Round(4)
 		remainingBase := ret.BaseTotalAmount.Sub(appliedBase).Round(4)
+		if remaining.IsZero() && remainingBase.Abs().LessThanOrEqual(decimal.RequireFromString("0.0001")) {
+			remainingBase = decimal.Zero
+		}
 		noteStatus := "open"
 		if remaining.IsZero() && remainingBase.IsZero() {
 			noteStatus = "applied"

@@ -199,16 +199,7 @@ func PostPurchaseReceipt(ctx context.Context, tx pgx.Tx, input PurchaseReceiptPo
 }
 
 func PostPurchaseReturn(ctx context.Context, tx pgx.Tx, input PurchaseReturnPosting) error {
-	lines := make([]postingLine, 0, 3)
-	if input.BaseGrossAmount.IsPositive() {
-		lines = append(lines, postingLine{AccountKey: "ap", Summary: "采购退货应付", Debit: input.BaseGrossAmount, PartnerID: input.SupplierID})
-		if input.BaseNetAmount.IsPositive() {
-			lines = append(lines, postingLine{AccountKey: "inventory", Summary: "采购退货出库", Credit: input.BaseNetAmount})
-		}
-		if input.BaseTaxAmount.IsPositive() {
-			lines = append(lines, postingLine{AccountKey: "input_vat", Summary: "进项税额转出", Credit: input.BaseTaxAmount, PartnerID: input.SupplierID})
-		}
-	}
+	lines := purchaseReturnPostingLines(input)
 	if len(lines) == 0 {
 		return nil
 	}
@@ -225,6 +216,36 @@ func PostPurchaseReturn(ctx context.Context, tx pgx.Tx, input PurchaseReturnPost
 		CreatedBy:   input.CreatedBy,
 		Lines:       lines,
 	})
+}
+
+func purchaseReturnPostingLines(input PurchaseReturnPosting) []postingLine {
+	gross := input.BaseGrossAmount.Round(4)
+	net := input.BaseNetAmount.Round(4)
+	tax := input.BaseTaxAmount.Round(4)
+
+	lines := make([]postingLine, 0, 3)
+	if !gross.IsZero() {
+		if gross.IsPositive() {
+			lines = append(lines, postingLine{AccountKey: "ap", Summary: "采购退货应付", Debit: gross, PartnerID: input.SupplierID})
+		} else {
+			lines = append(lines, postingLine{AccountKey: "ap", Summary: "采购退货应付", Credit: gross.Abs(), PartnerID: input.SupplierID})
+		}
+	}
+	if !net.IsZero() {
+		if net.IsPositive() {
+			lines = append(lines, postingLine{AccountKey: "inventory", Summary: "采购退货出库", Credit: net})
+		} else {
+			lines = append(lines, postingLine{AccountKey: "inventory", Summary: "采购退货出库", Debit: net.Abs()})
+		}
+	}
+	if !tax.IsZero() {
+		if tax.IsPositive() {
+			lines = append(lines, postingLine{AccountKey: "input_vat", Summary: "进项税额转出", Credit: tax, PartnerID: input.SupplierID})
+		} else {
+			lines = append(lines, postingLine{AccountKey: "input_vat", Summary: "进项税额转出", Debit: tax.Abs(), PartnerID: input.SupplierID})
+		}
+	}
+	return lines
 }
 
 func PostPayment(ctx context.Context, tx pgx.Tx, input PaymentPosting) error {
