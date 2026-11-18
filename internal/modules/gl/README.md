@@ -40,6 +40,7 @@
 | GET | `/api/v1/finance/reports/balance-sheet` | `finance.report.read` |
 | GET | `/api/v1/finance/reports/income-statement` | `finance.report.read` |
 | GET | `/api/v1/finance/reports/auxiliary-balance` | `finance.report.read` |
+| GET | `/api/v1/finance/reports/cash-flow` | `finance.report.read` |
 | GET | `/api/v1/finance/dimensions` | `finance.voucher.read` |
 
 ## 自动凭证规则
@@ -118,9 +119,19 @@ go run ./cmd/glbackfill
 - 期末关账重估未核销外币应收应付，生成 `fx_revaluation`，次期初生成 `fx_revaluation_reversal`。
 - 反关账生成 `fx_revaluation_reopen` 和 `fx_revaluation_reversal_reopen`，并回退发票累计重估。
 
+## 现金流量表（Stage 3G）
+
+- 直接法主表：按日期区间汇总经营活动、投资活动、筹资活动的现金流入、流出和净额。
+- 18 个标准现金流项目；凭证按现金/银行科目识别，按非现金对方科目金额比例分摊，金额保留 4 位小数，最后一条吸收尾差。
+- 科目映射：现金/银行取 `cash`/`bank` 映射并按编码前 4 位根归一化；对方科目按标准科目编码根匹配，如 `1122`、`2202`、`1405`、`2211`、`2221`、`16xx`/`17xx`、`2001`/`2501`、`4001`、`4104`。
+- 现金/银行互转忽略；无对方科目或未识别科目的现金分录进入“其他经营活动现金流”，并返回未分类凭证明细、方向和原因。
+- 间接法附表：净利润、非付现费用（`non_cash_expense` 映射，可选）、经营性应收、存货、经营性应付、应交税费、应付职工薪酬变动，输出间接法经营净额、直接法经营净额和差额。
+- 期初现金为起始日前一日现金/银行科目余额，期末现金为截止日余额；现金净增加额 = 经营净额 + 投资净额 + 筹资净额。
+- 口径：统计 `posted` 和 `reversed` 凭证，应用组织数据范围；净利润复用利润表口径，排除结转凭证。
+- API：`GET /api/v1/finance/reports/cash-flow`，参数 `start_date`、`end_date`。
+
 ## 后续
 
-- 现金流量表。
 - 完整增值税申报表、附加税、红字发票。
 - 存货辅助核算、项目主数据、辅助核算明细账。
 - 反结转与更严格的年度重开控制。

@@ -1,6 +1,6 @@
 <template>
   <div>
-    <PageHeader title="财务报表" description="科目余额表、明细账、资产负债表和利润表。">
+    <PageHeader title="财务报表" description="科目余额表、明细账、资产负债表、利润表、现金流量表、辅助余额表和增值税汇总。">
       <el-button type="primary" plain :loading="loading" @click="refresh">刷新</el-button>
     </PageHeader>
 
@@ -180,7 +180,7 @@
             <el-date-picker v-model="cashRange" type="daterange" value-format="YYYY-MM-DD" start-placeholder="开始日期" end-placeholder="结束日期" />
             <el-button type="primary" plain @click="loadCashFlow">查询</el-button>
           </div>
-          <template v-if="cashFlow">
+          <div v-if="cashFlow" v-loading="loading" class="cash-flow-content">
             <div class="summary">
               <span>期初现金：{{ cashFlow.opening_cash }}</span>
               <span>现金净增加额：{{ cashFlow.net_increase }}</span>
@@ -238,22 +238,24 @@
                 <el-table-column prop="name" label="项目" min-width="280" />
                 <el-table-column prop="amount" label="金额" width="150" align="right" />
               </el-table>
-              <div v-if="cashFlow.indirect.difference !== '0.0000'" class="warning-text">
-                间接法与直接法经营活动现金流量净额差额：{{ cashFlow.indirect.difference }}
+              <div v-if="hasIndirectDifference" class="warning-text">
+                间接法与直接法经营活动现金流量净额差额：{{ cashFlow.indirect?.difference }}
               </div>
             </div>
 
-            <div v-if="cashFlow.unclassified.length" class="cash-section">
+            <div v-if="cashFlow.unclassified?.length" class="cash-section">
               <h3>未分类现金凭证</h3>
               <el-table :data="cashFlow.unclassified" border>
                 <el-table-column prop="voucher_code" label="凭证号" min-width="160" />
                 <el-table-column prop="voucher_date" label="日期" width="120" />
-                <el-table-column prop="direction" label="方向" width="90" />
+                <el-table-column prop="direction" label="方向" width="90">
+                  <template #default="{ row }">{{ directionLabel(row.direction) }}</template>
+                </el-table-column>
                 <el-table-column prop="amount" label="金额" width="150" align="right" />
                 <el-table-column prop="reason" label="原因" min-width="180" />
               </el-table>
             </div>
-          </template>
+          </div>
           <el-empty v-else description="点击查询生成现金流量表" />
         </el-tab-pane>
       </el-tabs>
@@ -306,6 +308,11 @@ const vatSummary = ref<VATSummary | null>(null)
 
 const accountOptions = computed(() => accounts.value.filter((item) => item.is_leaf && item.status === 'active'))
 
+const hasIndirectDifference = computed(() => {
+  const difference = Number(cashFlow.value?.indirect?.difference ?? 0)
+  return Number.isFinite(difference) && difference !== 0
+})
+
 const indirectRows = computed(() => {
   const indirect = cashFlow.value?.indirect
   if (!indirect) {
@@ -340,6 +347,16 @@ function typeLabel(type: string) {
       expense: '费用'
     }[type] ?? type
   )
+}
+
+function directionLabel(direction: string) {
+  if (direction === 'inflow') {
+    return '流入'
+  }
+  if (direction === 'outflow') {
+    return '流出'
+  }
+  return direction
 }
 
 async function loadTrial() {

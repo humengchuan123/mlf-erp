@@ -2,7 +2,7 @@
 
 企业级 ERP Monorepo 骨架，支持 **SaaS 订阅** 与 **私有化安装** 两种交付形态。
 
-> 当前状态：Stage 1 平台底座 + Stage 2 主数据/编码规则/数据权限 + Stage 3A 采购/库存 + Stage 3B 销售/应收应付 + Stage 3C 总账/自动凭证/基础报表 + Stage 3D 期末结转/辅助核算 + Stage 3E 税务/发票/价税分离 + Stage 3F 多币种/汇率/汇兑损益。
+> 当前状态：Stage 1 平台底座 + Stage 2 主数据/编码规则/数据权限 + Stage 3A 采购/库存 + Stage 3B 销售/应收应付 + Stage 3C 总账/自动凭证/基础报表 + Stage 3D 期末结转/辅助核算 + Stage 3E 税务/发票/价税分离 + Stage 3F 多币种/汇率/汇兑损益 + Stage 3G 现金流量表。
 > 设计参考：工作区根目录的《企业ERP应用开发指南》。
 
 ## 技术栈
@@ -371,17 +371,27 @@ docker build -f deploy/docker/web.Dockerfile -t mlf-erp/web:dev .
 - 前端增加汇率管理、本位币金额和汇率字段；SDK/OpenAPI 同步。
 - Stage 3F 真实 HTTP API 集成测试和前端完整度检查。
 
+### Stage 3G 现金流量表
+
+- 直接法现金流量表：经营活动、投资活动、筹资活动的现金流入、流出和净额。
+- 18 个标准现金流项目，按对方科目编码前缀自动归类，现金/银行映射支持子科目。
+- 无法归类的现金凭证进入“其他经营活动现金流”，并返回未分类凭证明细和原因。
+- 简化间接法附表：净利润、非付现费用、经营性应收/存货/应付/税费/职工薪酬变动、间接法经营净额、直接法经营净额和差额。
+- 期初现金、期末现金和现金净增加额，按现金/银行科目总账余额计算。
+- API、SDK、OpenAPI 和财务报表前端页签同步；权限沿用 `finance.report.read`。
+- Stage 3G 真实 HTTP API 集成测试和前端完整度检查。
+- API 测试命令：`pnpm test:api:stage3g`（写入本地开发库并消耗一个干净年度，完整回归请使用干净数据库）。
+
 ### 工程与交付
 
 - Monorepo 工作区与共享包。
 - PostgreSQL 迁移、seed、Docker Compose。
 - Dockerfile、GitHub Actions CI、SaaS/私有化发布模板。
-- CI 包含单元测试、构建、Stage 3B/3C/3D/3E/3F 真实 PostgreSQL API 集成测试。
+- CI 包含单元测试、构建、Stage 3B/3C/3D/3E/3F/3G 真实 PostgreSQL API 集成测试。
 - OpenAPI 契约与模块文档。
 
 ## 下一步
 
-- Stage 3G：现金流量表。
 - 银行/现金外币重估、跨币种核销、多本位币/合并报表折算。
 - 采购退货、销售退货、价格协议、客户信用。
 - 收付款反核销、红字发票、账龄分析。

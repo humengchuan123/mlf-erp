@@ -189,6 +189,9 @@ assertFile('apps/web/src/views/finance/ReportView.vue', [
   'glApi.reports.auxiliaryBalance',
   'glApi.reports.vatSummary',
   'glApi.reports.cashFlow',
+  'cashRange',
+  'loadCashFlow',
+  'name="cash"',
   '现金流量表',
   'unclassified',
   'indirect'
