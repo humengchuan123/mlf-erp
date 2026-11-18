@@ -597,15 +597,7 @@ func loadOrderLinesForUpdate(ctx context.Context, tx pgx.Tx, tenantID, orderID s
 }
 
 func loadShipmentLines(ctx context.Context, q querier, tenantID, shipmentID string) ([]*domain.ShipmentLine, error) {
-	rows, err := q.Query(ctx, `
-		SELECT sl.id::text, sl.tenant_id::text, sl.shipment_id::text, sl.order_line_id::text,
-		       sl.material_id::text, COALESCE(m.name, ''), sl.quantity::text,
-		       sl.unit_price::text, COALESCE(sl.tax_rate_id::text, ''), sl.tax_rate::text,
-		       sl.amount::text, sl.tax_amount::text, sl.gross_amount::text,
-		       sl.base_amount::text, sl.base_tax_amount::text, sl.base_gross_amount::text,
-		       sl.unit_cost::text, sl.cost_amount::text
-		FROM erp.sales_shipment_lines sl
-		LEFT JOIN erp.materials m ON m.tenant_id = sl.tenant_id AND m.id = sl.material_id
+	rows, err := q.Query(ctx, shipmentLineSelectSQL+`
 		WHERE sl.tenant_id = $1 AND sl.shipment_id = $2
 		ORDER BY sl.id`, tenantID, shipmentID)
 	if err != nil {
@@ -623,6 +615,16 @@ func loadShipmentLines(ctx context.Context, q querier, tenantID, shipmentID stri
 	}
 	return lines, rows.Err()
 }
+
+const shipmentLineSelectSQL = `
+	SELECT sl.id::text, sl.tenant_id::text, sl.shipment_id::text, sl.order_line_id::text,
+	       sl.material_id::text, COALESCE(m.name, ''), sl.quantity::text,
+	       sl.unit_price::text, COALESCE(sl.tax_rate_id::text, ''), sl.tax_rate::text,
+	       sl.amount::text, sl.tax_amount::text, sl.gross_amount::text,
+	       sl.base_amount::text, sl.base_tax_amount::text, sl.base_gross_amount::text,
+	       sl.unit_cost::text, sl.cost_amount::text, sl.returned_qty::text
+	FROM erp.sales_shipment_lines sl
+	LEFT JOIN erp.materials m ON m.tenant_id = sl.tenant_id AND m.id = sl.material_id`
 
 type rowScanner interface {
 	Scan(dest ...any) error
@@ -725,12 +727,12 @@ func scanShipment(row rowScanner) (*domain.Shipment, error) {
 func scanShipmentLine(row rowScanner) (*domain.ShipmentLine, error) {
 	var line domain.ShipmentLine
 	var quantity, unitPrice, taxRate, amount, taxAmount, grossAmount string
-	var baseAmount, baseTax, baseGross, unitCost, costAmount string
+	var baseAmount, baseTax, baseGross, unitCost, costAmount, returnedQty string
 	err := row.Scan(
 		&line.ID, &line.TenantID, &line.ShipmentID, &line.OrderLineID,
 		&line.MaterialID, &line.MaterialName, &quantity, &unitPrice,
 		&line.TaxRateID, &taxRate, &amount, &taxAmount, &grossAmount,
-		&baseAmount, &baseTax, &baseGross, &unitCost, &costAmount,
+		&baseAmount, &baseTax, &baseGross, &unitCost, &costAmount, &returnedQty,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, domain.ErrNotFound
@@ -749,6 +751,7 @@ func scanShipmentLine(row rowScanner) (*domain.ShipmentLine, error) {
 	line.BaseGrossAmount = decimal.RequireFromString(baseGross)
 	line.UnitCost = decimal.RequireFromString(unitCost)
 	line.CostAmount = decimal.RequireFromString(costAmount)
+	line.ReturnedQty = decimal.RequireFromString(returnedQty)
 	return &line, nil
 }
 

@@ -73,6 +73,17 @@ type ReturnLineInput struct {
 	Quantity       decimal.Decimal
 }
 
+type ReturnCreateParams struct {
+	ShipmentID     string
+	ReturnDate     time.Time
+	Reason         string
+	Remark         string
+	Lines          []ReturnLineInput
+	ReturnCode     string
+	CreditNoteCode string
+	VoucherCode    string
+}
+
 func BuildReturnLines(shipment *Shipment, inputs []ReturnLineInput) ([]*SalesReturnLine, error) {
 	if shipment == nil || len(inputs) == 0 {
 		return nil, ErrInvalidInput
