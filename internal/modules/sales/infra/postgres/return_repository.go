@@ -141,6 +141,9 @@ func (r *ReturnRepository) Create(
 		line.ReturnID = ret.ID
 	}
 	ret.RecalculateTotals()
+	if !ret.TotalAmount.IsPositive() && !ret.CostAmount.IsPositive() {
+		ret.VoucherCode = ""
+	}
 
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO erp.sales_returns (
