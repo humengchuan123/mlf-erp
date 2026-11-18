@@ -66,15 +66,18 @@ type Invoice struct {
 }
 
 func (i *Invoice) Outstanding() decimal.Decimal {
-	return i.TotalAmount.Sub(i.PaidAmount).Sub(i.CreditedAmount).Round(4)
+	outstanding := i.TotalAmount.Sub(i.PaidAmount).Sub(i.CreditedAmount).Round(4)
+	if outstanding.IsNegative() {
+		return decimal.Zero
+	}
+	return outstanding
 }
 
 func (i *Invoice) StatusAfterSettlement() string {
-	settled := i.PaidAmount.Add(i.CreditedAmount)
-	if settled.GreaterThanOrEqual(i.TotalAmount) {
+	if !i.Outstanding().IsPositive() {
 		return InvoiceStatusPaid
 	}
-	if settled.IsPositive() {
+	if i.PaidAmount.Add(i.CreditedAmount).IsPositive() {
 		return InvoiceStatusPartiallyPaid
 	}
 	return InvoiceStatusOpen
