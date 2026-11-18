@@ -1,6 +1,6 @@
 <template>
   <div>
-    <PageHeader title="贷项单" description="查看销售退货生成的贷项单、核销进度和来源单据。">
+    <PageHeader title="贷项单" description="查看销售/采购退货生成的贷项单、核销进度和来源单据。">
       <el-button type="primary" plain @click="search">查询</el-button>
     </PageHeader>
 
@@ -13,6 +13,10 @@
           class="toolbar__search"
           @keyup.enter="search"
         />
+        <el-select v-model="creditTypeFilter" placeholder="全部类型" clearable class="toolbar__status">
+          <el-option label="销售退货" value="sales_return" />
+          <el-option label="采购退货" value="purchase_return" />
+        </el-select>
         <el-select v-model="statusFilter" placeholder="全部状态" clearable class="toolbar__status">
           <el-option label="未核销" value="open" />
           <el-option label="已核销" value="applied" />
@@ -22,6 +26,9 @@
 
       <el-table v-loading="loading" :data="creditNotes" border stripe>
         <el-table-column prop="code" label="贷项单号" min-width="150" />
+        <el-table-column prop="credit_type" label="类型" width="110">
+          <template #default="{ row }">{{ creditTypeLabel(row.credit_type) }}</template>
+        </el-table-column>
         <el-table-column prop="partner_name" label="往来单位" min-width="150" />
         <el-table-column prop="invoice_code" label="原发票号" min-width="150">
           <template #default="{ row }">{{ row.invoice_code || '-' }}</template>
@@ -64,6 +71,7 @@
           </el-descriptions-item>
           <el-descriptions-item label="来源退货单">{{ detail.source_code || '-' }}</el-descriptions-item>
           <el-descriptions-item label="来源类型">{{ sourceTypeLabel(detail.source_type) }}</el-descriptions-item>
+          <el-descriptions-item label="贷项类型">{{ creditTypeLabel(detail.credit_type) }}</el-descriptions-item>
           <el-descriptions-item label="原发票号">{{ detail.invoice_code || '-' }}</el-descriptions-item>
           <el-descriptions-item label="往来单位">{{ detail.partner_name }}</el-descriptions-item>
           <el-descriptions-item label="日期">{{ detail.note_date }}</el-descriptions-item>
@@ -86,11 +94,12 @@
 import { onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { PageHeader } from '@mlf-erp/ui'
-import { financeApi, type CreditNote } from '@mlf-erp/sdk'
+import { financeApi, type CreditNote, type CreditNoteListParams } from '@mlf-erp/sdk'
 
 const creditNotes = ref<CreditNote[]>([])
 const loading = ref(false)
 const keyword = ref('')
+const creditTypeFilter = ref<CreditNoteListParams['credit_type'] | ''>('')
 const statusFilter = ref('')
 const page = ref(1)
 const pageSize = ref(20)
@@ -102,6 +111,7 @@ async function load() {
   loading.value = true
   try {
     const result = await financeApi.creditNotes.list({
+      credit_type: creditTypeFilter.value || undefined,
       status: statusFilter.value,
       keyword: keyword.value,
       page: page.value,
@@ -123,6 +133,7 @@ function search() {
 
 function resetSearch() {
   keyword.value = ''
+  creditTypeFilter.value = ''
   statusFilter.value = ''
   page.value = 1
   load()
@@ -154,8 +165,15 @@ function statusType(status: string) {
   return 'info'
 }
 
+function creditTypeLabel(value: string) {
+  if (value === 'sales_return') return '销售退货'
+  if (value === 'purchase_return') return '采购退货'
+  return value || '-'
+}
+
 function sourceTypeLabel(value: string) {
   if (value === 'sales_return') return '销售退货'
+  if (value === 'purchase_return') return '采购退货'
   return value || '-'
 }
 

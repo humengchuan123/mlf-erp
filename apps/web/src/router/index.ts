@@ -32,6 +32,18 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '采购订单', permission: 'purchase.order.read' }
       },
       {
+        path: 'purchase/receipts',
+        name: 'purchase-receipts',
+        component: () => import('@/views/purchase/PurchaseReceiptListView.vue'),
+        meta: { title: '采购收货', permission: 'purchase.receipt.read' }
+      },
+      {
+        path: 'purchase/returns',
+        name: 'purchase-returns',
+        component: () => import('@/views/purchase/PurchaseReturnListView.vue'),
+        meta: { title: '采购退货', permission: 'purchase.return.read' }
+      },
+      {
         path: 'sales/orders',
         name: 'sales-orders',
         component: () => import('@/views/sales/OrderListView.vue'),

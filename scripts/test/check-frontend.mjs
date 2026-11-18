@@ -26,6 +26,12 @@ assertFile('apps/web/src/router/index.ts', [
   "path: 'sales/orders'",
   'OrderListView.vue',
   'sales.order.read',
+  "path: 'purchase/receipts'",
+  'PurchaseReceiptListView.vue',
+  'purchase.receipt.read',
+  "path: 'purchase/returns'",
+  'PurchaseReturnListView.vue',
+  'purchase.return.read',
   "path: 'sales/shipments'",
   'ShipmentListView.vue',
   'sales.shipment.read',
@@ -61,13 +67,19 @@ assertFile('apps/web/src/layouts/DefaultLayout.vue', [
   'sales.order.read',
   'sales.shipment.read',
   'sales.return.read',
+  'purchase.receipt.read',
+  'purchase.return.read',
   'finance.invoice.read',
   'finance.payment.read',
   '销售订单',
   '发货单',
   '销售退货',
+  '采购收货',
+  '采购退货',
   '应收应付',
   '贷项单',
+  'index="/purchase/receipts"',
+  'index="/purchase/returns"',
   'index="/sales/returns"',
   'index="/finance/credit-notes"',
   '收付款',
@@ -116,6 +128,25 @@ assertFile('apps/web/src/views/purchase/OrderListView.vue', [
   'base_total_amount'
 ])
 
+assertFile('apps/web/src/views/purchase/PurchaseReceiptListView.vue', [
+  'PageHeader',
+  'el-table',
+  'purchaseApi.receipts(',
+  'purchaseApi.returns.create',
+  'returned_qty',
+  'returnable_qty',
+  'return_qty'
+])
+
+assertFile('apps/web/src/views/purchase/PurchaseReturnListView.vue', [
+  'PageHeader',
+  'el-table',
+  'purchaseApi.returns.list',
+  'purchaseApi.returns.get',
+  'credit_note_remaining_amount',
+  'voucher_code'
+])
+
 assertFile('apps/web/src/views/sales/ShipmentListView.vue', [
   'PageHeader',
   'el-table',
@@ -142,7 +173,10 @@ assertFile('apps/web/src/views/finance/CreditNoteListView.vue', [
   'el-table',
   'el-drawer',
   'financeApi.creditNotes.list',
-  'financeApi.creditNotes.get'
+  'financeApi.creditNotes.get',
+  'credit_type',
+  'creditTypeLabel',
+  'purchase_return'
 ])
 
 assertFile('apps/web/src/views/finance/InvoiceListView.vue', [

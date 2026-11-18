@@ -20,6 +20,14 @@
             <el-icon><ShoppingCart /></el-icon>
             <span>采购订单</span>
           </el-menu-item>
+          <el-menu-item v-if="authStore.hasPermission('purchase.receipt.read')" index="/purchase/receipts">
+            <el-icon><Box /></el-icon>
+            <span>采购收货</span>
+          </el-menu-item>
+          <el-menu-item v-if="authStore.hasPermission('purchase.return.read')" index="/purchase/returns">
+            <el-icon><RefreshLeft /></el-icon>
+            <span>采购退货</span>
+          </el-menu-item>
           <el-menu-item v-if="authStore.hasPermission('sales.order.read')" index="/sales/orders">
             <el-icon><Sell /></el-icon>
             <span>销售订单</span>
@@ -200,6 +208,8 @@ const displayName = computed(() => authStore.user?.display_name || authStore.use
 const canSupplyChain = computed(
   () =>
     authStore.hasPermission('purchase.order.read') ||
+    authStore.hasPermission('purchase.receipt.read') ||
+    authStore.hasPermission('purchase.return.read') ||
     authStore.hasPermission('sales.order.read') ||
     authStore.hasPermission('sales.shipment.read') ||
     authStore.hasPermission('sales.return.read') ||
