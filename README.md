@@ -2,7 +2,7 @@
 
 企业级 ERP Monorepo 骨架，支持 **SaaS 订阅** 与 **私有化安装** 两种交付形态。
 
-> 当前状态：Stage 1 平台底座 + Stage 2 主数据/编码规则/数据权限 + Stage 3A 采购/库存 + Stage 3B 销售/应收应付 + Stage 3C 总账/自动凭证/基础报表 + Stage 3D 期末结转/辅助核算 + Stage 3E 税务/发票/价税分离 + Stage 3F 多币种/汇率/汇兑损益 + Stage 3G 现金流量表 + Stage 3H 销售退货/贷项单。
+> 当前状态：Stage 1 平台底座 + Stage 2 主数据/编码规则/数据权限 + Stage 3A 采购/库存 + Stage 3B 销售/应收应付 + Stage 3C 总账/自动凭证/基础报表 + Stage 3D 期末结转/辅助核算 + Stage 3E 税务/发票/价税分离 + Stage 3F 多币种/汇率/汇兑损益 + Stage 3G 现金流量表 + Stage 3H 销售退货/贷项单 + Stage 3I 采购退货/应付贷项单。
 > 设计参考：工作区根目录的《企业ERP应用开发指南》。
 
 ## 技术栈
@@ -283,6 +283,10 @@ pnpm test:api:stage3g
 # Stage 3H API integration test (sales returns, credit notes)
 pnpm test:api:stage3h
 
+# Stage 3I API integration test (purchase returns, payable credit notes)
+# Writes to the local dev database and consumes a clean year for FX revaluation; use a clean database for full regression.
+pnpm test:api:stage3i
+
 # Docker
 docker build -f deploy/docker/api.Dockerfile -t mlf-erp/api:dev .
 docker build -f deploy/docker/worker.Dockerfile -t mlf-erp/worker:dev .
@@ -403,18 +407,30 @@ docker build -f deploy/docker/web.Dockerfile -t mlf-erp/web:dev .
 - Stage 3H 真实 HTTP API 集成测试和前端完整度检查。
 - API 测试命令：`pnpm test:api:stage3h`（写入本地开发库并消耗数据，完整回归请使用干净数据库）。
 
+### Stage 3I 采购退货与应付贷项单
+
+- 按原收货行部分/全部退货，累计退货数量校验，超退返回 `OVER_RETURN`。
+- 库存按原采购成本出库并重算移动平均成本，写入 `purchase_return` 库存流水。
+- 冲应付/进项税/库存，生成 `purchase_return` 自动凭证。
+- 贷项单自动冲原应付发票未付金额，超出部分保留为供应商贷项（`open`）；已付款发票退货不减少 `credited_amount`。
+- 发票增加已冲贷项金额，未付金额和状态扣减 credited（`paid` 前端显示“已结清”）。
+- 期间外币重估按扣减 credited 后的未付金额计算，已全额冲减的发票不再重估。
+- 退货/贷项单 API、SDK、OpenAPI 和前端页面同步；权限 `purchase.return.read/write`。
+- Stage 3I 真实 HTTP API 集成测试和前端完整度检查。
+- API 测试命令：`pnpm test:api:stage3i`（写入本地开发库并消耗一个干净年度，完整回归请使用干净数据库）。
+
 ### 工程与交付
 
 - Monorepo 工作区与共享包。
 - PostgreSQL 迁移、seed、Docker Compose。
 - Dockerfile、GitHub Actions CI、SaaS/私有化发布模板。
-- CI 包含单元测试、构建、Stage 3B/3C/3D/3E/3F/3G/3H 真实 PostgreSQL API 集成测试。
+- CI 包含单元测试、构建、Stage 3B/3C/3D/3E/3F/3G/3H/3I 真实 PostgreSQL API 集成测试。
 - OpenAPI 契约与模块文档。
 
 ## 下一步
 
 - 银行/现金外币重估、跨币种核销、多本位币/合并报表折算。
-- 采购退货、价格协议、客户信用。
+- 价格协议、客户信用。
 - 收付款反核销、红字发票、贷项单抵其他发票/退款、账龄分析。
 - 审批流引擎、导入导出、附件。
 - 数据范围管理 API/UI。
