@@ -570,6 +570,11 @@ func TestAllocateCashFlowNormalizesCashSubaccounts(t *testing.T) {
 			cashAccount: "1002",
 			cashCodes:   map[string]bool{"1002.01": true},
 		},
+		{
+			name:        "sibling cash subaccount covered by root",
+			cashAccount: "1002.02",
+			cashCodes:   map[string]bool{"1002.01": true},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -596,6 +601,93 @@ func TestAllocateCashFlowNormalizesCashSubaccounts(t *testing.T) {
 				t.Fatal("allocation must be classified")
 			}
 		})
+	}
+}
+
+func TestAllocateCashFlowExactNonNumericCashAccount(t *testing.T) {
+	voucher := CashFlowVoucher{
+		VoucherID: "v-bank", VoucherCode: "GL-BANK", VoucherDate: cashFlowTestDate,
+		Lines: []CashFlowVoucherLine{
+			{AccountCode: "BANK1", Debit: decimal.NewFromInt(80)},
+			{AccountCode: "1122", Credit: decimal.NewFromInt(80)},
+		},
+	}
+	allocations := AllocateCashFlow(voucher, map[string]bool{"BANK1": true})
+	if len(allocations) != 1 {
+		t.Fatalf("allocations = %d, want 1", len(allocations))
+	}
+	allocation := allocations[0]
+	assertCashFlowAllocationSource(t, allocation, voucher)
+	if allocation.ItemCode != "sales_receipts" {
+		t.Fatalf("item = %s, want sales_receipts", allocation.ItemCode)
+	}
+	if allocation.Category != CashFlowOperating {
+		t.Fatalf("category = %s, want %s", allocation.Category, CashFlowOperating)
+	}
+	if allocation.Direction != CashFlowInflow {
+		t.Fatalf("direction = %s, want %s", allocation.Direction, CashFlowInflow)
+	}
+	if !allocation.Amount.Equal(decimal.NewFromInt(80)) {
+		t.Fatalf("amount = %s, want 80", allocation.Amount)
+	}
+	if allocation.Unclassified {
+		t.Fatal("allocation must be classified")
+	}
+}
+
+func TestAllocateCashFlowExactDottedCashAccount(t *testing.T) {
+	voucher := CashFlowVoucher{
+		VoucherID: "v-dotted", VoucherCode: "GL-DOTTED", VoucherDate: cashFlowTestDate,
+		Lines: []CashFlowVoucherLine{
+			{AccountCode: "2202", Debit: decimal.NewFromInt(40)},
+			{AccountCode: "1002.01", Credit: decimal.NewFromInt(40)},
+		},
+	}
+	allocations := AllocateCashFlow(voucher, map[string]bool{"1002.01": true})
+	if len(allocations) != 1 {
+		t.Fatalf("allocations = %d, want 1", len(allocations))
+	}
+	allocation := allocations[0]
+	assertCashFlowAllocationSource(t, allocation, voucher)
+	if allocation.ItemCode != "purchase_payments" {
+		t.Fatalf("item = %s, want purchase_payments", allocation.ItemCode)
+	}
+	if allocation.Direction != CashFlowOutflow {
+		t.Fatalf("direction = %s, want %s", allocation.Direction, CashFlowOutflow)
+	}
+	if !allocation.Amount.Equal(decimal.NewFromInt(40)) {
+		t.Fatalf("amount = %s, want 40", allocation.Amount)
+	}
+	if allocation.Unclassified {
+		t.Fatal("allocation must be classified")
+	}
+}
+
+func TestAllocateCashFlowNonNumericCashWithCounterpart(t *testing.T) {
+	voucher := CashFlowVoucher{
+		VoucherID: "v-bank-out", VoucherCode: "GL-BANK-OUT", VoucherDate: cashFlowTestDate,
+		Lines: []CashFlowVoucherLine{
+			{AccountCode: "2202", Debit: decimal.NewFromInt(30)},
+			{AccountCode: "BANK1", Credit: decimal.NewFromInt(30)},
+		},
+	}
+	allocations := AllocateCashFlow(voucher, map[string]bool{"BANK1": true})
+	if len(allocations) != 1 {
+		t.Fatalf("allocations = %d, want 1", len(allocations))
+	}
+	allocation := allocations[0]
+	assertCashFlowAllocationSource(t, allocation, voucher)
+	if allocation.ItemCode != "purchase_payments" {
+		t.Fatalf("item = %s, want purchase_payments", allocation.ItemCode)
+	}
+	if allocation.Direction != CashFlowOutflow {
+		t.Fatalf("direction = %s, want %s", allocation.Direction, CashFlowOutflow)
+	}
+	if !allocation.Amount.Equal(decimal.NewFromInt(30)) {
+		t.Fatalf("amount = %s, want 30", allocation.Amount)
+	}
+	if allocation.Unclassified {
+		t.Fatal("allocation must be classified")
 	}
 }
 

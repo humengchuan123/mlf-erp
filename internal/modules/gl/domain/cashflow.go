@@ -296,7 +296,7 @@ func AllocateCashFlow(voucher CashFlowVoucher, cashCodes map[string]bool) []Cash
 	credits := make([]CashFlowVoucherLine, 0)
 	debits := make([]CashFlowVoucherLine, 0)
 	for _, line := range voucher.Lines {
-		if cashRoots[CashFlowAccountRoot(line.AccountCode)] {
+		if cashCodes[line.AccountCode] || cashRoots[CashFlowAccountRoot(line.AccountCode)] {
 			cashIn = cashIn.Add(line.Debit)
 			cashOut = cashOut.Add(line.Credit)
 			continue

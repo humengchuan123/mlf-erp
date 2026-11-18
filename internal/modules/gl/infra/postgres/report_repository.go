@@ -386,11 +386,21 @@ func (r *ReportRepository) IncomeStatement(
 	tenantID string,
 	startDate, endDate time.Time,
 ) (*domain.IncomeStatement, error) {
+	return r.incomeStatement(ctx, r.db, filter, tenantID, startDate, endDate)
+}
+
+func (r *ReportRepository) incomeStatement(
+	ctx context.Context,
+	q cashFlowQuerier,
+	filter scope.Filter,
+	tenantID string,
+	startDate, endDate time.Time,
+) (*domain.IncomeStatement, error) {
 	args := []any{tenantID, startDate.Format("2006-01-02"), endDate.Format("2006-01-02")}
 	where := "l.tenant_id = $1 AND v.status IN ('posted', 'reversed') AND v.voucher_date BETWEEN $2::date AND $3::date AND v.voucher_type NOT IN ('period_close', 'period_close_reversal', 'year_close')"
 	appendScope(&where, &args, "v", filter)
 
-	rows, err := r.db.Query(ctx, `
+	rows, err := q.Query(ctx, `
 		SELECT a.code, a.name, a.type, COALESCE(SUM(l.debit - l.credit), 0)::text
 		FROM erp.gl_voucher_lines l
 		JOIN erp.gl_vouchers v ON v.tenant_id = l.tenant_id AND v.id = l.voucher_id

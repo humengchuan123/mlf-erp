@@ -3,15 +3,22 @@ package postgres
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/mlf-erp/mlf-erp/internal/modules/gl/domain"
 	"github.com/mlf-erp/mlf-erp/internal/platform/scope"
 	"github.com/shopspring/decimal"
 )
 
-func (r *ReportRepository) cashCodes(ctx context.Context, tenantID string) ([]string, error) {
-	rows, err := r.db.Query(ctx, `
+type cashFlowQuerier interface {
+	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+}
+
+func (r *ReportRepository) cashCodes(ctx context.Context, q cashFlowQuerier, tenantID string) ([]string, error) {
+	rows, err := q.Query(ctx, `
 		SELECT account_code
 		FROM erp.gl_account_mappings
 		WHERE tenant_id = $1 AND key IN ('cash', 'bank')
@@ -20,24 +27,34 @@ func (r *ReportRepository) cashCodes(ctx context.Context, tenantID string) ([]st
 		return nil, fmt.Errorf("load cash mappings: %w", err)
 	}
 	defer rows.Close()
-	codes := make([]string, 0, 2)
+	codes := make([]string, 0, 4)
 	seen := map[string]bool{}
 	for rows.Next() {
 		var code string
 		if err := rows.Scan(&code); err != nil {
 			return nil, fmt.Errorf("scan cash mapping: %w", err)
 		}
-		root := domain.CashFlowAccountRoot(code)
-		if root == "" || seen[root] {
+		code = strings.TrimSpace(code)
+		if code == "" {
 			continue
 		}
-		seen[root] = true
-		codes = append(codes, root)
+		if !seen[code] {
+			seen[code] = true
+			codes = append(codes, code)
+		}
+		root := domain.CashFlowAccountRoot(code)
+		if root != "" && !seen[root] {
+			seen[root] = true
+			codes = append(codes, root)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate cash mappings: %w", err)
 	}
 	if len(codes) == 0 {
 		return []string{"1001", "1002"}, nil
 	}
-	return codes, rows.Err()
+	return codes, nil
 }
 
 func (r *ReportRepository) CashFlowStatement(
@@ -46,7 +63,13 @@ func (r *ReportRepository) CashFlowStatement(
 	tenantID string,
 	startDate, endDate time.Time,
 ) (*domain.CashFlowStatement, error) {
-	codes, err := r.cashCodes(ctx, tenantID)
+	tx, err := r.db.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
+	if err != nil {
+		return nil, fmt.Errorf("begin cash flow snapshot: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	codes, err := r.cashCodes(ctx, tx, tenantID)
 	if err != nil {
 		return nil, err
 	}
@@ -58,7 +81,7 @@ func (r *ReportRepository) CashFlowStatement(
 	args := []any{tenantID, startDate.Format("2006-01-02"), endDate.Format("2006-01-02")}
 	where := "l.tenant_id = $1 AND v.status IN ('posted', 'reversed') AND v.voucher_date BETWEEN $2::date AND $3::date"
 	appendScope(&where, &args, "v", filter)
-	rows, err := r.db.Query(ctx, `
+	rows, err := tx.Query(ctx, `
 		SELECT v.id::text, v.code, v.voucher_date, a.code, l.debit::text, l.credit::text
 		FROM erp.gl_voucher_lines l
 		JOIN erp.gl_vouchers v ON v.tenant_id = l.tenant_id AND v.id = l.voucher_id
@@ -93,7 +116,7 @@ func (r *ReportRepository) CashFlowStatement(
 		})
 	}
 	if err := rows.Err(); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("iterate cash flow vouchers: %w", err)
 	}
 
 	itemDefs := domain.CashFlowItemDefs()
@@ -107,8 +130,9 @@ func (r *ReportRepository) CashFlowStatement(
 			if allocation.Amount.IsZero() {
 				continue
 			}
-			if allocation.ItemCode == "" {
-				return nil, fmt.Errorf("unknown cash flow item %q", allocation.ItemCode)
+			item, ok := domain.CashFlowItem(allocation.ItemCode)
+			if !ok || item.Direction != allocation.Direction {
+				return nil, fmt.Errorf("unknown or inconsistent cash flow item %q", allocation.ItemCode)
 			}
 			totals[allocation.ItemCode] = totals[allocation.ItemCode].Add(allocation.Amount)
 			if allocation.Unclassified {
@@ -126,40 +150,40 @@ func (r *ReportRepository) CashFlowStatement(
 	financing := buildCashFlowSection(domain.CashFlowFinancing, totals)
 	netIncrease := operating.Net.Add(investing.Net).Add(financing.Net)
 
-	openingCash, err := r.cashBalance(ctx, filter, tenantID, codes, startDate.AddDate(0, 0, -1))
+	openingCash, err := r.cashBalance(ctx, tx, filter, tenantID, codes, startDate.AddDate(0, 0, -1))
 	if err != nil {
 		return nil, err
 	}
-	closingCash, err := r.cashBalance(ctx, filter, tenantID, codes, endDate)
+	closingCash, err := r.cashBalance(ctx, tx, filter, tenantID, codes, endDate)
 	if err != nil {
 		return nil, err
 	}
 
-	income, err := r.IncomeStatement(ctx, filter, tenantID, startDate, endDate)
+	income, err := r.incomeStatement(ctx, tx, filter, tenantID, startDate, endDate)
 	if err != nil {
 		return nil, err
 	}
-	nonCash, err := r.nonCashExpenses(ctx, filter, tenantID, startDate, endDate)
+	nonCash, err := r.nonCashExpenses(ctx, tx, filter, tenantID, startDate, endDate)
 	if err != nil {
 		return nil, err
 	}
-	arIncrease, err := r.balanceChange(ctx, filter, tenantID, []string{"1122"}, startDate, endDate, false)
+	arIncrease, err := r.balanceChange(ctx, tx, filter, tenantID, []string{"1122"}, startDate, endDate, false)
 	if err != nil {
 		return nil, err
 	}
-	inventoryIncrease, err := r.balanceChange(ctx, filter, tenantID, []string{"1405"}, startDate, endDate, false)
+	inventoryIncrease, err := r.balanceChange(ctx, tx, filter, tenantID, []string{"1405"}, startDate, endDate, false)
 	if err != nil {
 		return nil, err
 	}
-	apIncrease, err := r.balanceChange(ctx, filter, tenantID, []string{"2202"}, startDate, endDate, true)
+	apIncrease, err := r.balanceChange(ctx, tx, filter, tenantID, []string{"2202"}, startDate, endDate, true)
 	if err != nil {
 		return nil, err
 	}
-	taxIncrease, err := r.balanceChange(ctx, filter, tenantID, []string{"2221"}, startDate, endDate, true)
+	taxIncrease, err := r.balanceChange(ctx, tx, filter, tenantID, []string{"2221"}, startDate, endDate, true)
 	if err != nil {
 		return nil, err
 	}
-	employeeIncrease, err := r.balanceChange(ctx, filter, tenantID, []string{"2211"}, startDate, endDate, true)
+	employeeIncrease, err := r.balanceChange(ctx, tx, filter, tenantID, []string{"2211"}, startDate, endDate, true)
 	if err != nil {
 		return nil, err
 	}
@@ -206,13 +230,13 @@ func buildCashFlowSection(category string, totals map[string]decimal.Decimal) do
 }
 
 func (r *ReportRepository) cashBalance(
-	ctx context.Context, filter scope.Filter, tenantID string, codes []string, asOf time.Time,
+	ctx context.Context, q cashFlowQuerier, filter scope.Filter, tenantID string, codes []string, asOf time.Time,
 ) (decimal.Decimal, error) {
 	args := []any{tenantID, codes, asOf.Format("2006-01-02")}
 	where := "l.tenant_id = $1 AND (a.code = ANY($2::text[]) OR left(a.code, 4) = ANY($2::text[])) AND v.status IN ('posted', 'reversed') AND v.voucher_date <= $3::date"
 	appendScope(&where, &args, "v", filter)
 	var raw string
-	if err := r.db.QueryRow(ctx, `
+	if err := q.QueryRow(ctx, `
 		SELECT COALESCE(SUM(l.debit - l.credit), 0)::text
 		FROM erp.gl_voucher_lines l
 		JOIN erp.gl_vouchers v ON v.tenant_id = l.tenant_id AND v.id = l.voucher_id
@@ -224,13 +248,13 @@ func (r *ReportRepository) cashBalance(
 }
 
 func (r *ReportRepository) nonCashExpenses(
-	ctx context.Context, filter scope.Filter, tenantID string, startDate, endDate time.Time,
+	ctx context.Context, q cashFlowQuerier, filter scope.Filter, tenantID string, startDate, endDate time.Time,
 ) (decimal.Decimal, error) {
 	args := []any{tenantID, startDate.Format("2006-01-02"), endDate.Format("2006-01-02")}
-	where := "l.tenant_id = $1 AND v.status IN ('posted', 'reversed') AND v.voucher_date BETWEEN $2::date AND $3::date"
+	where := "l.tenant_id = $1 AND v.status IN ('posted', 'reversed') AND v.voucher_date BETWEEN $2::date AND $3::date AND v.voucher_type NOT IN ('period_close', 'period_close_reversal', 'year_close')"
 	appendScope(&where, &args, "v", filter)
 	var raw string
-	if err := r.db.QueryRow(ctx, `
+	if err := q.QueryRow(ctx, `
 		SELECT COALESCE(SUM(l.debit - l.credit), 0)::text
 		FROM erp.gl_voucher_lines l
 		JOIN erp.gl_vouchers v ON v.tenant_id = l.tenant_id AND v.id = l.voucher_id
@@ -245,14 +269,14 @@ func (r *ReportRepository) nonCashExpenses(
 }
 
 func (r *ReportRepository) balanceChange(
-	ctx context.Context, filter scope.Filter, tenantID string, codes []string,
+	ctx context.Context, q cashFlowQuerier, filter scope.Filter, tenantID string, codes []string,
 	startDate, endDate time.Time, liability bool,
 ) (decimal.Decimal, error) {
 	args := []any{tenantID, codes, startDate.Format("2006-01-02"), endDate.Format("2006-01-02")}
 	where := "l.tenant_id = $1 AND (a.code = ANY($2::text[]) OR left(a.code, 4) = ANY($2::text[])) AND v.status IN ('posted', 'reversed') AND v.voucher_date <= $4::date"
 	appendScope(&where, &args, "v", filter)
 	var openingRaw, closingRaw string
-	if err := r.db.QueryRow(ctx, `
+	if err := q.QueryRow(ctx, `
 		SELECT
 		  COALESCE(SUM(CASE WHEN v.voucher_date < $3::date THEN l.debit - l.credit ELSE 0 END), 0)::text,
 		  COALESCE(SUM(l.debit - l.credit), 0)::text
