@@ -53,6 +53,7 @@ type ReceiptLine struct {
 	BaseAmount      decimal.Decimal
 	BaseTaxAmount   decimal.Decimal
 	BaseGrossAmount decimal.Decimal
+	ReturnedQty     decimal.Decimal
 }
 
 func (r *Receipt) TotalAmount() decimal.Decimal {

@@ -56,6 +56,20 @@ type PurchaseReceiptPosting struct {
 	BaseGrossAmount decimal.Decimal
 }
 
+type PurchaseReturnPosting struct {
+	TenantID        string
+	OrgID           string
+	VoucherCode     string
+	SourceID        string
+	SourceCode      string
+	SupplierID      string
+	CreatedBy       string
+	VoucherDate     time.Time
+	BaseNetAmount   decimal.Decimal
+	BaseTaxAmount   decimal.Decimal
+	BaseGrossAmount decimal.Decimal
+}
+
 type PaymentPosting struct {
 	TenantID      string
 	OrgID         string
@@ -179,6 +193,35 @@ func PostPurchaseReceipt(ctx context.Context, tx pgx.Tx, input PurchaseReceiptPo
 		SourceID:    input.SourceID,
 		SourceCode:  input.SourceCode,
 		Memo:        "采购收货 " + input.SourceCode,
+		CreatedBy:   input.CreatedBy,
+		Lines:       lines,
+	})
+}
+
+func PostPurchaseReturn(ctx context.Context, tx pgx.Tx, input PurchaseReturnPosting) error {
+	lines := make([]postingLine, 0, 3)
+	if input.BaseGrossAmount.IsPositive() {
+		lines = append(lines, postingLine{AccountKey: "ap", Summary: "采购退货应付", Debit: input.BaseGrossAmount, PartnerID: input.SupplierID})
+		if input.BaseNetAmount.IsPositive() {
+			lines = append(lines, postingLine{AccountKey: "inventory", Summary: "采购退货出库", Credit: input.BaseNetAmount})
+		}
+		if input.BaseTaxAmount.IsPositive() {
+			lines = append(lines, postingLine{AccountKey: "input_vat", Summary: "进项税额转出", Credit: input.BaseTaxAmount, PartnerID: input.SupplierID})
+		}
+	}
+	if len(lines) == 0 {
+		return nil
+	}
+	return postVoucherTx(ctx, tx, voucherPostingInput{
+		TenantID:    input.TenantID,
+		OrgID:       input.OrgID,
+		VoucherCode: input.VoucherCode,
+		VoucherDate: input.VoucherDate,
+		VoucherType: domain.VoucherTypePurchaseReturn,
+		SourceType:  domain.SourceTypePurchaseReturn,
+		SourceID:    input.SourceID,
+		SourceCode:  input.SourceCode,
+		Memo:        "采购退货 " + input.SourceCode,
 		CreatedBy:   input.CreatedBy,
 		Lines:       lines,
 	})
