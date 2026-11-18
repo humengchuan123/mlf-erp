@@ -28,7 +28,10 @@ type CashFlowItemDef struct {
 type CashFlowContext struct {
 	HasRevenueCredit            bool
 	HasAccountsReceivableCredit bool
-	HasOperatingCostDebit       bool
+	HasInventoryOrCOGSDebit     bool
+	HasOperatingExpenseDebit    bool
+	HasInterestDebit            bool
+	HasIncomeTaxDebit           bool
 	HasFixedAssetCredit         bool
 	HasFixedAssetDebit          bool
 }
@@ -239,7 +242,7 @@ func ClassifyCashFlowWithContext(accountCode string, inflow bool, ctx CashFlowCo
 			return mustCashFlowItem("sales_receipts"), true
 		}
 		return mustCashFlowItem("other_operating_outflows"), true
-	case code == "2202" || code == "1405":
+	case code == "2202" || code == "1405" || code == "6401":
 		if inflow {
 			return mustCashFlowItem("other_operating_inflows"), true
 		}
@@ -256,8 +259,11 @@ func ClassifyCashFlowWithContext(accountCode string, inflow bool, ctx CashFlowCo
 			}
 			return mustCashFlowItem("tax_refunds"), true
 		}
-		if ctx.HasOperatingCostDebit {
+		if ctx.HasInventoryOrCOGSDebit {
 			return mustCashFlowItem("purchase_payments"), true
+		}
+		if ctx.HasOperatingExpenseDebit {
+			return mustCashFlowItem("other_operating_outflows"), true
 		}
 		return mustCashFlowItem("tax_payments"), true
 	case code == "1501" || code == "1511":
@@ -302,8 +308,7 @@ func ClassifyCashFlowWithContext(accountCode string, inflow bool, ctx CashFlowCo
 			return mustCashFlowItem("tax_refunds"), true
 		}
 		return mustCashFlowItem("tax_payments"), true
-	case strings.HasPrefix(code, "6401") || strings.HasPrefix(code, "6601") ||
-		strings.HasPrefix(code, "6602"):
+	case strings.HasPrefix(code, "6601") || strings.HasPrefix(code, "6602"):
 		if inflow {
 			return mustCashFlowItem("other_operating_inflows"), true
 		}
@@ -315,15 +320,6 @@ func ClassifyCashFlowWithContext(accountCode string, inflow bool, ctx CashFlowCo
 
 func isFixedAssetAccount(root string) bool {
 	return strings.HasPrefix(root, "16") || strings.HasPrefix(root, "17")
-}
-
-func isOperatingCostAccount(root string) bool {
-	switch root {
-	case "1405", "6401", "6601", "6602", "6603", "6801":
-		return true
-	default:
-		return false
-	}
 }
 
 func AllocateCashFlow(voucher CashFlowVoucher, cashCodes map[string]bool) []CashFlowAllocation {
@@ -364,8 +360,14 @@ func AllocateCashFlow(voucher CashFlowVoucher, cashCodes map[string]bool) []Cash
 			debits = append(debits, line)
 			debitTotal = debitTotal.Add(line.Debit)
 			switch {
-			case isOperatingCostAccount(root):
-				ctx.HasOperatingCostDebit = true
+			case root == "1405" || root == "6401":
+				ctx.HasInventoryOrCOGSDebit = true
+			case root == "6601" || root == "6602":
+				ctx.HasOperatingExpenseDebit = true
+			case root == "6603":
+				ctx.HasInterestDebit = true
+			case root == "6801":
+				ctx.HasIncomeTaxDebit = true
 			case isFixedAssetAccount(root):
 				ctx.HasFixedAssetDebit = true
 			}
