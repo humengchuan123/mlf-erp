@@ -324,44 +324,16 @@ func (r *ReturnRepository) Create(
 		invoiceBasePaid := decimal.RequireFromString(invoiceBasePaidRaw)
 		invoiceBaseCredited := decimal.RequireFromString(invoiceBaseCreditedRaw)
 
-		outstanding := invoiceTotal.Sub(invoicePaid).Sub(invoiceCredited)
-		if outstanding.IsNegative() {
-			outstanding = decimal.Zero
-		}
-		applied := decimal.Zero
-		if outstanding.IsPositive() {
-			applied = ret.TotalAmount
-			if applied.GreaterThan(outstanding) {
-				applied = outstanding
-			}
-		}
-		baseOutstanding := invoiceBaseTotal.Sub(invoiceBasePaid).Sub(invoiceBaseCredited)
-		if baseOutstanding.IsNegative() {
-			baseOutstanding = decimal.Zero
-		}
-		appliedBase := applied.Mul(invoiceRate).Round(4)
-		if applied.Equal(ret.TotalAmount) {
-			appliedBase = ret.BaseTotalAmount
-			if baseOutstanding.LessThan(appliedBase) {
-				appliedBase = baseOutstanding
-			}
-		} else {
-			if appliedBase.GreaterThan(baseOutstanding) {
-				appliedBase = baseOutstanding
-			}
-			if appliedBase.GreaterThan(ret.BaseTotalAmount) {
-				appliedBase = ret.BaseTotalAmount
-			}
-		}
-		remaining := ret.TotalAmount.Sub(applied).Round(4)
-		remainingBase := ret.BaseTotalAmount.Sub(appliedBase).Round(4)
-		if remaining.IsZero() && remainingBase.Abs().LessThanOrEqual(decimal.RequireFromString("0.0001")) {
-			remainingBase = decimal.Zero
-		}
-		noteStatus := "open"
-		if remaining.IsZero() && remainingBase.IsZero() {
-			noteStatus = "applied"
-		}
+		application := applyPurchaseReturnCredit(
+			ret.TotalAmount, ret.BaseTotalAmount, invoiceRate,
+			invoiceTotal, invoicePaid, invoiceCredited,
+			invoiceBaseTotal, invoiceBasePaid, invoiceBaseCredited,
+		)
+		applied := application.Applied
+		appliedBase := application.AppliedBase
+		remaining := application.Remaining
+		remainingBase := application.RemainingBase
+		noteStatus := application.Status
 
 		creditNoteID := uuid.NewString()
 		if _, err := tx.Exec(ctx, `
@@ -423,6 +395,74 @@ func (r *ReturnRepository) Create(
 	}
 
 	return r.Get(ctx, filter, tenantID, ret.ID)
+}
+
+type purchaseReturnCreditApplication struct {
+	Applied       decimal.Decimal
+	AppliedBase   decimal.Decimal
+	Remaining     decimal.Decimal
+	RemainingBase decimal.Decimal
+	Status        string
+}
+
+// applyPurchaseReturnCredit decides how much of a purchase return credit note
+// can be applied to the original payable invoice. Non-base amounts are in the
+// invoice currency; *Base amounts are in the tenant base currency.
+func applyPurchaseReturnCredit(
+	returnTotal, returnBase, invoiceRate decimal.Decimal,
+	invoiceTotal, invoicePaid, invoiceCredited decimal.Decimal,
+	invoiceBaseTotal, invoiceBasePaid, invoiceBaseCredited decimal.Decimal,
+) purchaseReturnCreditApplication {
+	outstanding := invoiceTotal.Sub(invoicePaid).Sub(invoiceCredited)
+	if outstanding.IsNegative() {
+		outstanding = decimal.Zero
+	}
+	applied := decimal.Zero
+	if outstanding.IsPositive() {
+		applied = returnTotal
+		if applied.GreaterThan(outstanding) {
+			applied = outstanding
+		}
+	}
+
+	baseOutstanding := invoiceBaseTotal.Sub(invoiceBasePaid).Sub(invoiceBaseCredited)
+	if baseOutstanding.IsNegative() {
+		baseOutstanding = decimal.Zero
+	}
+	appliedBase := applied.Mul(invoiceRate).Round(4)
+	if applied.Equal(returnTotal) {
+		// Full application uses the return's exact base amount and avoids
+		// multiplying a rounded original-currency amount by the invoice rate.
+		appliedBase = returnBase
+		if baseOutstanding.LessThan(appliedBase) {
+			appliedBase = baseOutstanding
+		}
+	} else {
+		if appliedBase.GreaterThan(baseOutstanding) {
+			appliedBase = baseOutstanding
+		}
+		if appliedBase.GreaterThan(returnBase) {
+			appliedBase = returnBase
+		}
+	}
+
+	remaining := returnTotal.Sub(applied).Round(4)
+	remainingBase := returnBase.Sub(appliedBase).Round(4)
+	status := "open"
+	// A 4-decimal base residual can remain even when the original-currency
+	// amount is fully applied. Keep applied/remaining base amounts consistent
+	// with base_amount (the DB checks their sum) and use the tolerance only for
+	// the status.
+	if remaining.IsZero() && remainingBase.Abs().LessThanOrEqual(decimal.RequireFromString("0.0001")) {
+		status = "applied"
+	}
+	return purchaseReturnCreditApplication{
+		Applied:       applied,
+		AppliedBase:   appliedBase,
+		Remaining:     remaining,
+		RemainingBase: remainingBase,
+		Status:        status,
+	}
 }
 
 func (r *ReturnRepository) Get(
