@@ -10,7 +10,8 @@ const (
 	CreditNoteStatusOpen    = "open"
 	CreditNoteStatusApplied = "applied"
 
-	CreditNoteTypeSalesReturn = "sales_return"
+	CreditNoteTypeSalesReturn    = "sales_return"
+	CreditNoteTypePurchaseReturn = "purchase_return"
 )
 
 type CreditNote struct {

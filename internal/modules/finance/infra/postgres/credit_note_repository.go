@@ -23,11 +23,15 @@ func NewCreditNoteRepository(db *pgxpool.Pool) *CreditNoteRepository {
 func (r *CreditNoteRepository) List(
 	ctx context.Context,
 	filter scope.Filter,
-	tenantID, status, partnerID, keyword string,
+	tenantID, creditType, status, partnerID, keyword string,
 	offset, limit int,
 ) ([]*domain.CreditNote, int, error) {
 	args := []any{tenantID}
 	where := "c.tenant_id = $1"
+	if creditType != "" {
+		args = append(args, creditType)
+		where += fmt.Sprintf(" AND c.credit_type = $%d", len(args))
+	}
 	if status != "" {
 		args = append(args, status)
 		where += fmt.Sprintf(" AND c.status = $%d", len(args))

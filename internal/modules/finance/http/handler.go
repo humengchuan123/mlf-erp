@@ -408,6 +408,7 @@ func (h *Handler) listCreditNotes(c *gin.Context) {
 	page, pageSize := parsePage(c)
 	items, total, err := h.creditNotes.List(
 		c.Request.Context(),
+		c.Query("credit_type"),
 		c.Query("status"),
 		c.Query("partner_id"),
 		c.Query("keyword"),

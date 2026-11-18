@@ -1,12 +1,12 @@
 openapi: 3.1.0
 info:
   title: MLF ERP API
-  version: 0.9.0
+  version: 1.0.0
   description: |
-    MLF ERP Stage 1 + Stage 2 + Stage 3A/3B/3C/3D/3E/3F/3G/3H API contract.
+    MLF ERP Stage 1 + Stage 2 + Stage 3A/3B/3C/3D/3E/3F/3G/3H/3I API contract.
     Master data uses a generic CRUD surface under /masterdata/{entity}.
     Purchase, sales, inventory, receivables/payables, payments, general ledger and reports are included.
-    Stage 3H adds sales returns and credit notes.
+    Stage 3H adds sales returns and credit notes; Stage 3I adds purchase returns.
 servers:
   - url: /api/v1
 security:
@@ -391,6 +391,106 @@ paths:
                               $ref: '#/components/schemas/PurchaseReceipt'
                           total:
                             type: integer
+  /purchase/receipts/{id}/returns:
+    parameters:
+      - $ref: '#/components/parameters/ID'
+    post:
+      summary: Create a purchase return, credit note and inventory issue
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreatePurchaseReturnInput'
+      responses:
+        '201':
+          description: Purchase return posted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PurchaseReturnResponse'
+        '400':
+          description: Invalid return payload
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+        '404':
+          description: Receipt, receipt line or payable invoice not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+        '409':
+          description: Over return, insufficient stock, invalid status or closed accounting period
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+  /purchase/returns:
+    get:
+      summary: List purchase returns
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+        - $ref: '#/components/parameters/Keyword'
+        - in: query
+          name: receipt_id
+          schema:
+            type: string
+            format: uuid
+        - in: query
+          name: supplier_id
+          schema:
+            type: string
+            format: uuid
+        - in: query
+          name: start_date
+          schema:
+            type: string
+            format: date
+        - in: query
+          name: end_date
+          schema:
+            type: string
+            format: date
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          items:
+                            type: array
+                            items:
+                              $ref: '#/components/schemas/PurchaseReturn'
+                          total:
+                            type: integer
+  /purchase/returns/{id}:
+    parameters:
+      - $ref: '#/components/parameters/ID'
+    get:
+      summary: Get a purchase return with lines
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PurchaseReturnResponse'
+        '404':
+          description: Purchase return not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
   /sales/orders:
     get:
       summary: List sales orders
@@ -976,6 +1076,11 @@ paths:
         - $ref: '#/components/parameters/Page'
         - $ref: '#/components/parameters/PageSize'
         - $ref: '#/components/parameters/Keyword'
+        - in: query
+          name: credit_type
+          schema:
+            type: string
+            enum: [sales_return, purchase_return]
         - in: query
           name: status
           schema:
@@ -2073,6 +2178,8 @@ components:
     PurchaseReceiptLine:
       type: object
       properties:
+        id:
+          type: string
         order_line_id:
           type: string
         material_id:
@@ -2098,6 +2205,10 @@ components:
         base_tax_amount:
           type: string
         base_gross_amount:
+          type: string
+        returned_qty:
+          type: string
+        returnable_qty:
           type: string
     PurchaseReceipt:
       type: object
@@ -2181,6 +2292,155 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/PurchaseReceiveLineInput'
+    PurchaseReturnLine:
+      type: object
+      properties:
+        id:
+          type: string
+        line_no:
+          type: integer
+        receipt_line_id:
+          type: string
+        order_line_id:
+          type: string
+        material_id:
+          type: string
+        material_name:
+          type: string
+        quantity:
+          type: string
+        unit_price:
+          type: string
+        tax_rate_id:
+          type: string
+        tax_rate:
+          type: string
+        amount:
+          type: string
+        tax_amount:
+          type: string
+        gross_amount:
+          type: string
+        base_amount:
+          type: string
+        base_tax_amount:
+          type: string
+        base_gross_amount:
+          type: string
+        unit_cost:
+          type: string
+        cost_amount:
+          type: string
+    PurchaseReturn:
+      type: object
+      properties:
+        id:
+          type: string
+        code:
+          type: string
+        receipt_id:
+          type: string
+        receipt_code:
+          type: string
+        order_id:
+          type: string
+        order_code:
+          type: string
+        supplier_id:
+          type: string
+        supplier_name:
+          type: string
+        warehouse_id:
+          type: string
+        warehouse_name:
+          type: string
+        return_date:
+          type: string
+          format: date
+        status:
+          type: string
+          enum: [posted]
+        currency:
+          type: string
+        exchange_rate:
+          type: string
+        price_includes_tax:
+          type: boolean
+        net_amount:
+          type: string
+        tax_amount:
+          type: string
+        total_amount:
+          type: string
+        base_net_amount:
+          type: string
+        base_tax_amount:
+          type: string
+        base_total_amount:
+          type: string
+        cost_amount:
+          type: string
+        invoice_id:
+          type: string
+        invoice_code:
+          type: string
+        credit_note_id:
+          type: string
+        credit_note_code:
+          type: string
+        credit_note_amount:
+          type: string
+        credit_note_applied_amount:
+          type: string
+        credit_note_remaining_amount:
+          type: string
+        credit_note_status:
+          type: string
+          enum: ['', open, applied]
+        voucher_code:
+          type: string
+        reason:
+          type: string
+        remark:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        lines:
+          type: array
+          items:
+            $ref: '#/components/schemas/PurchaseReturnLine'
+    PurchaseReturnResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiResponse'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/PurchaseReturn'
+    CreatePurchaseReturnLineInput:
+      type: object
+      required: [receipt_line_id, quantity]
+      properties:
+        receipt_line_id:
+          type: string
+        quantity:
+          type: string
+    CreatePurchaseReturnInput:
+      type: object
+      required: [lines]
+      properties:
+        return_date:
+          type: string
+          format: date
+        reason:
+          type: string
+        remark:
+          type: string
+        lines:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/CreatePurchaseReturnLineInput'
     SalesOrderLine:
       type: object
       properties:
@@ -2794,10 +3054,10 @@ components:
           type: string
         credit_type:
           type: string
-          enum: [sales_return]
+          enum: [sales_return, purchase_return]
         source_type:
           type: string
-          enum: [sales_return]
+          enum: [sales_return, purchase_return]
         source_id:
           type: string
         source_code:

@@ -19,11 +19,17 @@ func NewCreditNoteService(notes domain.CreditNoteRepository) *CreditNoteService 
 
 func (s *CreditNoteService) List(
 	ctx context.Context,
-	status, partnerID, keyword string,
+	creditType, status, partnerID, keyword string,
 	page, pageSize int,
 ) ([]*domain.CreditNote, int, error) {
 	tenantID, _, _ := tenantActor(ctx)
 	page, pageSize = normalizePage(page, pageSize)
+	creditType = normalizeString(creditType)
+	if creditType != "" &&
+		creditType != domain.CreditNoteTypeSalesReturn &&
+		creditType != domain.CreditNoteTypePurchaseReturn {
+		return nil, 0, domain.ErrInvalidInput
+	}
 	status = normalizeString(status)
 	if status != "" && status != domain.CreditNoteStatusOpen && status != domain.CreditNoteStatusApplied {
 		return nil, 0, domain.ErrInvalidInput
@@ -38,6 +44,7 @@ func (s *CreditNoteService) List(
 		ctx,
 		scope.FromActor(ctx, tenantID),
 		tenantID,
+		creditType,
 		status,
 		partnerID,
 		strings.TrimSpace(keyword),

@@ -260,6 +260,7 @@ assertFile('packages/sdk/src/finance.ts', [
   'voidInvoice(',
   'creditNotes',
   'CreditNote',
+  'credit_type',
   '/finance/credit-notes',
   'remaining_amount',
   'exchangeRates',
@@ -272,14 +273,32 @@ assertFile('packages/sdk/src/finance.ts', [
   'allocate('
 ])
 
-assertFile('packages/sdk/src/purchase.ts', ['purchaseApi', 'tax_rate_id', 'gross_amount', 'exchange_rate', 'base_total_amount'])
+assertFile('packages/sdk/src/purchase.ts', [
+  'purchaseApi',
+  'returns',
+  '/purchase/returns',
+  '/purchase/receipts/${receiptID}/returns',
+  'PurchaseReturn',
+  'CreatePurchaseReturnInput',
+  'returned_qty',
+  'returnable_qty',
+  'tax_rate_id',
+  'gross_amount',
+  'exchange_rate',
+  'base_total_amount'
+])
 
 assertFile('api/openapi.yaml', [
+  '/purchase/receipts/{id}/returns:',
+  '/purchase/returns:',
+  '/purchase/returns/{id}:',
   '/sales/shipments/{id}/returns:',
   '/sales/returns:',
   '/sales/returns/{id}:',
   '/finance/credit-notes:',
   '/finance/credit-notes/{id}:',
+  'CreatePurchaseReturnInput',
+  'PurchaseReturn',
   'CreateSalesReturnInput',
   'SalesReturn',
   'CreditNote'

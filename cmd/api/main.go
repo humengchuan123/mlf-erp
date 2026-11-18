@@ -158,7 +158,9 @@ func main() {
 		exchangeRateRepository,
 	)
 	receiptService := app.NewReceiptService(purchaseRepository, codeRuleService, exchangeRateRepository)
-	purchasehttp.Register(protected, orderService, receiptService, auditService, log)
+	purchaseReturnRepository := purchasepostgres.NewReturnRepository(db)
+	purchaseReturnService := app.NewReturnService(purchaseReturnRepository, codeRuleService)
+	purchasehttp.Register(protected, orderService, receiptService, purchaseReturnService, auditService, log)
 
 	inventoryRepository := inventorypostgres.NewQueryRepository(db)
 	inventoryService := inventoryapp.NewQueryService(inventoryRepository)

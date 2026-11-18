@@ -24,6 +24,7 @@ import (
 type Handler struct {
 	orders   *app.OrderService
 	receipts *app.ReceiptService
+	returns  *app.ReturnService
 	audit    *systemapp.AuditService
 	log      *slog.Logger
 }
@@ -32,10 +33,11 @@ func Register(
 	group *gin.RouterGroup,
 	orders *app.OrderService,
 	receipts *app.ReceiptService,
+	returns *app.ReturnService,
 	audit *systemapp.AuditService,
 	log *slog.Logger,
 ) {
-	handler := &Handler{orders: orders, receipts: receipts, audit: audit, log: log}
+	handler := &Handler{orders: orders, receipts: receipts, returns: returns, audit: audit, log: log}
 	purchase := group.Group("/purchase")
 	purchase.GET("/orders", authmw.RequirePermission("purchase.order.read"), handler.listOrders)
 	purchase.POST("/orders", authmw.RequirePermission("purchase.order.write"), handler.createOrder)
@@ -46,6 +48,9 @@ func Register(
 	purchase.POST("/orders/:id/cancel", authmw.RequirePermission("purchase.order.write"), handler.cancelOrder)
 	purchase.POST("/orders/:id/receive", authmw.RequirePermission("purchase.order.write"), handler.receiveOrder)
 	purchase.GET("/receipts", authmw.RequirePermission("purchase.receipt.read"), handler.listReceipts)
+	purchase.POST("/receipts/:id/returns", authmw.RequirePermission("purchase.return.write"), handler.createReturn)
+	purchase.GET("/returns", authmw.RequirePermission("purchase.return.read"), handler.listReturns)
+	purchase.GET("/returns/:id", authmw.RequirePermission("purchase.return.read"), handler.getReturn)
 }
 
 type orderLineRequest struct {
@@ -76,6 +81,18 @@ type receiveRequest struct {
 	ExchangeRate string               `json:"exchange_rate"`
 	Remark       string               `json:"remark"`
 	Lines        []receiveLineRequest `json:"lines"`
+}
+
+type returnLineRequest struct {
+	ReceiptLineID string `json:"receipt_line_id"`
+	Quantity      string `json:"quantity"`
+}
+
+type returnRequest struct {
+	ReturnDate string              `json:"return_date"`
+	Reason     string              `json:"reason"`
+	Remark     string              `json:"remark"`
+	Lines      []returnLineRequest `json:"lines"`
 }
 
 type orderLineResponse struct {
@@ -122,6 +139,7 @@ type orderResponse struct {
 }
 
 type receiptLineResponse struct {
+	ID              string `json:"id"`
 	OrderLineID     string `json:"order_line_id"`
 	MaterialID      string `json:"material_id"`
 	MaterialName    string `json:"material_name"`
@@ -135,6 +153,8 @@ type receiptLineResponse struct {
 	BaseAmount      string `json:"base_amount"`
 	BaseTaxAmount   string `json:"base_tax_amount"`
 	BaseGrossAmount string `json:"base_gross_amount"`
+	ReturnedQty     string `json:"returned_qty"`
+	ReturnableQty   string `json:"returnable_qty"`
 }
 
 type receiptResponse struct {
@@ -162,6 +182,65 @@ type receiptResponse struct {
 	VoucherCode      string                `json:"voucher_code"`
 	CreatedAt        time.Time             `json:"created_at"`
 	Lines            []receiptLineResponse `json:"lines"`
+}
+
+type purchaseReturnLineResponse struct {
+	ID              string `json:"id"`
+	LineNo          int    `json:"line_no"`
+	ReceiptLineID   string `json:"receipt_line_id"`
+	OrderLineID     string `json:"order_line_id"`
+	MaterialID      string `json:"material_id"`
+	MaterialName    string `json:"material_name"`
+	Quantity        string `json:"quantity"`
+	UnitPrice       string `json:"unit_price"`
+	TaxRateID       string `json:"tax_rate_id"`
+	TaxRate         string `json:"tax_rate"`
+	Amount          string `json:"amount"`
+	TaxAmount       string `json:"tax_amount"`
+	GrossAmount     string `json:"gross_amount"`
+	BaseAmount      string `json:"base_amount"`
+	BaseTaxAmount   string `json:"base_tax_amount"`
+	BaseGrossAmount string `json:"base_gross_amount"`
+	UnitCost        string `json:"unit_cost"`
+	CostAmount      string `json:"cost_amount"`
+}
+
+type purchaseReturnResponse struct {
+	ID                  string                       `json:"id"`
+	Code                string                       `json:"code"`
+	ReceiptID           string                       `json:"receipt_id"`
+	ReceiptCode         string                       `json:"receipt_code"`
+	OrderID             string                       `json:"order_id"`
+	OrderCode           string                       `json:"order_code"`
+	SupplierID          string                       `json:"supplier_id"`
+	SupplierName        string                       `json:"supplier_name"`
+	WarehouseID         string                       `json:"warehouse_id"`
+	WarehouseName       string                       `json:"warehouse_name"`
+	ReturnDate          string                       `json:"return_date"`
+	Status              string                       `json:"status"`
+	Currency            string                       `json:"currency"`
+	ExchangeRate        string                       `json:"exchange_rate"`
+	PriceIncludesTax    bool                         `json:"price_includes_tax"`
+	NetAmount           string                       `json:"net_amount"`
+	TaxAmount           string                       `json:"tax_amount"`
+	TotalAmount         string                       `json:"total_amount"`
+	BaseNetAmount       string                       `json:"base_net_amount"`
+	BaseTaxAmount       string                       `json:"base_tax_amount"`
+	BaseTotalAmount     string                       `json:"base_total_amount"`
+	CostAmount          string                       `json:"cost_amount"`
+	InvoiceID           string                       `json:"invoice_id"`
+	InvoiceCode         string                       `json:"invoice_code"`
+	CreditNoteID        string                       `json:"credit_note_id"`
+	CreditNoteCode      string                       `json:"credit_note_code"`
+	CreditNoteAmount    string                       `json:"credit_note_amount"`
+	CreditNoteApplied   string                       `json:"credit_note_applied_amount"`
+	CreditNoteRemaining string                       `json:"credit_note_remaining_amount"`
+	CreditNoteStatus    string                       `json:"credit_note_status"`
+	VoucherCode         string                       `json:"voucher_code"`
+	Reason              string                       `json:"reason"`
+	Remark              string                       `json:"remark"`
+	CreatedAt           time.Time                    `json:"created_at"`
+	Lines               []purchaseReturnLineResponse `json:"lines"`
 }
 
 type pagedResponse[T any] struct {
@@ -282,6 +361,70 @@ func (h *Handler) listReceipts(c *gin.Context) {
 	httpx.OK(c, pagedResponse[receiptResponse]{Items: items, Total: total})
 }
 
+func (h *Handler) createReturn(c *gin.Context) {
+	var request returnRequest
+	if err := c.ShouldBindJSON(&request); err != nil {
+		httpx.Error(c, http.StatusBadRequest, httpx.CodeBadRequest, "invalid purchase return payload")
+		return
+	}
+	input, err := parseReturnInput(request)
+	if err != nil {
+		httpx.Error(c, http.StatusBadRequest, httpx.CodeBadRequest, "invalid purchase return payload")
+		return
+	}
+	item, err := h.returns.Create(c.Request.Context(), c.Param("id"), input)
+	if err != nil {
+		h.handleError(c, err)
+		return
+	}
+	response := toPurchaseReturnResponse(item)
+	h.recordAudit(c, "purchase.return.create", "purchase_return", item.ID, response)
+	httpx.Created(c, response)
+}
+
+func (h *Handler) listReturns(c *gin.Context) {
+	page, pageSize := parsePage(c)
+	startDate, err := parseDate(c.Query("start_date"))
+	if err != nil {
+		httpx.Error(c, http.StatusBadRequest, httpx.CodeBadRequest, "invalid start_date")
+		return
+	}
+	endDate, err := parseDate(c.Query("end_date"))
+	if err != nil {
+		httpx.Error(c, http.StatusBadRequest, httpx.CodeBadRequest, "invalid end_date")
+		return
+	}
+	items, total, err := h.returns.List(
+		c.Request.Context(),
+		c.Query("receipt_id"),
+		c.Query("supplier_id"),
+		c.Query("keyword"),
+		startDate,
+		endDate,
+		page,
+		pageSize,
+	)
+	if err != nil {
+		h.handleError(c, err)
+		return
+	}
+
+	responses := make([]purchaseReturnResponse, 0, len(items))
+	for _, item := range items {
+		responses = append(responses, toPurchaseReturnResponse(item))
+	}
+	httpx.OK(c, pagedResponse[purchaseReturnResponse]{Items: responses, Total: total})
+}
+
+func (h *Handler) getReturn(c *gin.Context) {
+	item, err := h.returns.Get(c.Request.Context(), c.Param("id"))
+	if err != nil {
+		h.handleError(c, err)
+		return
+	}
+	httpx.OK(c, toPurchaseReturnResponse(item))
+}
+
 func parseOrderInput(c *gin.Context) (app.OrderInput, error) {
 	var request orderRequest
 	if err := c.ShouldBindJSON(&request); err != nil {
@@ -344,6 +487,31 @@ func parseReceiveInput(request receiveRequest) (app.ReceiveInput, error) {
 	return app.ReceiveInput{ReceiptDate: receiptDate, ExchangeRate: exchangeRate, Remark: request.Remark, Lines: lines}, nil
 }
 
+func parseReturnInput(request returnRequest) (app.ReturnInput, error) {
+	returnDate, err := parseDate(request.ReturnDate)
+	if err != nil {
+		return app.ReturnInput{}, err
+	}
+	if len(request.Lines) == 0 {
+		return app.ReturnInput{}, domain.ErrInvalidInput
+	}
+	lines := make([]domain.ReturnLineInput, 0, len(request.Lines))
+	for _, line := range request.Lines {
+		quantity, quantityErr := decimal.NewFromString(strings.TrimSpace(line.Quantity))
+		if quantityErr != nil {
+			return app.ReturnInput{}, quantityErr
+		}
+		if strings.TrimSpace(line.ReceiptLineID) == "" || !quantity.IsPositive() {
+			return app.ReturnInput{}, domain.ErrInvalidInput
+		}
+		lines = append(lines, domain.ReturnLineInput{
+			ReceiptLineID: strings.TrimSpace(line.ReceiptLineID),
+			Quantity:      quantity,
+		})
+	}
+	return app.ReturnInput{ReturnDate: returnDate, Reason: request.Reason, Remark: request.Remark, Lines: lines}, nil
+}
+
 func parseOptionalDecimal(value string) (decimal.Decimal, error) {
 	value = strings.TrimSpace(value)
 	if value == "" {
@@ -378,10 +546,16 @@ func (h *Handler) handleError(c *gin.Context, err error) {
 	switch {
 	case errors.Is(err, domain.ErrNotFound):
 		httpx.Error(c, http.StatusNotFound, httpx.CodeNotFound, "resource not found")
+	case errors.Is(err, domain.ErrReceiptLineNotFound):
+		httpx.Error(c, http.StatusNotFound, httpx.CodeNotFound, "receipt line not found")
 	case errors.Is(err, domain.ErrInvalidInput):
 		httpx.Error(c, http.StatusBadRequest, httpx.CodeBadRequest, "invalid input")
 	case errors.Is(err, domain.ErrOverReceive):
 		httpx.Error(c, http.StatusConflict, "OVER_RECEIVE", "received quantity exceeds remaining quantity")
+	case errors.Is(err, domain.ErrOverReturn):
+		httpx.Error(c, http.StatusConflict, "OVER_RETURN", "return quantity exceeds remaining receipt quantity")
+	case errors.Is(err, domain.ErrInsufficientStock):
+		httpx.Error(c, http.StatusConflict, "INSUFFICIENT_STOCK", "insufficient inventory")
 	case errors.Is(err, domain.ErrInvalidStatus):
 		httpx.Error(c, http.StatusConflict, "INVALID_STATUS", "order status does not allow this operation")
 	case errors.Is(err, domain.ErrConflict):
@@ -444,6 +618,7 @@ func toReceiptResponse(receipt *domain.Receipt) receiptResponse {
 	lines := make([]receiptLineResponse, 0, len(receipt.Lines))
 	for _, line := range receipt.Lines {
 		lines = append(lines, receiptLineResponse{
+			ID:          line.ID,
 			OrderLineID: line.OrderLineID, MaterialID: line.MaterialID, MaterialName: line.MaterialName,
 			Quantity: line.Quantity.String(), UnitPrice: line.UnitPrice.String(),
 			TaxRateID: line.TaxRateID, TaxRate: line.TaxRate.String(),
@@ -451,6 +626,8 @@ func toReceiptResponse(receipt *domain.Receipt) receiptResponse {
 			GrossAmount: line.GrossAmount.StringFixed(4),
 			BaseAmount:  line.BaseAmount.StringFixed(4), BaseTaxAmount: line.BaseTaxAmount.StringFixed(4),
 			BaseGrossAmount: line.BaseGrossAmount.StringFixed(4),
+			ReturnedQty:     line.ReturnedQty.String(),
+			ReturnableQty:   line.Quantity.Sub(line.ReturnedQty).String(),
 		})
 	}
 	payableDueDate := ""
@@ -468,6 +645,48 @@ func toReceiptResponse(receipt *domain.Receipt) receiptResponse {
 		BaseTotalAmount: receipt.BaseTotalAmount.StringFixed(4), Remark: receipt.Remark,
 		PayableID: receipt.PayableID, PayableCode: receipt.PayableCode, PayableDueDate: payableDueDate, VoucherCode: receipt.VoucherCode,
 		CreatedAt: receipt.CreatedAt, Lines: lines,
+	}
+}
+
+func toPurchaseReturnResponse(item *domain.PurchaseReturn) purchaseReturnResponse {
+	lines := make([]purchaseReturnLineResponse, 0, len(item.Lines))
+	for _, line := range item.Lines {
+		lines = append(lines, purchaseReturnLineResponse{
+			ID: line.ID, LineNo: line.LineNo,
+			ReceiptLineID: line.ReceiptLineID, OrderLineID: line.OrderLineID,
+			MaterialID: line.MaterialID, MaterialName: line.MaterialName,
+			Quantity: line.Quantity.String(), UnitPrice: line.UnitPrice.String(),
+			TaxRateID: line.TaxRateID, TaxRate: line.TaxRate.String(),
+			Amount: line.Amount.StringFixed(4), TaxAmount: line.TaxAmount.StringFixed(4),
+			GrossAmount: line.GrossAmount.StringFixed(4),
+			BaseAmount:  line.BaseAmount.StringFixed(4), BaseTaxAmount: line.BaseTaxAmount.StringFixed(4),
+			BaseGrossAmount: line.BaseGrossAmount.StringFixed(4),
+			UnitCost:        line.UnitCost.String(), CostAmount: line.CostAmount.StringFixed(4),
+		})
+	}
+	return purchaseReturnResponse{
+		ID: item.ID, Code: item.Code,
+		ReceiptID: item.ReceiptID, ReceiptCode: item.ReceiptCode,
+		OrderID: item.OrderID, OrderCode: item.OrderCode,
+		SupplierID: item.SupplierID, SupplierName: item.SupplierName,
+		WarehouseID: item.WarehouseID, WarehouseName: item.WarehouseName,
+		ReturnDate: item.ReturnDate.Format("2006-01-02"), Status: item.Status,
+		Currency: item.Currency, ExchangeRate: item.ExchangeRate.StringFixed(8),
+		PriceIncludesTax: item.PriceIncludesTax,
+		NetAmount:        item.NetAmount.StringFixed(4), TaxAmount: item.TaxAmount.StringFixed(4),
+		TotalAmount:     item.TotalAmount.StringFixed(4),
+		BaseNetAmount:   item.BaseNetAmount.StringFixed(4),
+		BaseTaxAmount:   item.BaseTaxAmount.StringFixed(4),
+		BaseTotalAmount: item.BaseTotalAmount.StringFixed(4),
+		CostAmount:      item.CostAmount.StringFixed(4),
+		InvoiceID:       item.InvoiceID, InvoiceCode: item.InvoiceCode,
+		CreditNoteID: item.CreditNoteID, CreditNoteCode: item.CreditNoteCode,
+		CreditNoteAmount:    item.CreditNoteAmount.StringFixed(4),
+		CreditNoteApplied:   item.CreditNoteApplied.StringFixed(4),
+		CreditNoteRemaining: item.CreditNoteRemaining.StringFixed(4),
+		CreditNoteStatus:    item.CreditNoteStatus,
+		VoucherCode:         item.VoucherCode, Reason: item.Reason, Remark: item.Remark,
+		CreatedAt: item.CreatedAt, Lines: lines,
 	}
 }
 

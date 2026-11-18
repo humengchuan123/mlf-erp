@@ -87,6 +87,7 @@ export interface CreditNote {
 }
 
 export type CreditNoteListParams = {
+  credit_type?: 'sales_return' | 'purchase_return'
   status?: string
   partner_id?: string
   keyword?: string

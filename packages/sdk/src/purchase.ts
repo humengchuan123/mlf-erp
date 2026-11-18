@@ -63,6 +63,7 @@ export interface PurchaseOrderInput {
 }
 
 export interface PurchaseReceiptLine {
+  id: string
   order_line_id: string
   material_id: string
   material_name: string
@@ -76,6 +77,8 @@ export interface PurchaseReceiptLine {
   base_amount: string
   base_tax_amount: string
   base_gross_amount: string
+  returned_qty: string
+  returnable_qty: string
 }
 
 export interface PurchaseReceipt {
@@ -117,6 +120,77 @@ export interface ReceiveInput {
   lines: ReceiveLineInput[]
 }
 
+export interface PurchaseReturnLine {
+  id: string
+  line_no: number
+  receipt_line_id: string
+  order_line_id: string
+  material_id: string
+  material_name: string
+  quantity: string
+  unit_price: string
+  tax_rate_id: string
+  tax_rate: string
+  amount: string
+  tax_amount: string
+  gross_amount: string
+  base_amount: string
+  base_tax_amount: string
+  base_gross_amount: string
+  unit_cost: string
+  cost_amount: string
+}
+
+export interface PurchaseReturn {
+  id: string
+  code: string
+  receipt_id: string
+  receipt_code: string
+  order_id: string
+  order_code: string
+  supplier_id: string
+  supplier_name: string
+  warehouse_id: string
+  warehouse_name: string
+  return_date: string
+  status: string
+  currency: string
+  exchange_rate: string
+  price_includes_tax: boolean
+  net_amount: string
+  tax_amount: string
+  total_amount: string
+  base_net_amount: string
+  base_tax_amount: string
+  base_total_amount: string
+  cost_amount: string
+  invoice_id: string
+  invoice_code: string
+  credit_note_id: string
+  credit_note_code: string
+  credit_note_amount: string
+  credit_note_applied_amount: string
+  credit_note_remaining_amount: string
+  credit_note_status: string
+  voucher_code: string
+  reason: string
+  remark: string
+  created_at: string
+  lines: PurchaseReturnLine[]
+}
+
+export interface CreatePurchaseReturnLineInput {
+  receipt_line_id: string
+  quantity: string
+}
+
+export interface CreatePurchaseReturnInput {
+  return_date?: string
+  reason?: string
+  remark?: string
+  lines: CreatePurchaseReturnLineInput[]
+}
+
 function queryString(params: Record<string, string | number | undefined>): string {
   const search = new URLSearchParams()
   for (const [key, value] of Object.entries(params)) {
@@ -155,5 +229,24 @@ export const purchaseApi = {
   },
   receipts(params: { order_id?: string; page?: number; page_size?: number } = {}): Promise<Paged<PurchaseReceipt>> {
     return api.get<Paged<PurchaseReceipt>>(`/purchase/receipts${queryString(params)}`)
+  },
+  returns: {
+    list(params: {
+      receipt_id?: string
+      supplier_id?: string
+      keyword?: string
+      start_date?: string
+      end_date?: string
+      page?: number
+      page_size?: number
+    } = {}): Promise<Paged<PurchaseReturn>> {
+      return api.get<Paged<PurchaseReturn>>(`/purchase/returns${queryString(params)}`)
+    },
+    get(id: string): Promise<PurchaseReturn> {
+      return api.get<PurchaseReturn>(`/purchase/returns/${id}`)
+    },
+    create(receiptID: string, input: CreatePurchaseReturnInput): Promise<PurchaseReturn> {
+      return api.post<PurchaseReturn>(`/purchase/receipts/${receiptID}/returns`, input)
+    }
   }
 }
