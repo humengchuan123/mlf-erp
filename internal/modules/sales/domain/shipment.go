@@ -56,6 +56,7 @@ type ShipmentLine struct {
 	BaseGrossAmount decimal.Decimal
 	UnitCost        decimal.Decimal
 	CostAmount      decimal.Decimal
+	ReturnedQty     decimal.Decimal
 }
 
 func (s *Shipment) TotalAmount() decimal.Decimal {

@@ -27,6 +27,21 @@ type SalesShipmentPosting struct {
 	CostAmount      decimal.Decimal
 }
 
+type SalesReturnPosting struct {
+	TenantID        string
+	OrgID           string
+	VoucherCode     string
+	SourceID        string
+	SourceCode      string
+	CustomerID      string
+	CreatedBy       string
+	VoucherDate     time.Time
+	BaseNetAmount   decimal.Decimal
+	BaseTaxAmount   decimal.Decimal
+	BaseGrossAmount decimal.Decimal
+	CostAmount      decimal.Decimal
+}
+
 type PurchaseReceiptPosting struct {
 	TenantID        string
 	OrgID           string
@@ -103,6 +118,41 @@ func PostSalesShipment(ctx context.Context, tx pgx.Tx, input SalesShipmentPostin
 		SourceID:    input.SourceID,
 		SourceCode:  input.SourceCode,
 		Memo:        "销售发货 " + input.SourceCode,
+		CreatedBy:   input.CreatedBy,
+		Lines:       lines,
+	})
+}
+
+func PostSalesReturn(ctx context.Context, tx pgx.Tx, input SalesReturnPosting) error {
+	lines := make([]postingLine, 0, 5)
+	if input.BaseGrossAmount.IsPositive() {
+		if input.BaseNetAmount.IsPositive() {
+			lines = append(lines, postingLine{AccountKey: "revenue", Summary: "销售退回", Debit: input.BaseNetAmount, PartnerID: input.CustomerID})
+		}
+		if input.BaseTaxAmount.IsPositive() {
+			lines = append(lines, postingLine{AccountKey: "output_vat", Summary: "销项税额退回", Debit: input.BaseTaxAmount, PartnerID: input.CustomerID})
+		}
+		lines = append(lines, postingLine{AccountKey: "ar", Summary: "销售退回应收", Credit: input.BaseGrossAmount, PartnerID: input.CustomerID})
+	}
+	if input.CostAmount.IsPositive() {
+		lines = append(lines,
+			postingLine{AccountKey: "inventory", Summary: "退货入库", Debit: input.CostAmount},
+			postingLine{AccountKey: "cogs", Summary: "销售成本退回", Credit: input.CostAmount},
+		)
+	}
+	if len(lines) == 0 {
+		return nil
+	}
+	return postVoucherTx(ctx, tx, voucherPostingInput{
+		TenantID:    input.TenantID,
+		OrgID:       input.OrgID,
+		VoucherCode: input.VoucherCode,
+		VoucherDate: input.VoucherDate,
+		VoucherType: domain.VoucherTypeSalesReturn,
+		SourceType:  domain.SourceTypeSalesReturn,
+		SourceID:    input.SourceID,
+		SourceCode:  input.SourceCode,
+		Memo:        "销售退货 " + input.SourceCode,
 		CreatedBy:   input.CreatedBy,
 		Lines:       lines,
 	})

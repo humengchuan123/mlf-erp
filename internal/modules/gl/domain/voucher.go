@@ -13,6 +13,7 @@ const (
 
 	VoucherTypeManual                      = "manual"
 	VoucherTypeSalesShipment               = "sales_shipment"
+	VoucherTypeSalesReturn                 = "sales_return"
 	VoucherTypePurchaseReceipt             = "purchase_receipt"
 	VoucherTypeReceiptPayment              = "receipt_payment"
 	VoucherTypeSupplierPayment             = "supplier_payment"
@@ -28,6 +29,7 @@ const (
 
 	SourceTypeManual                      = "manual"
 	SourceTypeSalesShipment               = "sales_shipment"
+	SourceTypeSalesReturn                 = "sales_return"
 	SourceTypePurchaseReceipt             = "purchase_receipt"
 	SourceTypeReceiptPayment              = "receipt_payment"
 	SourceTypeSupplierPayment             = "supplier_payment"

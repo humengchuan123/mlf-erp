@@ -8,5 +8,6 @@ var (
 	ErrConflict          = errors.New("conflict")
 	ErrInvalidStatus     = errors.New("invalid order status")
 	ErrOverShipment      = errors.New("shipped quantity exceeds remaining quantity")
+	ErrOverReturn        = errors.New("return quantity exceeds remaining shipment quantity")
 	ErrInsufficientStock = errors.New("insufficient inventory")
 )
