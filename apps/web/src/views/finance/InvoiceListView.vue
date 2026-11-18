@@ -18,9 +18,9 @@
           @keyup.enter="search"
         />
         <el-select v-model="statusFilter" placeholder="全部核销状态" clearable class="toolbar__status">
-          <el-option label="未核销" value="open" />
-          <el-option label="部分核销" value="partially_paid" />
-          <el-option label="已核销" value="paid" />
+          <el-option label="未结清" value="open" />
+          <el-option label="部分结清" value="partially_paid" />
+          <el-option label="已结清" value="paid" />
         </el-select>
         <el-select v-model="vatStatusFilter" placeholder="全部开票状态" clearable class="toolbar__status">
           <el-option label="待开票" value="pending" />
@@ -56,6 +56,8 @@
         <el-table-column prop="total_amount" label="含税总额" width="120" align="right" />
         <el-table-column prop="base_total_amount" label="本位币总额" width="130" align="right" />
         <el-table-column prop="paid_amount" label="已核销" width="110" align="right" />
+        <el-table-column prop="credited_amount" label="已抵扣" width="110" align="right" />
+        <el-table-column prop="base_credited_amount" label="本位币已抵扣" width="130" align="right" />
         <el-table-column prop="outstanding_amount" label="未核销" width="110" align="right" />
         <el-table-column prop="vat_invoice_no" label="增值税发票号" min-width="170">
           <template #default="{ row }">{{ row.vat_invoice_no || '-' }}</template>
@@ -127,6 +129,8 @@
           <el-descriptions-item label="本位币含税总额">{{ detail.base_total_amount }}</el-descriptions-item>
           <el-descriptions-item label="本位币已核销">{{ detail.base_paid_amount }}</el-descriptions-item>
           <el-descriptions-item label="已核销">{{ detail.paid_amount }}</el-descriptions-item>
+          <el-descriptions-item label="已抵扣">{{ detail.credited_amount }}</el-descriptions-item>
+          <el-descriptions-item label="本位币已抵扣">{{ detail.base_credited_amount }}</el-descriptions-item>
           <el-descriptions-item label="未核销">{{ detail.outstanding_amount }}</el-descriptions-item>
           <el-descriptions-item label="开票状态">{{ vatStatusLabel(detail.vat_invoice_status) }}</el-descriptions-item>
           <el-descriptions-item label="增值税发票号">{{ detail.vat_invoice_no || '-' }}</el-descriptions-item>
@@ -266,9 +270,9 @@ async function openDetail(row: Invoice) {
 }
 
 function invoiceStatusLabel(status: string) {
-  if (status === 'paid') return '已核销'
-  if (status === 'partially_paid') return '部分核销'
-  return '未核销'
+  if (status === 'paid') return '已结清'
+  if (status === 'partially_paid') return '部分结清'
+  return '未结清'
 }
 
 function invoiceStatusType(status: string) {

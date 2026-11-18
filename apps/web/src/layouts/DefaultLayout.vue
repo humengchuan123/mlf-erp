@@ -28,6 +28,10 @@
             <el-icon><Van /></el-icon>
             <span>发货单</span>
           </el-menu-item>
+          <el-menu-item v-if="authStore.hasPermission('sales.return.read')" index="/sales/returns">
+            <el-icon><RefreshLeft /></el-icon>
+            <span>销售退货</span>
+          </el-menu-item>
           <el-menu-item v-if="authStore.hasPermission('inventory.balance.read')" index="/inventory/balances">
             <el-icon><Box /></el-icon>
             <span>库存余额</span>
@@ -69,6 +73,10 @@
           <el-menu-item v-if="authStore.hasPermission('finance.invoice.read')" index="/finance/invoices">
             <el-icon><Tickets /></el-icon>
             <span>应收应付</span>
+          </el-menu-item>
+          <el-menu-item v-if="authStore.hasPermission('finance.invoice.read')" index="/finance/credit-notes">
+            <el-icon><Tickets /></el-icon>
+            <span>贷项单</span>
           </el-menu-item>
           <el-menu-item v-if="authStore.hasPermission('finance.payment.read')" index="/finance/payments">
             <el-icon><Wallet /></el-icon>
@@ -167,6 +175,7 @@ import {
   List,
   Memo,
   OfficeBuilding,
+  RefreshLeft,
   ScaleToOriginal,
   Sell,
   SetUp,
@@ -193,6 +202,7 @@ const canSupplyChain = computed(
     authStore.hasPermission('purchase.order.read') ||
     authStore.hasPermission('sales.order.read') ||
     authStore.hasPermission('sales.shipment.read') ||
+    authStore.hasPermission('sales.return.read') ||
     authStore.hasPermission('inventory.balance.read') ||
     authStore.hasPermission('inventory.transaction.read')
 )

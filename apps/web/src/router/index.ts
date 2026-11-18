@@ -44,6 +44,12 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '发货单', permission: 'sales.shipment.read' }
       },
       {
+        path: 'sales/returns',
+        name: 'sales-returns',
+        component: () => import('@/views/sales/SalesReturnListView.vue'),
+        meta: { title: '销售退货', permission: 'sales.return.read' }
+      },
+      {
         path: 'inventory/balances',
         name: 'inventory-balances',
         component: () => import('@/views/inventory/BalanceListView.vue'),
@@ -60,6 +66,12 @@ const routes: RouteRecordRaw[] = [
         name: 'finance-invoices',
         component: () => import('@/views/finance/InvoiceListView.vue'),
         meta: { title: '应收应付', permission: 'finance.invoice.read' }
+      },
+      {
+        path: 'finance/credit-notes',
+        name: 'finance-credit-notes',
+        component: () => import('@/views/finance/CreditNoteListView.vue'),
+        meta: { title: '贷项单', permission: 'finance.invoice.read' }
       },
       {
         path: 'finance/payments',
