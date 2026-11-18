@@ -8,6 +8,7 @@
 采购收货 → 应付发票 ─┘
 
 销售退货 → 贷项单 → 自动冲原应收发票未收金额（剩余保留客户贷项）
+采购退货 → 贷项单 → 自动冲原应付发票未付金额（剩余保留供应商贷项）
 ```
 
 ## 分层
@@ -30,7 +31,7 @@
 | POST | `/api/v1/finance/payments` | `finance.payment.write` |
 | POST | `/api/v1/finance/payments/:id/allocate` | `finance.payment.write` |
 
-贷项单列表支持 `status`（`open`/`applied`）、`partner_id`、`keyword` 和分页。
+贷项单列表支持 `credit_type`（`sales_return`/`purchase_return`）、`status`（`open`/`applied`）、`partner_id`、`keyword` 和分页。
 
 创建收付款：
 
@@ -76,15 +77,18 @@
 - 开票状态：`pending → issued → void`；开票/作废不生成凭证，税额已在发货/收货确认。
 - 发票号租户内唯一（非空）。
 
-## 贷项单（Stage 3H）
+## 贷项单（Stage 3H / 3I）
 
-- 销售退货自动生成 `sales_return` 贷项单，编码规则 `finance_credit_note`（前缀 `CN`）。
+- 销售退货和采购退货共用 `finance_credit_notes` 台账，编码规则 `finance_credit_note`（前缀 `CN`）。
+- `credit_type`：`sales_return`（销售退货，冲应收发票）或 `purchase_return`（采购退货，冲应付发票）。
+- `source_type` 与 `credit_type` 一致；`source_id` 为退货单；`invoice_id` 为原应收/应付发票。
 - 字段：来源退货单、原发票、往来单位、日期、币种、汇率、原币/本位币金额、已冲金额、剩余金额、状态。
-- 状态：`applied`（已全部冲减原发票）或 `open`（仍有未使用贷项）。
-- 自动冲销规则：锁定原应收发票，`outstanding = total - paid - credited`，
+- 状态：`applied`（原币和本位币都已全部冲减原发票）或 `open`（仍有未使用贷项）。
+- 自动冲销规则：锁定原发票，`outstanding = total - paid - credited`，
   `applied = min(credit_note.amount, outstanding)`，`remaining = amount - applied`。
-- 原发票已收款时 `applied = 0`，贷项单保持 `open`，剩余金额展示为客户贷项。
+- 原发票已收款/已付款时 `applied = 0`，贷项单保持 `open`，剩余金额分别展示为客户/供应商贷项。
 - 原发票 `credited_amount` 和 `base_credited_amount` 同步累加；全额冲减时清空 `base_revalued_amount`。
+- 零金额退货跳过贷项单，退货单 `credit_note_id` 为空。
 - 贷项单只读 API；本期不提供手工创建、抵其他发票或退款。
 
 ## 多币种与汇兑损益（Stage 3F）
@@ -109,7 +113,7 @@
 ## 前端
 
 - `/finance/invoices`：应收/应付列表、筛选、到期/逾期提示、发票详情、核销记录、已冲贷项、未收金额、开票/作废。
-- `/finance/credit-notes`：贷项单列表和详情，来源退货、原发票、已冲/剩余、状态。
+- `/finance/credit-notes`：贷项单列表和详情，销售/采购类型筛选与列、来源退货、原发票、已冲/剩余、状态。
 - `/finance/payments`：收付款列表、新建、按往来单位加载未付清发票、批量核销。
 
 ## 后续
