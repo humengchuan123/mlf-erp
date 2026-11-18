@@ -274,6 +274,9 @@ pnpm test:api:stage3f
 # Writes to the local dev database and consumes a clean year; use a clean database for full regression.
 pnpm test:api:stage3g
 
+# Stage 3H API integration test (sales returns, credit notes)
+pnpm test:api:stage3h
+
 # Docker
 docker build -f deploy/docker/api.Dockerfile -t mlf-erp/api:dev .
 docker build -f deploy/docker/worker.Dockerfile -t mlf-erp/worker:dev .
@@ -387,7 +390,7 @@ docker build -f deploy/docker/web.Dockerfile -t mlf-erp/web:dev .
 - Monorepo 工作区与共享包。
 - PostgreSQL 迁移、seed、Docker Compose。
 - Dockerfile、GitHub Actions CI、SaaS/私有化发布模板。
-- CI 包含单元测试、构建、Stage 3B/3C/3D/3E/3F/3G 真实 PostgreSQL API 集成测试。
+- CI 包含单元测试、构建、Stage 3B/3C/3D/3E/3F/3G/3H 真实 PostgreSQL API 集成测试。
 - OpenAPI 契约与模块文档。
 
 ## 下一步

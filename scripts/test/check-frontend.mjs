@@ -302,7 +302,7 @@ assertFile('packages/sdk/src/gl.ts', [
   '/finance/reports/cash-flow'
 ])
 
-assertFile('package.json', ['test:api:stage3b', 'test:api:stage3e', 'test:api:stage3f', 'test:api:stage3g', 'test:frontend'])
+assertFile('package.json', ['test:api:stage3b', 'test:api:stage3e', 'test:api:stage3f', 'test:api:stage3g', 'test:api:stage3h', 'test:frontend'])
 
 if (failures.length > 0) {
   console.error('Frontend completeness check failed:')
