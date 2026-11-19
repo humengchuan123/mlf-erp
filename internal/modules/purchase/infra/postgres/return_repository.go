@@ -460,11 +460,10 @@ func applyPurchaseReturnCredit(
 	remaining := returnTotal.Sub(applied).Round(4)
 	remainingBase := returnBase.Sub(appliedBase).Round(4)
 	status := "open"
-	// A 4-decimal base residual can remain even when the original-currency
-	// amount is fully applied. Keep applied/remaining base amounts consistent
-	// with base_amount (the DB checks their sum) and use the tolerance only for
-	// the status.
-	if remaining.IsZero() && remainingBase.Abs().LessThanOrEqual(decimal.RequireFromString("0.0001")) {
+	// A positive base residual can remain even when the original-currency
+	// amount is fully applied. Keep it for display/FX reporting, but the note
+	// is applied as soon as the original-currency amount is zero.
+	if remaining.IsZero() {
 		status = "applied"
 	}
 	return purchaseReturnCreditApplication{

@@ -1,0 +1,2 @@
+-- No-op: the repair only closes notes whose original-currency remainder is
+-- zero, and that status cannot be safely reconstructed after the fact.

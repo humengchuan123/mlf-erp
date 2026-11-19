@@ -18,14 +18,14 @@
   - 抵同客户其他应收发票 / 同供应商其他应付发票。
   - 向客户或供应商部分/多次/全额退款。
 - `finance_credit_notes` 增加已退原币/本位币，余额口径从“已冲 + 剩余”扩展为“已冲 + 已退 + 剩余”。
-- 贷项状态仍为 `open` / `applied`；剩余原币归零即 `applied`，即使仍有正数本位币残值（如 `remaining_base_amount > 0.0001`）也不再保持 `open`。该残值只是展示/汇兑口径，不开启抵用或退款；前端按已退金额显示“已退款”或“已核销”。
+- 贷项状态仍为 `open` / `applied`；剩余原币归零即 `applied`，即使仍有正数本位币残值也不再保持 `open`。该残值只是展示/汇兑口径，不开启抵用或退款；前端按已退金额显示“已退款”或“已核销”。
 - 退货创建时的初始冲减也写入抵用明细；迁移为历史已冲贷项回填原发票抵用记录。
 
 ### 1.2 手工抵用
 
 - 手工选择一个或多个目标发票，支持部分抵用和多次抵用。
 - 目标发票必须同租户、同组织、同往来单位、同币种、同方向。
-- 贷项单汇率与发票汇率不同时，禁止全额抵清发票（409 `CROSS_RATE_ALLOCATION`）；部分抵用允许，未清的原币余额保留期末重估路径。
+- 全额抵清发票时，本次抵用本位币必须等于发票本位币未付金额（4 位小数容差），否则返回 409 `CROSS_RATE_ALLOCATION`；守卫比较本位币金额而非汇率，先前低汇率部分抵用抬高发票本位币未付后，后续同汇率全额抵用同样会被拒绝。部分抵用允许，未清的原币余额保留期末重估路径。
 - 抵用后更新发票 `credited_amount`、`base_credited_amount`、`outstanding_amount` 和状态。
 - 抵用为子账重分类，不生成总账凭证，也不做期间关账校验。
 - 提供候选发票接口，只返回未结清且条件匹配的发票。
@@ -144,7 +144,7 @@ remaining_base_amount = base_amount - applied_base_amount - refunded_base_amount
 - 贷项单存在、状态 `open`、剩余原币和本位币均大于 0。
 - 请求至少一行，发票不能重复，金额必须 > 0。
 - 每张发票不超过其未付金额；合计不超过贷项剩余金额。
-- 本次抵用金额等于发票原币未付金额且贷项汇率与发票汇率不一致时，返回 409 `CROSS_RATE_ALLOCATION`；只拦截全额抵清，部分抵用仍允许。
+- 本次抵用金额等于发票原币未付金额时，本次抵用本位币必须与发票本位币未付金额相等（4 位小数容差），否则返回 409 `CROSS_RATE_ALLOCATION`；只拦截全额抵清，部分抵用仍允许。该守卫比较本位币金额而非汇率，覆盖“先低汇率部分抵用、后同汇率全额抵用”的尾差场景。
 - 抵用日期默认当天，不能早于贷项单日期。
 - 发票必须同组织、同往来单位、同币种、同方向，且不能已结清。
 - 同一 UUID 的不同写法先规范化再查重，避免绕过重复检查。
@@ -160,10 +160,10 @@ if amount == remaining_amount:
     base = remaining_base
 ```
 
-- 处理前校验 `base <= invoice_base_outstanding`，否则 409 `INSUFFICIENT_INVOICE_BASE`。
+- 处理前校验 `base <= invoice_base_outstanding`，否则 409 `INSUFFICIENT_INVOICE_BASE`；该错误码为契约定义，Stage 3J API 回归未单独构造。
 - 每行处理完后扣减贷项剩余原币和本位币，保证多次抵用和分批抵用无尾差。
 - 全额抵完时使用剩余本位币。
-- 跨汇率部分抵用按贷项剩余本位币比例分摊；发票保留原币未付，期末重估继续覆盖该差额。跨汇率全额抵清被拒绝，避免原币未付归零后留下无法重估的本位币残差。
+- 跨汇率部分抵用按贷项剩余本位币比例分摊；发票保留原币未付，期末重估继续覆盖该差额。全额抵清要求 `base == invoice_base_outstanding`（4 位小数容差），否则返回 409 `CROSS_RATE_ALLOCATION`，避免原币未付归零后留下无法重估的本位币残差。比较本位币金额而不是汇率，因此先前低汇率部分抵用造成的本位币未付偏移也会被拦截。
 
 ### 3.4 事务与更新
 
@@ -327,19 +327,22 @@ fx_adjustment = cash_base - base
 pnpm test:api:stage3j
 ```
 
-结果：PASS，`TestStage3J` 通过，20 个顶层子测试（含 3 个并发嵌套用例，共 23 个命名子测试），总耗时约 12.3 秒。
+结果：PASS，`TestStage3J` 通过，23 个顶层子测试（含 3 个并发嵌套用例，共 26 个命名子测试），总耗时以实际运行输出为准。
 
 | 子测试 | 覆盖点 | 结果 |
 |---|---|---|
 | sales credit applies across receivable invoices | 已付款发票退货留下 open 贷项；抵两张应收的部分/多次/全额；发票 credited/outstanding/状态；贷项 applied/remaining/status；抵用历史；列表与详情汇总一致；抵用无凭证 | 通过 |
 | purchase credit applies to payable invoice | 采购贷项抵另一张应付发票，部分抵用和发票状态 | 通过 |
 | initial application allocation history | 销售/采购退货自动冲原发票的初始抵用记录；已付款发票退货无抵用记录 | 通过 |
+| return with zero original and positive base residual is applied | USD 发票 200、付款 100；先以 7.4 贷项抵 50，再退货 50@7.2：贷项 `remaining_amount=0`、`remaining_base_amount=10.0000`、`status=applied`；退货返回的 `credit_note_status` 同样为 `applied` | 通过 |
 | allocation validation | 跨往来单位/币种/组织/方向、已结清、超贷项、超发票未付、零/负金额、重复发票、早于贷项日期、非法日期、404；付款超核销仍为 400 `OVER_ALLOCATE` | 通过 |
 | allocation candidates | 销售/采购候选方向、组织、往来单位、币种、未结清过滤；排除已付、异客商、外币、异组织发票 | 通过 |
 | multi invoice allocation in one request | 一次请求抵 2 张应收发票：贷项 applied 50/remaining 50；两条抵用记录金额和本位币正确；两张发票 credited/outstanding/状态正确 | 通过 |
 | allocation rolls back on second line failure | 第一行合法、第二行超发票未付返回 409 `OVER_APPLY`；贷项余额、抵用记录和两张发票均回到请求前；随后合法抵用仍成功 | 通过 |
 | full cross-rate allocation rejected | USD 发票 7.3、贷项 7.2：全额 100 抵清返回 409 `CROSS_RATE_ALLOCATION` 且无副作用；部分 50 成功，贷项 applied/base 50/360，发票 credited/base 50/360、outstanding 50 | 通过 |
+| full cross-rate allocation compares base after partial credit | USD 发票 100@7.2；先以 7.0 贷项抵 50（base 350），再以 7.2 贷项申请全额抵剩余 50：因发票本位币未付 370 与抵用 base 360 不等，返回 409 `CROSS_RATE_ALLOCATION`；第二张贷项无抵用记录，发票保持 prior 50 抵用和 350 本位币已冲 | 通过 |
 | refund default rate and invalid zero rate | 退款日 USD 默认汇率 7.25：退款 40 解析 rate 7.25、base 288、cash 290、FX gain 2；显式 `exchange_rate: "0"` 返回 400 `INVALID_EXCHANGE_RATE`，贷项和退款记录不变 | 通过 |
+| refund cash base rounds to zero | 合法正汇率 0.00004、退款金额 0.01，现金本位币四舍五入为 0：返回 400 `REFUND_AMOUNT_TOO_SMALL`；贷项余额和退款记录不变 | 通过 |
 | cash refund uses cash account | CNY 现金退款 25：凭证借应收 25、贷库存现金 1001 25，不含银行 1002 | 通过 |
 | negative fx refund posts gain | USD 客户退款 50@7.1（低于贷项 7.2）：base 360、cash 355、FX -5；凭证借应收 360、贷银行 355、贷汇兑收益 660302 5，无汇兑损失行 | 通过 |
 | customer refund with fx | USD 客户部分退款 50@7.3：base 360、cash 365、FX loss 5；尾款 50@7.2 无汇兑行；两笔凭证借贷平衡；退款不改发票 credited | 通过 |
@@ -355,7 +358,9 @@ pnpm test:api:stage3j
 | ├ concurrent refunds do not double refund | 3 个并发退款仅 1 个成功，其余 `CREDIT_NOTE_CLOSED`；只生成 1 条退款 | 通过 |
 | └ concurrent application and refund serialize | 同一贷项并发抵用/退款都成功；applied/refunded/remaining 原币和本位币不变量成立；抵用/退款金额和退款 FX 字段正确；发票 credited 和状态正确 | 通过 |
 
-零原币/正数本位币残值的状态规则由领域测试覆盖：`CreditNoteStatus(0, 10)`、`CreditNoteStatus(0, 0.0002)` 均返回 `applied`。本轮未能通过 API 稳定构造出“退货后剩余原币为 0 且本位币残值 > 0.0001”的场景，因此没有声称 API 回归覆盖该分支。
+零原币/正数本位币残值的状态规则现在同时由领域测试和 API 回归覆盖：`CreditNoteStatus(0, 10)`、`CreditNoteStatus(0, 0.0002)` 返回 `applied`；API 回归通过“USD 发票 200、付款 100、先以 7.4 贷项抵 50、再退货 50@7.2”构造出 `remaining_amount=0`、`remaining_base_amount=10.0000`、`status=applied`。该正数本位币残值只用于展示/汇兑，不是可操作的抵用或退款余额。
+
+`INSUFFICIENT_INVOICE_BASE` 和 `EXCHANGE_RATE_NOT_FOUND` 只在错误码契约中列出，本轮未增加对应 API 回归，因此不声称它们已被 API 覆盖。
 
 ### 6.2 静态检查与构建
 
@@ -373,7 +378,7 @@ git diff --check
 结果：
 
 - `gofmt` 无输出。
-- `go test ./... -count=1` 全部包通过，包括贷项本位币分摊、尾差、零现金退款、状态容差和退款凭证方向单元测试。
+- `go test ./... -count=1` 全部包通过，包括贷项本位币分摊、尾差、零现金退款、原币归零状态和退款凭证方向单元测试。
 - `go vet ./...` 通过。
 - OpenAPI YAML 校验通过。
 - `pnpm typecheck:web` 通过。
@@ -384,22 +389,23 @@ git diff --check
 最终审查修复的复核命令与结果：
 
 ```bash
-gofmt -w internal/modules/finance/domain/errors.go \
-  internal/modules/finance/domain/credit_note_usage.go \
-  internal/modules/finance/domain/credit_note_usage_test.go \
-  internal/modules/finance/infra/postgres/credit_note_repository.go \
-  internal/modules/finance/http/handler.go tests/api/stage3j_test.go
+gofmt -w internal/modules/finance/infra/postgres/credit_note_repository.go \
+  internal/modules/sales/infra/postgres/return_repository.go \
+  internal/modules/purchase/infra/postgres/return_repository.go \
+  tests/api/stage3j_test.go
+go run ./cmd/migrate -direction up
 go build ./...
-go test ./internal/modules/finance/... ./internal/modules/gl/... -count=1
-go vet ./internal/modules/finance/... ./internal/modules/gl/...
+go test ./internal/modules/finance/... ./internal/modules/gl/... ./internal/modules/sales/... ./internal/modules/purchase/... -count=1
+go vet ./internal/modules/finance/... ./internal/modules/gl/... ./internal/modules/sales/... ./internal/modules/purchase/...
 pnpm test:api:stage3j
 go test ./... -count=1
 ```
 
 - `gofmt` 无输出；`go build ./...` 通过。
-- `go test ./internal/modules/finance/... ./internal/modules/gl/... -count=1` 通过。
-- `go vet ./internal/modules/finance/... ./internal/modules/gl/...` 通过。
-- `pnpm test:api:stage3j` 通过，20 个顶层子测试（23 个含并发嵌套命名子测试）。
+- `go test ./internal/modules/finance/... ./internal/modules/gl/... ./internal/modules/sales/... ./internal/modules/purchase/... -count=1` 通过。
+- `go vet ./internal/modules/finance/... ./internal/modules/gl/... ./internal/modules/sales/... ./internal/modules/purchase/...` 通过。
+- `go run ./cmd/migrate -direction up` 应用 `000023_credit_note_status_repair`。
+- `pnpm test:api:stage3j` 通过，23 个顶层子测试（26 个含并发嵌套命名子测试）。
 - `go test ./... -count=1` 全部包通过。
 
 ### 6.3 干净数据库 Stage 3B–3J 全链路
@@ -411,9 +417,9 @@ go test ./... -count=1
 独立代码审核待 Task 10 完成后补充。实现阶段已通过连续 hardening 提交处理以下风险：
 
 - 迁移：增加 down guard，防止在有退款、非初始抵用或已退余额时回滚丢数据；加强金额约束和原币/本位币为零的一致性。
-- 领域金额：抽取并补测 `AllocateBase`、`CashBase`、`FXAdjustment`、`CreditNoteStatus`，覆盖尾差、全额分摊和 0.0001 容差。
+- 领域金额：抽取并补测 `AllocateBase`、`CashBase`、`FXAdjustment`、`CreditNoteStatus`，覆盖尾差、全额分摊和原币归零状态。
 - 抵用：UUID 规范化后查重、固定发票锁顺序、请求顺序分摊、发票和贷项 SQL 守卫、无凭证口径。
-- 抵用汇率：跨汇率全额抵清发票返回 409 `CROSS_RATE_ALLOCATION`，避免原币未付归零后本位币残差失去重估路径；部分跨汇率抵用保留并纳入期末重估。
+- 抵用汇率：全额抵清要求本次抵用本位币与发票本位币未付相等（4 位小数容差），否则返回 409 `CROSS_RATE_ALLOCATION`，避免原币未付归零后本位币残差失去重估路径；守卫比较本位币金额而非汇率，覆盖先前低汇率部分抵用造成的偏移。部分跨汇率抵用保留并纳入期末重估。
 - 状态：原币剩余归零一律 `applied`，正数本位币残值只展示、不允许抵用/退款。
 - 退款：退款日汇率解析、显式零/负汇率拒绝、零现金拦截、零本位币凭证、事务回滚、凭证借贷平衡和销售/采购汇兑方向。
 - API 契约：列表与详情数组区分、候选接口不分页、错误码与 OpenAPI/SDK 对齐。
@@ -429,8 +435,8 @@ go test ./... -count=1
 - 退款只支持银行/现金，不涉及 VAT 红字发票/税控红冲。
 - 退款只能退给贷项单往来单位，不支持退给其他往来单位。
 - 退款接口无审批流、无幂等键，且会真实出账。幂等键在本阶段明确暂缓，生产启用前必须补服务端幂等键（如 `Idempotency-Key`）和去重；在此之前退款端点客户端不得自动重试，超时/断连只能人工核对退款单后再决定是否重发。
-- 跨汇率全额抵清发票被拒绝（409 `CROSS_RATE_ALLOCATION`）；部分跨汇率抵用允许，差额依赖期末重估，未做自动换汇或差额单独过账。
-- 原币归零的贷项单一律 `applied`；正数本位币残值仅用于展示/汇兑，不能抵用或退款。退货创建时仍沿用原发票汇率和本位币分摊，可能留下这种只展示不操作的残值；该分支未通过 API 回归构造，仅由领域状态测试覆盖。
+- 跨汇率全额抵清发票被拒绝（409 `CROSS_RATE_ALLOCATION`）：全额抵清要求本次抵用本位币与发票本位币未付相等（4 位小数容差），比较的是本位币金额而非汇率；部分跨汇率抵用允许，差额依赖期末重估，未做自动换汇或差额单独过账。
+- 原币归零的贷项单一律 `applied`；正数本位币残值仅用于展示/汇兑，不能抵用或退款。退货创建时沿用原发票汇率和本位币分摊，可能留下这种只展示不操作的残值；API 回归已通过“先高汇率部分抵用、再退货”构造并覆盖 `remaining_amount=0`、`remaining_base_amount=10.0000`、`status=applied`。
 - 抵用不计汇兑；退款按退款日汇率确认汇兑损益。
 - 未使用贷项不参与外币重估。
 - 贷项列表不返回抵用/退款明细数组，需要进入详情获取。
@@ -443,7 +449,7 @@ go test ./... -count=1
 - [ ] 候选发票只包含同组织、同往来单位、同币种、同方向且未结清的发票。
 - [ ] 抵用后发票 credited/outstanding/状态正确。
 - [ ] 贷项 applied/refunded/remaining/status 正确，原币和本位币不变量成立；原币归零即 `applied`，本位币残值不可操作。
-- [ ] 跨汇率全额抵清发票返回 409 `CROSS_RATE_ALLOCATION`，部分抵用仍可用。
+- [ ] 跨汇率全额抵清发票返回 409 `CROSS_RATE_ALLOCATION`（按本位币金额判定，含先前低汇率部分抵用后的全额抵用），部分抵用仍可用。
 - [ ] 初始退货抵用记录和历史回填完整。
 - [ ] 客户部分/全额退款生成正确凭证和汇兑损益。
 - [ ] 供应商部分/全额退款生成正确凭证和汇兑损益。

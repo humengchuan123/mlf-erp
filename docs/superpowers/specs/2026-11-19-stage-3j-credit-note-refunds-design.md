@@ -195,6 +195,7 @@ if amount == remaining_amount:
 ```
 
 - 必须先校验 `base <= invoice_base_outstanding`，否则返回 409 `INSUFFICIENT_INVOICE_BASE`。
+- 全额抵清发票（`amount == outstanding`）要求 `base` 与 `invoice_base_outstanding` 相等（4 位小数容差）；否则返回 409 `CROSS_RATE_ALLOCATION`。该守卫比较本位币金额而非汇率，避免先前的低汇率部分抵用留下无法重估的本位币尾差。部分抵用仍允许，差额由期末重估覆盖。
 - 每行处理完后扣减贷项剩余金额和本位币，保证多次抵用无尾差。
 - 全额抵完时使用剩余本位币全额。
 
@@ -318,9 +319,10 @@ fx_adjustment = cash_base - base
 - 409 `OVER_REFUND`
 - 409 `INVOICE_PAID`
 - 409 `INSUFFICIENT_INVOICE_BASE`
+- 409 `CROSS_RATE_ALLOCATION`
 - 409 `PERIOD_CLOSED`
 - 400 `PARTNER_MISMATCH` / `CURRENCY_MISMATCH` / `INVOICE_TYPE_MISMATCH`
-- 400 `BAD_REQUEST` / `EXCHANGE_RATE_NOT_FOUND` / `REFUND_AMOUNT_TOO_SMALL`
+- 400 `BAD_REQUEST` / `INVALID_EXCHANGE_RATE` / `EXCHANGE_RATE_NOT_FOUND` / `REFUND_AMOUNT_TOO_SMALL`
 - 404、401、403
 
 ## 7. SDK、OpenAPI 与前端

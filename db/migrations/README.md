@@ -22,6 +22,7 @@
 - `000020_sales_returns`：销售退货单/行、发货行已退数量、贷项单、发票已冲贷项金额和退货权限/编码规则。
 - `000021_purchase_returns`：采购退货单/行、收货行已退数量、复用贷项单和采购退货权限/编码规则。Down 在仍存在采购退货数据（`purchase_returns`）时会直接拒绝执行，需先归档或冲销采购退货单；它只删除本迁移新增的采购退货表、`returned_qty` 列和相关权限/编码规则，不会删除 Stage 3H 销售退货的表或列。
 - `000022_credit_note_usage`：贷项已退金额、抵用明细、贷项退款单、退款凭证和贷项抵用/退款权限/编码规则。Down 在存在退款单、非初始抵用明细或已退余额时拒绝执行。
+- `000023_credit_note_status_repair`：把 `remaining_amount = 0` 但仍为 `open` 的贷项单修正为 `applied`。Down 为 no-op，只修复状态，无法可靠还原修复前的展示状态。
 - 迁移由 `cmd/migrate` 执行，使用 `golang-migrate`，SQL 文件通过 `embed` 打进二进制。
 - 所有业务表遵循 `tenant_id` 非空、唯一键带租户、外键尽量带租户的原则。
 

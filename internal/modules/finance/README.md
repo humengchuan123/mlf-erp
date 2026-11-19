@@ -110,7 +110,7 @@ remaining_base_amount = base_amount - applied_base_amount - refunded_base_amount
   - `applied_amount + refunded_amount + remaining_amount = amount`
   - `applied_base_amount + refunded_base_amount + remaining_base_amount = base_amount`
   - 原币已冲/已退为 0 时本位币也必须为 0。
-- 状态仍为 `open` / `applied`；剩余原币为 0 时一律 `applied`，不因本位币残值（如正数 `remaining_base_amount > 0.0001`）回到 `open`。该本位币残值仅用于展示和汇兑口径，`remaining_amount = 0` 时不能抵用或退款。前端按 `refunded_amount` 显示“已退款”或“已核销”。
+- 状态仍为 `open` / `applied`；剩余原币为 0 时一律 `applied`，不因本位币残值（正数 `remaining_base_amount`）回到 `open`。该本位币残值仅用于展示和汇兑口径，`remaining_amount = 0` 时不能抵用或退款。前端按 `refunded_amount` 显示“已退款”或“已核销”。
 - 贷项列表只返回汇总字段；详情才返回 `allocations`、`refunds` 数组。发票详情返回 `credit_note_allocations`。
 
 ### 抵用明细
@@ -128,7 +128,7 @@ remaining_base_amount = base_amount - applied_base_amount - refunded_base_amount
   - `purchase_return` → `payable`
 - 支持部分抵用和多次抵用；单张不超过发票未付金额，合计不超过贷项剩余金额，请求内发票不能重复。
 - 抵用日期默认当天，不能早于贷项单日期。
-- 贷项单汇率与发票汇率不一致时，允许部分抵用，但拒绝**全额抵清发票**：当本次抵用金额等于发票原币未付金额且两个汇率不同时返回 409 `CROSS_RATE_ALLOCATION`。全额抵清后发票原币未付为 0，贷项与发票之间的本位币差额没有后续重估路径；部分抵用保留原币未付，差额仍纳入期末汇兑重估。
+- 贷项单汇率与发票汇率不一致时，允许部分抵用，但拒绝**全额抵清发票**：当本次抵用金额等于发票原币未付金额时，要求本次抵用本位币与发票本位币未付金额相等（4 位小数容差），否则返回 409 `CROSS_RATE_ALLOCATION`。守卫比较本位币金额而不是汇率，因此先前的低汇率部分抵用即使提高了发票本位币未付，也无法再用一次“同汇率”的全额抵用留下尾差。全额抵清后发票原币未付为 0，贷项与发票之间的本位币差额没有后续重估路径；部分抵用保留原币未付，差额仍纳入期末汇兑重估。
 - 按请求顺序使用当前贷项剩余金额/本位币计算：
 
 ```text
@@ -180,8 +180,8 @@ if amount == remaining_amount:
 - 退款只支持银行/现金，不涉及 VAT 红字发票或税控红冲。
 - 退款只能退给贷项单往来单位，不支持退给其他往来单位。
 - 退款接口无审批流、无幂等键，且会真实出账。Stage 3J 暂缓实现幂等键，但生产启用前必须引入服务端幂等键（如 `Idempotency-Key`）和去重；在此之前，退款端点客户端**不得自动重试**，超时或断连只能人工核对退款单后再决定是否重发。
-- 跨汇率全额抵清发票被拒绝（409 `CROSS_RATE_ALLOCATION`）；部分跨汇率抵用允许，本位币差额随期末重估处理。尚无自动换汇或差额单独过账。
-- 原币归零的贷项单一律 `applied`；正数本位币残值只用于展示/汇兑，不能抵用或退款。
+- 跨汇率全额抵清发票被拒绝（409 `CROSS_RATE_ALLOCATION`）：全额抵清要求本次抵用本位币与发票本位币未付相等（4 位小数容差），比较的是本位币金额而非汇率；部分跨汇率抵用允许，本位币差额随期末重估处理。尚无自动换汇或差额单独过账。
+- 原币归零的贷项单一律 `applied`，退货创建时也按原币归零判定；正数本位币残值只用于展示/汇兑，不能抵用或退款。
 - 抵用不计汇兑；退款按退款日汇率确认汇兑损益；未使用贷项不参与外币重估。
 
 ## 多币种与汇兑损益（Stage 3F）

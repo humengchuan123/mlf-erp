@@ -347,8 +347,7 @@ func (r *ReturnRepository) Create(
 		remaining := ret.TotalAmount.Sub(applied).Round(4)
 		remainingBase := ret.BaseTotalAmount.Sub(appliedBase).Round(4)
 		noteStatus := "open"
-		if remaining.IsZero() &&
-			remainingBase.Abs().LessThanOrEqual(decimal.RequireFromString("0.0001")) {
+		if remaining.IsZero() {
 			noteStatus = "applied"
 		}
 
