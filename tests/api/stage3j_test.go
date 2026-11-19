@@ -55,17 +55,22 @@ func TestStage3J(t *testing.T) {
 	customer2 := findItem(listItems(admin, "/masterdata/partners?keyword=CUS-DEMO-002&page_size=20", http.StatusOK), "code", "CUS-DEMO-002")
 	supplier := findItem(listItems(admin, "/masterdata/partners?keyword=SUP-DEMO-001&page_size=20", http.StatusOK), "code", "SUP-DEMO-001")
 	warehouse := findItem(listItems(admin, "/masterdata/warehouses?keyword=WH-SH&page_size=20", http.StatusOK), "code", "WH-SH")
+	eastWarehouse := findItem(listItems(admin, "/masterdata/warehouses?keyword=WH-EAST&page_size=20", http.StatusOK), "code", "WH-EAST")
 	material := findItem(listItems(admin, "/masterdata/materials?keyword=MAT-DEMO-004&page_size=20", http.StatusOK), "code", "MAT-DEMO-004")
+	eastMaterial := findItem(listItems(admin, "/masterdata/materials?keyword=MAT-DEMO-011&page_size=20", http.StatusOK), "code", "MAT-DEMO-011")
 	vat13 := findItem(listItems(admin, "/masterdata/tax-rates?keyword=VAT13&page_size=20", http.StatusOK), "code", "VAT13")
 	vat0 := findItem(listItems(admin, "/masterdata/tax-rates?keyword=VAT0&page_size=20", http.StatusOK), "code", "VAT0")
-	if customer == nil || customer2 == nil || supplier == nil || warehouse == nil || material == nil || vat13 == nil || vat0 == nil {
+	if customer == nil || customer2 == nil || supplier == nil || warehouse == nil || eastWarehouse == nil ||
+		material == nil || eastMaterial == nil || vat13 == nil || vat0 == nil {
 		t.Fatal("demo master data missing")
 	}
 	customerID := text(customer, "id")
 	customer2ID := text(customer2, "id")
 	supplierID := text(supplier, "id")
 	warehouseID := text(warehouse, "id")
+	eastWarehouseID := text(eastWarehouse, "id")
 	materialID := text(material, "id")
+	eastMaterialID := text(eastMaterial, "id")
 	vat0ID := text(vat0, "id")
 
 	ensureStage3HStock(t, admin, supplierID, warehouseID, materialID, today)
@@ -304,6 +309,7 @@ func TestStage3J(t *testing.T) {
 
 	t.Run("allocation validation", func(t *testing.T) {
 		ensureStage3HStock(t, admin, supplierID, warehouseID, materialID, today)
+		ensureStage3HStock(t, admin, supplierID, eastWarehouseID, eastMaterialID, today)
 		_, shipmentID, shipmentLineID, paidInvoiceID, _ := createShippedOrder(
 			t, admin, customerID, warehouseID, materialID, vat0ID,
 			"1", "100.00", true, "stage3j-validation-paid",
@@ -338,11 +344,16 @@ func TestStage3J(t *testing.T) {
 			t, admin, supplierID, warehouseID, materialID, vat0ID,
 			"1", "50.00", true, "CNY", "", today, today, "stage3j-validation-payable",
 		)
+		_, _, _, eastInvoiceID, _ := createShippedOrder(
+			t, admin, customerID, eastWarehouseID, eastMaterialID, vat0ID,
+			"1", "50.00", true, "stage3j-validation-east",
+		)
 
 		path := "/finance/credit-notes/" + noteID + "/allocations"
 		admin.expectError(http.MethodPost, path, stage3JAllocationBody(today, otherPartnerInvoiceID, "10.00"), http.StatusBadRequest, "PARTNER_MISMATCH")
 		admin.expectError(http.MethodPost, path, stage3JAllocationBody(today, usdInvoiceID, "10.00"), http.StatusBadRequest, "CURRENCY_MISMATCH")
 		admin.expectError(http.MethodPost, path, stage3JAllocationBody(today, payableInvoiceID, "10.00"), http.StatusBadRequest, "INVOICE_TYPE_MISMATCH")
+		admin.expectError(http.MethodPost, path, stage3JAllocationBody(today, eastInvoiceID, "10.00"), http.StatusBadRequest, "ORG_MISMATCH")
 		admin.expectError(http.MethodPost, path, stage3JAllocationBody(today, paidInvoiceID, "10.00"), http.StatusConflict, "INVOICE_PAID")
 		admin.expectError(http.MethodPost, path, stage3JAllocationBody(today, invoiceBID, "51.00"), http.StatusConflict, "OVER_APPLY")
 		admin.expectError(http.MethodPost, path, stage3JAllocationBody(today, invoiceCID, "101.00"), http.StatusConflict, "OVER_APPLY")
@@ -393,6 +404,7 @@ func TestStage3J(t *testing.T) {
 
 	t.Run("allocation candidates", func(t *testing.T) {
 		ensureStage3HStock(t, admin, supplierID, warehouseID, materialID, today)
+		ensureStage3HStock(t, admin, supplierID, eastWarehouseID, eastMaterialID, today)
 		_, _, _, candidateInvoiceID, _ := createShippedOrder(
 			t, admin, customerID, warehouseID, materialID, vat0ID,
 			"1", "40.00", true, "stage3j-candidates-open",
@@ -410,6 +422,10 @@ func TestStage3J(t *testing.T) {
 			t, admin, customerID, warehouseID, materialID, vat0ID,
 			"1", "40.00", "USD", "7.2", today, "stage3j-candidates-usd",
 		)
+		_, _, _, eastInvoiceID, _ := createShippedOrder(
+			t, admin, customerID, eastWarehouseID, eastMaterialID, vat0ID,
+			"1", "40.00", true, "stage3j-candidates-east",
+		)
 
 		_, salesNoteID, _ := stage3JCreateOpenCreditNote(
 			t, admin, customerID, warehouseID, materialID, vat0ID,
@@ -421,7 +437,7 @@ func TestStage3J(t *testing.T) {
 		if findItem(candidates, "id", candidateInvoiceID) == nil {
 			t.Fatalf("open same-partner invoice %s missing from candidates", candidateInvoiceID)
 		}
-		for _, excludedID := range []string{paidCandidateID, otherPartnerID, usdInvoiceID} {
+		for _, excludedID := range []string{paidCandidateID, otherPartnerID, usdInvoiceID, eastInvoiceID} {
 			if findItem(candidates, "id", excludedID) != nil {
 				t.Fatalf("invoice %s should not be an allocation candidate", excludedID)
 			}
@@ -776,15 +792,23 @@ func TestStage3J(t *testing.T) {
 		year := cleanRevaluationYear(t, admin)
 		ensureTestYear(t, admin, year)
 		ensureStage3HStock(t, admin, supplierID, warehouseID, materialID, today)
+		// Use an isolated partner so ambient open USD receivables from earlier
+		// tests cannot join this customer's revaluation lines.
+		fxCustomer := admin.mustPost("/masterdata/partners", map[string]any{
+			"code": fmt.Sprintf("CUS-FX-3J-%d", time.Now().UnixNano()),
+			"name": "Stage 3J FX Customer",
+			"type": "customer",
+		}, http.StatusCreated)
+		fxCustomerID := text(fxCustomer, "id")
 		invoiceDate := fmt.Sprintf("%04d-01-15", year)
 		janStart := fmt.Sprintf("%04d-01-01", year)
 		closeDate := fmt.Sprintf("%04d-01-31", year)
 
 		_, shipmentAID, shipmentALineID, invoiceAID := stage3JCreateShippedInvoice(
-			t, admin, customerID, warehouseID, materialID, vat0ID,
+			t, admin, fxCustomerID, warehouseID, materialID, vat0ID,
 			"1", "100.00", "USD", "7.2", invoiceDate, "stage3j-fx-revaluation-a",
 		)
-		stage3JPayInvoice(t, admin, "receipt", customerID, invoiceAID, "USD", "100.00", "7.2", invoiceDate, "stage3j-fx-revaluation-a-payment")
+		stage3JPayInvoice(t, admin, "receipt", fxCustomerID, invoiceAID, "USD", "100.00", "7.2", invoiceDate, "stage3j-fx-revaluation-a-payment")
 		returned := postReturn(t, admin, shipmentAID, shipmentALineID, "1", invoiceDate, "stage3j-fx-revaluation-a-return")
 		noteID := text(returned, "credit_note_id")
 		trackNote(noteID)
@@ -796,7 +820,7 @@ func TestStage3J(t *testing.T) {
 		stage3JExpect(t, note, "status", "open")
 
 		_, _, _, invoiceBID := stage3JCreateShippedInvoice(
-			t, admin, customerID, warehouseID, materialID, vat0ID,
+			t, admin, fxCustomerID, warehouseID, materialID, vat0ID,
 			"2", "100.00", "USD", "7.2", invoiceDate, "stage3j-fx-revaluation-b",
 		)
 		applied := stage3JAllocate(t, admin, noteID, invoiceDate, stage3JAllocation{invoiceBID, "100.00"})
@@ -853,10 +877,12 @@ func TestStage3J(t *testing.T) {
 		revaluationDetail := admin.mustGet("/finance/vouchers/"+text(revaluation, "id"), http.StatusOK)
 		revaluationLines, _ := revaluationDetail["lines"].([]any)
 		assertVoucherBalanced(t, revaluationLines)
-		if got := number(t, findLineByAccount(t, revaluationLines, "1122"), "debit"); !nearlyEqual(got, 10) {
+		findLineByAccountPartner(t, revaluationLines, "1122", fxCustomerID)
+		findLineByAccountPartner(t, revaluationLines, "660302", fxCustomerID)
+		if got := stage3JSumPostingLines(t, revaluationLines, "1122", fxCustomerID, "debit"); !nearlyEqual(got, 10) {
 			t.Fatalf("FX revaluation AR debit after credit application = %v, want 10", got)
 		}
-		if got := number(t, findLineByAccount(t, revaluationLines, "660302"), "credit"); !nearlyEqual(got, 10) {
+		if got := stage3JSumPostingLines(t, revaluationLines, "660302", fxCustomerID, "credit"); !nearlyEqual(got, 10) {
 			t.Fatalf("FX revaluation gain credit after credit application = %v, want 10", got)
 		}
 		revalued := admin.mustGet("/finance/invoices/"+invoiceBID, http.StatusOK)
@@ -1304,6 +1330,21 @@ func stage3JRefundVoucherLines(t *testing.T, admin *client, refund map[string]an
 	detail := admin.mustGet("/finance/vouchers/"+text(voucher, "id"), http.StatusOK)
 	lines, _ := detail["lines"].([]any)
 	return lines
+}
+
+func stage3JSumPostingLines(t *testing.T, lines []any, accountCode, partnerID, field string) float64 {
+	t.Helper()
+	total := 0.0
+	for _, raw := range lines {
+		line, ok := raw.(map[string]any)
+		if !ok {
+			t.Fatalf("voucher line payload = %v", raw)
+		}
+		if text(line, "account_code") == accountCode && text(line, "partner_id") == partnerID {
+			total += number(t, line, field)
+		}
+	}
+	return total
 }
 
 func stage3JRunConcurrent(c *client, requests []stage3JRequest) []stage3JHTTPResult {
