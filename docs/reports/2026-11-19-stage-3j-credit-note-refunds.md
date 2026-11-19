@@ -2,7 +2,8 @@
 
 > 日期：2026-11-19
 > 分支：`stage-3j-credit-note-refunds`
-> HEAD：`426ec6e`（修复前）
+> HEAD：`6acbffa`
+> 说明：HEAD 指向包含本轮审查修复的提交；报告 HEAD 回填为后续纯文档提交。
 > 设计：`docs/superpowers/specs/2026-11-19-stage-3j-credit-note-refunds-design.md`
 > 计划：`docs/superpowers/plans/2026-11-19-stage-3j-credit-note-refunds.md`
 > 状态：报告草稿；独立审核、干净库 Stage 3B–3J 回归待 Task 10
@@ -59,6 +60,8 @@
 | API 契约与 OpenAPI/SDK | `8ae74fd`、`7099d97` |
 | 前端 | `9402151`、`40bc34d` |
 | 接口测试 | `c8b64bf`、`04a7765`、`ddd012c`、`8187423` |
+| 文档/报告 | `80e2c1a`、`426ec6e` |
+| 最终审查修复 | `6acbffa` |
 
 ## 2. 数据模型
 
