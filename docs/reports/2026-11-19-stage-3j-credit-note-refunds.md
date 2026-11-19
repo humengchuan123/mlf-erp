@@ -49,7 +49,7 @@
 
 | 阶段 | 提交 |
 |---|---|
-| 设计/计划 | `611decd` |
+| 设计/计划 | `611decd`；后续澄清/补充 `dae0a01`、`fab4fb2` |
 | 迁移 | `46a79e7`、`ac5652b` |
 | 领域模型与金额计算 | `9c01473`、`530e861` |
 | 初始抵用记录 | `7a6dc95`、`70d4a65` |
@@ -332,13 +332,13 @@ pnpm test:api:stage3j
 | zero base refunds through API | 极小汇率 USD 贷项先消耗 0.0001 本位币，再零本位币退款：base 0、cash/FX 0.0001；客户省略 AR、供应商省略 AP，凭证平衡 | 通过 |
 | refund required fields and validation | 缺日期/方式、空方式、零/负金额、非法方式、超退、早于贷项日期、404、关闭贷项 409；拒绝后无退款行 | 通过 |
 | period closed refund rolls back | 关账期间退款 409 `PERIOD_CLOSED`；退款行、贷项余额和期间内 `credit_note_refund` 凭证均未留下 | 通过 |
-| fx revaluation after credit application | 抵用后发票未付本位币减少；期末重估只按剩余 100×7.3 调整 +10；未使用贷项不重估 | 通过 |
-| invoice detail lists credit note allocations | 发票详情返回贷项单号、类型、贷项日期、金额、汇率和抵用日期；无记录返回空数组 | 通过 |
+| fx revaluation after credit application | 抵用后发票未付本位币减少；期末重估只按剩余 100×7.3 调整 +10，应收借记和汇兑收益贷记均按抵用后剩余本位币计算 | 通过 |
+| invoice detail lists credit note allocations | 发票详情返回贷项单号、类型、贷项日期、金额和抵用日期；无记录返回空数组 | 通过 |
 | permissions | 匿名 401、demo_dept 抵用/退款/候选 403；demo_dept 贷项列表数据范围不泄露 Stage 3J 贷项 | 通过 |
 | concurrent apply and refund | 父用例下覆盖 3 个并发场景，见下 | 通过 |
 | ├ concurrent applications do not double credit | 3 个并发抵用仅 1 个成功，其余 `CREDIT_NOTE_CLOSED`；只生成 1 条抵用、发票合计 credited 50、仅 1 张结清 | 通过 |
 | ├ concurrent refunds do not double refund | 3 个并发退款仅 1 个成功，其余 `CREDIT_NOTE_CLOSED`；只生成 1 条退款 | 通过 |
-| └ concurrent application and refund serialize | 同一贷项并发抵用/退款都成功；applied/refunded/remaining 原币和本位币不变量成立；发票 credited 和退款凭证正确 | 通过 |
+| └ concurrent application and refund serialize | 同一贷项并发抵用/退款都成功；applied/refunded/remaining 原币和本位币不变量成立；抵用/退款金额和退款 FX 字段正确；发票 credited 和状态正确 | 通过 |
 
 ### 6.2 静态检查与构建
 
@@ -387,6 +387,7 @@ git diff --check
 - 不自动抵用，必须手工选择发票；不能抵未来发票。
 - 抵用为子账操作，不生成凭证，也不校验期间关闭。
 - 退款只支持银行/现金，不涉及 VAT 红字发票/税控红冲。
+- 退款只能退给贷项单往来单位，不支持退给其他往来单位。
 - 退款接口无审批流、无幂等键，客户端重试可能重复退款。
 - 抵用不计汇兑；退款按退款日汇率确认汇兑损益。
 - 未使用贷项不参与外币重估。
