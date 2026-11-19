@@ -2,7 +2,7 @@
 
 > 日期：2026-11-19
 > 分支：`stage-3j-credit-note-refunds`
-> HEAD：`6acbffa`
+> HEAD：`be0c0bd`
 > 说明：HEAD 指向包含本轮审查修复的提交；报告 HEAD 回填为后续纯文档提交。
 > 设计：`docs/superpowers/specs/2026-11-19-stage-3j-credit-note-refunds-design.md`
 > 计划：`docs/superpowers/plans/2026-11-19-stage-3j-credit-note-refunds.md`
@@ -62,6 +62,7 @@
 | 接口测试 | `c8b64bf`、`04a7765`、`ddd012c`、`8187423` |
 | 文档/报告 | `80e2c1a`、`426ec6e` |
 | 最终审查修复 | `6acbffa` |
+| 本轮 Critical/Important 修复 | `be0c0bd` |
 
 ## 2. 数据模型
 
@@ -410,7 +411,7 @@ go test ./... -count=1
 
 ### 6.3 干净数据库 Stage 3B–3J 全链路
 
-待 Task 10 完成后补充：在全新数据库执行 migration 22、seed、demo，运行 `go test -tags=integration ./tests/api -run 'TestStage3' -count=1 -v`，并校验迁移版本、贷项抵用/退款数量、凭证借贷平衡和 Stage 3B–3J 全部子测试。
+待 Task 10 完成后补充：在全新数据库执行 migration 23、seed、demo，运行 `go test -tags=integration ./tests/api -run 'TestStage3' -count=1 -v`，并校验迁移版本、贷项抵用/退款数量、凭证借贷平衡和 Stage 3B–3J 全部子测试。
 
 ## 7. 代码审核
 
