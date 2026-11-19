@@ -3,7 +3,10 @@
 package api_test
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"sync"
 	"testing"
@@ -25,6 +28,8 @@ type stage3JHTTPResult struct {
 	code   string
 	err    error
 }
+
+var stage3JHTTPClient = &http.Client{Timeout: 30 * time.Second}
 
 func TestStage3J(t *testing.T) {
 	admin := newClient(t).login(
@@ -58,10 +63,9 @@ func TestStage3J(t *testing.T) {
 	eastWarehouse := findItem(listItems(admin, "/masterdata/warehouses?keyword=WH-EAST&page_size=20", http.StatusOK), "code", "WH-EAST")
 	material := findItem(listItems(admin, "/masterdata/materials?keyword=MAT-DEMO-004&page_size=20", http.StatusOK), "code", "MAT-DEMO-004")
 	eastMaterial := findItem(listItems(admin, "/masterdata/materials?keyword=MAT-DEMO-011&page_size=20", http.StatusOK), "code", "MAT-DEMO-011")
-	vat13 := findItem(listItems(admin, "/masterdata/tax-rates?keyword=VAT13&page_size=20", http.StatusOK), "code", "VAT13")
 	vat0 := findItem(listItems(admin, "/masterdata/tax-rates?keyword=VAT0&page_size=20", http.StatusOK), "code", "VAT0")
 	if customer == nil || customer2 == nil || supplier == nil || warehouse == nil || eastWarehouse == nil ||
-		material == nil || eastMaterial == nil || vat13 == nil || vat0 == nil {
+		material == nil || eastMaterial == nil || vat0 == nil {
 		t.Fatal("demo master data missing")
 	}
 	customerID := text(customer, "id")
@@ -217,6 +221,11 @@ func TestStage3J(t *testing.T) {
 		}
 		if got := text(row, "code"); got != noteCode {
 			t.Fatalf("credit note list code = %s, want %s", got, noteCode)
+		}
+		// Allocation is a subledger operation: no voucher should use the credit
+		// note code as its source.
+		if voucher := findVoucherBySource(admin, noteCode); voucher != nil {
+			t.Fatalf("credit note allocation unexpectedly posted voucher %s", text(voucher, "code"))
 		}
 	})
 
@@ -459,11 +468,42 @@ func TestStage3J(t *testing.T) {
 				t.Fatalf("candidate invoice %s outstanding = %v, want > 0", text(candidate, "id"), got)
 			}
 		}
+
+		purchaseReceiptID, purchaseLineID, _, purchaseInvoiceID, _ := stage3ICreatePurchaseReceipt(
+			t, admin, supplierID, warehouseID, materialID, vat0ID,
+			"1", "50.00", true, "CNY", "", today, today, "stage3j-candidates-purchase-note",
+		)
+		stage3JPayInvoice(t, admin, "payment", supplierID, purchaseInvoiceID, "CNY", "50.00", "", today, "stage3j-candidates-purchase-note-payment")
+		purchaseReturn := stage3IPostPurchaseReturn(t, admin, purchaseReceiptID, purchaseLineID, "1", today, "supplier return", "stage3j-candidates-purchase-note-return")
+		purchaseNoteID := text(purchaseReturn, "credit_note_id")
+		trackNote(purchaseNoteID)
+		_, _, _, payableCandidateID, _ := stage3ICreatePurchaseReceipt(
+			t, admin, supplierID, warehouseID, materialID, vat0ID,
+			"1", "40.00", true, "CNY", "", today, today, "stage3j-candidates-purchase-target",
+		)
+		purchaseCandidates := getArray(admin, "/finance/credit-notes/"+purchaseNoteID+"/allocation-candidates", http.StatusOK)
+		if findItem(purchaseCandidates, "id", payableCandidateID) == nil {
+			t.Fatalf("open payable invoice %s missing from purchase credit note candidates", payableCandidateID)
+		}
+		for _, candidate := range purchaseCandidates {
+			if got := text(candidate, "invoice_type"); got != "payable" {
+				t.Fatalf("purchase candidate invoice_type = %s, want payable", got)
+			}
+			if got := text(candidate, "partner_id"); got != supplierID {
+				t.Fatalf("purchase candidate partner_id = %s, want %s", got, supplierID)
+			}
+			if got := text(candidate, "currency"); got != "CNY" {
+				t.Fatalf("purchase candidate currency = %s, want CNY", got)
+			}
+			if got := text(candidate, "status"); got == "paid" {
+				t.Fatalf("purchase candidate invoice %s is paid", text(candidate, "id"))
+			}
+			if got := number(t, candidate, "outstanding_amount"); got <= 0 {
+				t.Fatalf("purchase candidate invoice %s outstanding = %v, want > 0", text(candidate, "id"), got)
+			}
+		}
 	})
 
-	// A natural zero-base refund needs a residual base amount that the public
-	// HTTP flow cannot produce; internal/modules/gl/infra/postgres unit tests
-	// cover both customer and supplier zero-base posting branches.
 	t.Run("customer refund with fx", func(t *testing.T) {
 		ensureStage3HStock(t, admin, supplierID, warehouseID, materialID, today)
 		_, noteID, _ := stage3JCreateOpenCreditNote(
@@ -586,6 +626,10 @@ func TestStage3J(t *testing.T) {
 		stage3JExpect(t, note, "remaining_amount", "100.0000")
 		stage3JExpect(t, note, "status", "open")
 
+		invoiceBefore := admin.mustGet("/finance/invoices/"+invoiceID, http.StatusOK)
+		creditedBefore := text(invoiceBefore, "credited_amount")
+		baseCreditedBefore := text(invoiceBefore, "base_credited_amount")
+
 		refunded := stage3JRefund(t, admin, noteID, today, "40.00", "7.3", "bank", "stage3j-supplier-refund-partial")
 		stage3JExpect(t, refunded, "refunded_amount", "40.0000")
 		stage3JExpect(t, refunded, "refunded_base_amount", "288.0000")
@@ -654,6 +698,175 @@ func TestStage3J(t *testing.T) {
 			if code := text(line, "account_code"); code == "660301" || code == "660302" {
 				t.Fatalf("supplier final refund voucher unexpectedly contains FX account %s", code)
 			}
+		}
+
+		invoiceAfter := admin.mustGet("/finance/invoices/"+invoiceID, http.StatusOK)
+		if got := text(invoiceAfter, "credited_amount"); got != creditedBefore {
+			t.Fatalf("supplier invoice credited changed by refunds: %s -> %s", creditedBefore, got)
+		}
+		if got := text(invoiceAfter, "base_credited_amount"); got != baseCreditedBefore {
+			t.Fatalf("supplier invoice base credited changed by refunds: %s -> %s", baseCreditedBefore, got)
+		}
+	})
+
+	t.Run("zero base refunds through API", func(t *testing.T) {
+		const tinyRate = "0.00005"
+
+		ensureStage3HStock(t, admin, supplierID, warehouseID, materialID, today)
+		_, customerNoteID, _ := stage3JCreateOpenCreditNote(
+			t, admin, customerID, warehouseID, materialID, vat0ID,
+			"2.00", "USD", tinyRate, today, "stage3j-zero-base-customer",
+		)
+		trackNote(customerNoteID)
+		customerNote := admin.mustGet("/finance/credit-notes/"+customerNoteID, http.StatusOK)
+		stage3JExpect(t, customerNote, "amount", "2.0000")
+		stage3JExpect(t, customerNote, "base_amount", "0.0001")
+		stage3JExpect(t, customerNote, "remaining_amount", "2.0000")
+		stage3JExpect(t, customerNote, "remaining_base_amount", "0.0001")
+		stage3JExpect(t, customerNote, "status", "open")
+
+		first := stage3JRefund(t, admin, customerNoteID, today, "1.00", tinyRate, "bank", "stage3j-zero-base-customer-1")
+		stage3JExpect(t, first, "refunded_amount", "1.0000")
+		stage3JExpect(t, first, "refunded_base_amount", "0.0001")
+		stage3JExpect(t, first, "remaining_amount", "1.0000")
+		stage3JExpect(t, first, "remaining_base_amount", "0.0000")
+		stage3JExpect(t, first, "status", "open")
+		refunds := stage3JObjects(t, first, "refunds")
+		if len(refunds) != 1 {
+			t.Fatalf("zero-base customer first refund rows = %d, want 1", len(refunds))
+		}
+		firstRefund := refunds[0]
+		stage3JExpect(t, firstRefund, "base_amount", "0.0001")
+		stage3JExpect(t, firstRefund, "cash_base_amount", "0.0001")
+		stage3JExpect(t, firstRefund, "fx_adjustment", "0.0000")
+		firstLines := stage3JRefundVoucherLines(t, admin, firstRefund)
+		assertVoucherBalanced(t, firstLines)
+		if len(firstLines) != 2 {
+			t.Fatalf("zero-base customer first voucher lines = %d, want 2", len(firstLines))
+		}
+		if got := text(findLineByAccount(t, firstLines, "1122"), "debit"); got != "0.0001" {
+			t.Fatalf("zero-base customer first AR debit = %s, want 0.0001", got)
+		}
+		if got := text(findLineByAccount(t, firstLines, "1002"), "credit"); got != "0.0001" {
+			t.Fatalf("zero-base customer first bank credit = %s, want 0.0001", got)
+		}
+
+		firstRefundID := text(firstRefund, "id")
+		second := stage3JRefund(t, admin, customerNoteID, today, "1.00", tinyRate, "bank", "stage3j-zero-base-customer-2")
+		stage3JExpect(t, second, "refunded_amount", "2.0000")
+		stage3JExpect(t, second, "refunded_base_amount", "0.0001")
+		stage3JExpect(t, second, "remaining_amount", "0.0000")
+		stage3JExpect(t, second, "remaining_base_amount", "0.0000")
+		stage3JExpect(t, second, "status", "applied")
+		refunds = stage3JObjects(t, second, "refunds")
+		if len(refunds) != 2 {
+			t.Fatalf("zero-base customer refund rows = %d, want 2", len(refunds))
+		}
+		var secondRefund map[string]any
+		for _, refund := range refunds {
+			if text(refund, "id") != firstRefundID {
+				secondRefund = refund
+				break
+			}
+		}
+		if secondRefund == nil {
+			t.Fatal("zero-base customer second refund row not found")
+		}
+		stage3JExpect(t, secondRefund, "base_amount", "0.0000")
+		stage3JExpect(t, secondRefund, "cash_base_amount", "0.0001")
+		stage3JExpect(t, secondRefund, "fx_adjustment", "0.0001")
+		secondLines := stage3JRefundVoucherLines(t, admin, secondRefund)
+		assertVoucherBalanced(t, secondLines)
+		if len(secondLines) != 2 {
+			t.Fatalf("zero-base customer second voucher lines = %d, want 2", len(secondLines))
+		}
+		if stage3JLookupLineByAccount(secondLines, "1122") != nil {
+			t.Fatal("zero-base customer refund voucher unexpectedly contains an AR line")
+		}
+		if got := text(findLineByAccount(t, secondLines, "1002"), "credit"); got != "0.0001" {
+			t.Fatalf("zero-base customer second bank credit = %s, want 0.0001", got)
+		}
+		if got := text(findLineByAccount(t, secondLines, "660301"), "debit"); got != "0.0001" {
+			t.Fatalf("zero-base customer second fx loss debit = %s, want 0.0001", got)
+		}
+
+		receiptID, receiptLineID, _, invoiceID, _ := stage3ICreatePurchaseReceipt(
+			t, admin, supplierID, warehouseID, materialID, vat0ID,
+			"1", "2.00", true, "USD", tinyRate, today, today, "stage3j-zero-base-supplier",
+		)
+		stage3JPayInvoice(t, admin, "payment", supplierID, invoiceID, "USD", "2.00", tinyRate, today, "stage3j-zero-base-supplier-payment")
+		returned := stage3IPostPurchaseReturn(t, admin, receiptID, receiptLineID, "1", today, "supplier return", "stage3j-zero-base-supplier-return")
+		supplierNoteID := text(returned, "credit_note_id")
+		trackNote(supplierNoteID)
+		supplierNote := admin.mustGet("/finance/credit-notes/"+supplierNoteID, http.StatusOK)
+		stage3JExpect(t, supplierNote, "amount", "2.0000")
+		stage3JExpect(t, supplierNote, "base_amount", "0.0001")
+		stage3JExpect(t, supplierNote, "remaining_amount", "2.0000")
+		stage3JExpect(t, supplierNote, "remaining_base_amount", "0.0001")
+		stage3JExpect(t, supplierNote, "status", "open")
+
+		first = stage3JRefund(t, admin, supplierNoteID, today, "1.00", tinyRate, "bank", "stage3j-zero-base-supplier-1")
+		stage3JExpect(t, first, "refunded_amount", "1.0000")
+		stage3JExpect(t, first, "refunded_base_amount", "0.0001")
+		stage3JExpect(t, first, "remaining_amount", "1.0000")
+		stage3JExpect(t, first, "remaining_base_amount", "0.0000")
+		refunds = stage3JObjects(t, first, "refunds")
+		if len(refunds) != 1 {
+			t.Fatalf("zero-base supplier first refund rows = %d, want 1", len(refunds))
+		}
+		firstRefund = refunds[0]
+		stage3JExpect(t, firstRefund, "base_amount", "0.0001")
+		stage3JExpect(t, firstRefund, "cash_base_amount", "0.0001")
+		stage3JExpect(t, firstRefund, "fx_adjustment", "0.0000")
+		firstLines = stage3JRefundVoucherLines(t, admin, firstRefund)
+		assertVoucherBalanced(t, firstLines)
+		if len(firstLines) != 2 {
+			t.Fatalf("zero-base supplier first voucher lines = %d, want 2", len(firstLines))
+		}
+		if got := text(findLineByAccount(t, firstLines, "1002"), "debit"); got != "0.0001" {
+			t.Fatalf("zero-base supplier first bank debit = %s, want 0.0001", got)
+		}
+		if got := text(findLineByAccount(t, firstLines, "2202"), "credit"); got != "0.0001" {
+			t.Fatalf("zero-base supplier first AP credit = %s, want 0.0001", got)
+		}
+
+		firstRefundID = text(firstRefund, "id")
+		second = stage3JRefund(t, admin, supplierNoteID, today, "1.00", tinyRate, "bank", "stage3j-zero-base-supplier-2")
+		stage3JExpect(t, second, "refunded_amount", "2.0000")
+		stage3JExpect(t, second, "refunded_base_amount", "0.0001")
+		stage3JExpect(t, second, "remaining_amount", "0.0000")
+		stage3JExpect(t, second, "remaining_base_amount", "0.0000")
+		stage3JExpect(t, second, "status", "applied")
+		refunds = stage3JObjects(t, second, "refunds")
+		if len(refunds) != 2 {
+			t.Fatalf("zero-base supplier refund rows = %d, want 2", len(refunds))
+		}
+		secondRefund = nil
+		for _, refund := range refunds {
+			if text(refund, "id") != firstRefundID {
+				secondRefund = refund
+				break
+			}
+		}
+		if secondRefund == nil {
+			t.Fatal("zero-base supplier second refund row not found")
+		}
+		stage3JExpect(t, secondRefund, "base_amount", "0.0000")
+		stage3JExpect(t, secondRefund, "cash_base_amount", "0.0001")
+		stage3JExpect(t, secondRefund, "fx_adjustment", "0.0001")
+		secondLines = stage3JRefundVoucherLines(t, admin, secondRefund)
+		assertVoucherBalanced(t, secondLines)
+		if len(secondLines) != 2 {
+			t.Fatalf("zero-base supplier second voucher lines = %d, want 2", len(secondLines))
+		}
+		if stage3JLookupLineByAccount(secondLines, "2202") != nil {
+			t.Fatal("zero-base supplier refund voucher unexpectedly contains an AP line")
+		}
+		if got := text(findLineByAccount(t, secondLines, "1002"), "debit"); got != "0.0001" {
+			t.Fatalf("zero-base supplier second bank debit = %s, want 0.0001", got)
+		}
+		if got := text(findLineByAccount(t, secondLines, "660302"), "credit"); got != "0.0001" {
+			t.Fatalf("zero-base supplier second fx gain credit = %s, want 0.0001", got)
 		}
 	})
 
@@ -984,23 +1197,29 @@ func TestStage3J(t *testing.T) {
 		t.Run("concurrent applications do not double credit", func(t *testing.T) {
 			_, noteID, _ := stage3JCreateOpenCreditNote(
 				t, admin, customerID, warehouseID, materialID, vat0ID,
-				"60.00", "CNY", "", today, "stage3j-concurrent-apply",
+				"50.00", "CNY", "", today, "stage3j-concurrent-apply",
 			)
 			trackNote(noteID)
-			_, _, _, invoiceBID, _ := createShippedOrder(
-				t, admin, customerID, warehouseID, materialID, vat0ID,
-				"1", "50.00", true, "stage3j-concurrent-apply-b",
-			)
-			_, _, _, invoiceCID, _ := createShippedOrder(
-				t, admin, customerID, warehouseID, materialID, vat0ID,
-				"1", "50.00", true, "stage3j-concurrent-apply-c",
-			)
-			results := stage3JRunConcurrent(admin, []stage3JRequest{
-				{path: "/finance/credit-notes/" + noteID + "/allocations", body: stage3JAllocationBody(today, invoiceBID, "50.00")},
-				{path: "/finance/credit-notes/" + noteID + "/allocations", body: stage3JAllocationBody(today, invoiceCID, "50.00")},
-			})
+			invoiceIDs := make([]string, 0, 3)
+			for _, remark := range []string{"stage3j-concurrent-apply-b", "stage3j-concurrent-apply-c", "stage3j-concurrent-apply-d"} {
+				_, _, _, invoiceID, _ := createShippedOrder(
+					t, admin, customerID, warehouseID, materialID, vat0ID,
+					"1", "50.00", true, remark,
+				)
+				invoiceIDs = append(invoiceIDs, invoiceID)
+			}
+			requests := make([]stage3JRequest, 0, len(invoiceIDs))
+			for _, invoiceID := range invoiceIDs {
+				requests = append(requests, stage3JRequest{
+					path: "/finance/credit-notes/" + noteID + "/allocations",
+					body: stage3JAllocationBody(today, invoiceID, "50.00"),
+				})
+			}
+			results := stage3JRunConcurrent(admin, requests)
 			successes := 0
-			overApply := 0
+			conflicts := 0
+			// Full consumption leaves the note applied, so losing contenders see
+			// CREDIT_NOTE_CLOSED rather than a remaining-amount OVER_APPLY.
 			for i, result := range results {
 				if result.err != nil {
 					t.Fatalf("concurrent application %d failed: %v", i, result.err)
@@ -1009,42 +1228,46 @@ func TestStage3J(t *testing.T) {
 				case http.StatusOK:
 					successes++
 				case http.StatusConflict:
-					if result.code != "OVER_APPLY" {
-						t.Fatalf("concurrent application loser code = %q, want OVER_APPLY", result.code)
+					if result.code != "CREDIT_NOTE_CLOSED" {
+						t.Fatalf("concurrent application loser code = %q, want CREDIT_NOTE_CLOSED", result.code)
 					}
-					overApply++
+					conflicts++
 				default:
 					t.Fatalf("concurrent application %d status = %d, code = %q", i, result.status, result.code)
 				}
 			}
-			if successes != 1 || overApply != 1 {
-				t.Fatalf("concurrent applications success/over-apply = %d/%d, want 1/1", successes, overApply)
+			if successes != 1 || conflicts != 2 {
+				t.Fatalf("concurrent applications success/conflicts = %d/%d, want 1/2", successes, conflicts)
 			}
 
 			note := admin.mustGet("/finance/credit-notes/"+noteID, http.StatusOK)
 			stage3JExpect(t, note, "applied_amount", "50.0000")
-			stage3JExpect(t, note, "remaining_amount", "10.0000")
-			stage3JExpect(t, note, "status", "open")
+			stage3JExpect(t, note, "remaining_amount", "0.0000")
+			stage3JExpect(t, note, "status", "applied")
 			if allocations := stage3JObjects(t, note, "allocations"); len(allocations) != 1 {
 				t.Fatalf("concurrent application rows = %d, want 1", len(allocations))
 			}
-			invoiceB := admin.mustGet("/finance/invoices/"+invoiceBID, http.StatusOK)
-			invoiceC := admin.mustGet("/finance/invoices/"+invoiceCID, http.StatusOK)
-			creditedTotal := number(t, invoiceB, "credited_amount") + number(t, invoiceC, "credited_amount")
+			creditedTotal := 0.0
+			paidInvoices := 0
+			for _, invoiceID := range invoiceIDs {
+				invoice := admin.mustGet("/finance/invoices/"+invoiceID, http.StatusOK)
+				creditedTotal += number(t, invoice, "credited_amount")
+				if text(invoice, "status") == "paid" {
+					paidInvoices++
+				}
+			}
 			if !nearlyEqual(creditedTotal, 50) {
 				t.Fatalf("concurrent application invoice credited total = %v, want 50", creditedTotal)
 			}
-			bPaid := text(invoiceB, "status") == "paid"
-			cPaid := text(invoiceC, "status") == "paid"
-			if bPaid == cPaid {
-				t.Fatalf("concurrent applications should credit exactly one invoice, statuses = %s/%s", text(invoiceB, "status"), text(invoiceC, "status"))
+			if paidInvoices != 1 {
+				t.Fatalf("concurrent applications paid invoice count = %d, want 1", paidInvoices)
 			}
 		})
 
 		t.Run("concurrent refunds do not double refund", func(t *testing.T) {
 			_, noteID, _ := stage3JCreateOpenCreditNote(
 				t, admin, customerID, warehouseID, materialID, vat0ID,
-				"60.00", "CNY", "", today, "stage3j-concurrent-refund",
+				"50.00", "CNY", "", today, "stage3j-concurrent-refund",
 			)
 			trackNote(noteID)
 			body := map[string]any{
@@ -1055,9 +1278,12 @@ func TestStage3J(t *testing.T) {
 			results := stage3JRunConcurrent(admin, []stage3JRequest{
 				{path: "/finance/credit-notes/" + noteID + "/refunds", body: body},
 				{path: "/finance/credit-notes/" + noteID + "/refunds", body: body},
+				{path: "/finance/credit-notes/" + noteID + "/refunds", body: body},
 			})
 			successes := 0
-			overRefund := 0
+			conflicts := 0
+			// Full consumption leaves the note applied, so losing contenders see
+			// CREDIT_NOTE_CLOSED rather than a remaining-amount OVER_REFUND.
 			for i, result := range results {
 				if result.err != nil {
 					t.Fatalf("concurrent refund %d failed: %v", i, result.err)
@@ -1066,22 +1292,22 @@ func TestStage3J(t *testing.T) {
 				case http.StatusOK:
 					successes++
 				case http.StatusConflict:
-					if result.code != "OVER_REFUND" {
-						t.Fatalf("concurrent refund loser code = %q, want OVER_REFUND", result.code)
+					if result.code != "CREDIT_NOTE_CLOSED" {
+						t.Fatalf("concurrent refund loser code = %q, want CREDIT_NOTE_CLOSED", result.code)
 					}
-					overRefund++
+					conflicts++
 				default:
 					t.Fatalf("concurrent refund %d status = %d, code = %q", i, result.status, result.code)
 				}
 			}
-			if successes != 1 || overRefund != 1 {
-				t.Fatalf("concurrent refunds success/over-refund = %d/%d, want 1/1", successes, overRefund)
+			if successes != 1 || conflicts != 2 {
+				t.Fatalf("concurrent refunds success/conflicts = %d/%d, want 1/2", successes, conflicts)
 			}
 
 			note := admin.mustGet("/finance/credit-notes/"+noteID, http.StatusOK)
 			stage3JExpect(t, note, "refunded_amount", "50.0000")
-			stage3JExpect(t, note, "remaining_amount", "10.0000")
-			stage3JExpect(t, note, "status", "open")
+			stage3JExpect(t, note, "remaining_amount", "0.0000")
+			stage3JExpect(t, note, "status", "applied")
 			refunds := stage3JObjects(t, note, "refunds")
 			if len(refunds) != 1 {
 				t.Fatalf("concurrent refund rows = %d, want 1", len(refunds))
@@ -1332,6 +1558,16 @@ func stage3JRefundVoucherLines(t *testing.T, admin *client, refund map[string]an
 	return lines
 }
 
+func stage3JLookupLineByAccount(lines []any, accountCode string) map[string]any {
+	for _, raw := range lines {
+		line, ok := raw.(map[string]any)
+		if ok && text(line, "account_code") == accountCode {
+			return line
+		}
+	}
+	return nil
+}
+
 func stage3JSumPostingLines(t *testing.T, lines []any, accountCode, partnerID, field string) float64 {
 	t.Helper()
 	total := 0.0
@@ -1349,15 +1585,52 @@ func stage3JSumPostingLines(t *testing.T, lines []any, accountCode, partnerID, f
 
 func stage3JRunConcurrent(c *client, requests []stage3JRequest) []stage3JHTTPResult {
 	results := make([]stage3JHTTPResult, len(requests))
-	var wg sync.WaitGroup
+	start := make(chan struct{})
+	var ready sync.WaitGroup
+	var done sync.WaitGroup
+	ready.Add(len(requests))
+	done.Add(len(requests))
 	for i := range requests {
-		wg.Add(1)
 		go func(index int) {
-			defer wg.Done()
-			status, code, err := stage3IRawPost(c, requests[index].path, requests[index].body)
+			defer done.Done()
+			ready.Done()
+			<-start
+			status, code, err := stage3JRawPost(c, requests[index].path, requests[index].body)
 			results[index] = stage3JHTTPResult{status: status, code: code, err: err}
 		}(i)
 	}
-	wg.Wait()
+	ready.Wait()
+	close(start)
+	done.Wait()
 	return results
+}
+
+func stage3JRawPost(c *client, path string, body any) (int, string, error) {
+	raw, err := json.Marshal(body)
+	if err != nil {
+		return 0, "", err
+	}
+	req, err := http.NewRequest(http.MethodPost, c.baseURL+apiPrefix+path, bytes.NewReader(raw))
+	if err != nil {
+		return 0, "", err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+c.token)
+	resp, err := stage3JHTTPClient.Do(req)
+	if err != nil {
+		return 0, "", err
+	}
+	defer resp.Body.Close()
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return resp.StatusCode, "", fmt.Errorf("read response body: %w", err)
+	}
+	if len(data) == 0 {
+		return resp.StatusCode, "", fmt.Errorf("empty response body")
+	}
+	var payload apiPayload
+	if err := json.Unmarshal(data, &payload); err != nil {
+		return resp.StatusCode, "", fmt.Errorf("decode response body: %w", err)
+	}
+	return resp.StatusCode, payload.Code, nil
 }

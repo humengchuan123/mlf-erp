@@ -288,7 +288,7 @@ pnpm test:api:stage3h
 pnpm test:api:stage3i
 
 # Stage 3J API integration test (credit note allocation and refunds)
-# Writes to the local dev database and consumes a clean year for period-close rollback; use a clean database for full regression.
+# Writes to the local dev database and consumes two clean future years (period-close rollback and FX revaluation); use a clean database for full regression.
 pnpm test:api:stage3j
 
 # Docker
@@ -434,7 +434,7 @@ docker build -f deploy/docker/web.Dockerfile -t mlf-erp/web:dev .
 - 新增权限 `finance.credit_note.apply`、`finance.credit_note.refund`；API、SDK、OpenAPI 和前端同步。
 - 抵用/退款并发通过贷项行锁串行化，余额和本位币不变量不被破坏。
 - Stage 3J 真实 HTTP API 集成测试和前端完整度检查。
-- API 测试命令：`pnpm test:api:stage3j`（写入本地开发库并消耗一个干净年度用于关账回滚，完整回归请使用干净数据库）。
+- API 测试命令：`pnpm test:api:stage3j`（写入本地开发库并消耗两个干净未来年度：关账回滚 + 汇兑重估，完整回归请使用干净数据库）。
 
 ### 工程与交付
 
