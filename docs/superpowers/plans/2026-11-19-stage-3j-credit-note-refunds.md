@@ -1073,7 +1073,8 @@ git commit -m "feat(stage-3j): add credit note usage UI"
    - 退款 100 @7.3 -> 供应商退款凭证 bank debit 730, AP credit 720, fx_gain credit 10。
    - 零本位币退款：断言凭证不含应付行，现金行与汇兑行平衡。
 7. `refund validation and rollback`
-   - 超退、零/负金额、非法方式、已关闭贷项、关账期间退款 409 `PERIOD_CLOSED`，贷项/退款表/凭证回滚。
+   - 超退、零/负金额、非法方式、已关闭贷项。
+   - 关账期间退款 409 `PERIOD_CLOSED`：断言无退款行、无 `credit_note_refund` 凭证、贷项 `refunded/remaining/status` 均未变化。
 8. `refund does not change invoice credited`
    - 退款后原发票 credited 不变。
 9. `invoice detail lists credit note allocations`
@@ -1083,7 +1084,9 @@ git commit -m "feat(stage-3j): add credit note usage UI"
 11. `fx revaluation after credit application`
     - USD 发票 B 被贷项抵用后，期末重估只按剩余 base outstanding。
 12. `concurrent apply/refund`
-    - 两个并发抵用或退款请求只有一个成功，余额不双扣。
+    - 同一贷项并发两个抵用请求：只有一个成功，余额不双扣。
+    - 同一贷项并发两个退款请求：只有一个成功，余额不双扣。
+    - 同一贷项一个抵用、一个退款并发：两者按贷项行锁串行化，成功后 `applied_amount + refunded_amount + remaining_amount = amount`，base 不变量同时成立。
 
 - [ ] **Step 2: 脚本和 package**
 
