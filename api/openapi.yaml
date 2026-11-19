@@ -1170,7 +1170,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ApiResponse'
         '409':
-          description: Credit note closed, over-apply, invoice paid, CROSS_RATE_ALLOCATION, or insufficient invoice base
+          description: Credit note closed, over-apply, invoice paid, cross-rate allocation (partial or full), or insufficient invoice base
           content:
             application/json:
               schema:

@@ -772,8 +772,8 @@ func (h *Handler) handleError(c *gin.Context, err error) {
 		httpx.Error(c, http.StatusBadRequest, "OVER_ALLOCATE", "allocation exceeds outstanding amount")
 	case errors.Is(err, domain.ErrCreditNoteClosed):
 		httpx.Error(c, http.StatusConflict, "CREDIT_NOTE_CLOSED", "credit note is not open")
-	case errors.Is(err, domain.ErrCrossRateFullAllocation):
-		httpx.Error(c, http.StatusConflict, "CROSS_RATE_ALLOCATION", "full credit note allocation requires matching exchange rates")
+	case errors.Is(err, domain.ErrCrossRateAllocation):
+		httpx.Error(c, http.StatusConflict, "CROSS_RATE_ALLOCATION", "cross-rate credit note allocation is not supported")
 	case errors.Is(err, domain.ErrOverApply):
 		httpx.Error(c, http.StatusConflict, "OVER_APPLY", "credit note allocation exceeds remaining amount")
 	case errors.Is(err, domain.ErrCreditNoteOverInvoice):

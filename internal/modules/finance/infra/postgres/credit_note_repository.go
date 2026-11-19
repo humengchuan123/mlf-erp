@@ -225,6 +225,7 @@ func (r *CreditNoteRepository) Allocate(
 		orgID            string
 		partnerID        string
 		currency         string
+		exchangeRateRaw  string
 		status           string
 		remainingRaw     string
 		remainingBaseRaw string
@@ -232,11 +233,13 @@ func (r *CreditNoteRepository) Allocate(
 	}
 	err = tx.QueryRow(ctx, `
 		SELECT c.credit_type, c.org_id::text, c.partner_id::text, c.currency,
+		       c.exchange_rate::text,
 		       c.status, c.remaining_amount::text, c.remaining_base_amount::text, c.note_date
 		FROM erp.finance_credit_notes c
 		WHERE `+where+`
 		FOR UPDATE OF c`, args...).Scan(
 		&note.creditType, &note.orgID, &note.partnerID, &note.currency,
+		&note.exchangeRateRaw,
 		&note.status, &note.remainingRaw, &note.remainingBaseRaw, &note.noteDate,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -250,6 +253,7 @@ func (r *CreditNoteRepository) Allocate(
 	}
 	remainingAmount := decimal.RequireFromString(note.remainingRaw)
 	remainingBase := decimal.RequireFromString(note.remainingBaseRaw)
+	noteRate := decimal.RequireFromString(note.exchangeRateRaw)
 	if !remainingAmount.IsPositive() || !remainingBase.IsPositive() {
 		return nil, domain.ErrCreditNoteClosed
 	}
@@ -277,6 +281,7 @@ func (r *CreditNoteRepository) Allocate(
 		partnerID       string
 		orgID           string
 		currency        string
+		exchangeRateRaw string
 		status          string
 		totalRaw        string
 		paidRaw         string
@@ -294,6 +299,7 @@ func (r *CreditNoteRepository) Allocate(
 		invoice := &lockedInvoice{}
 		err = tx.QueryRow(ctx, `
 			SELECT i.invoice_type, i.partner_id::text, i.org_id::text, i.currency,
+			       i.exchange_rate::text,
 			       i.status,
 			       i.total_amount::text, i.paid_amount::text, i.credited_amount::text,
 			       i.base_total_amount::text, i.base_paid_amount::text, i.base_credited_amount::text
@@ -301,6 +307,7 @@ func (r *CreditNoteRepository) Allocate(
 			WHERE `+invoiceWhere+`
 			FOR UPDATE OF i`, invoiceArgs...).Scan(
 			&invoice.invoiceType, &invoice.partnerID, &invoice.orgID, &invoice.currency,
+			&invoice.exchangeRateRaw,
 			&invoice.status,
 			&invoice.totalRaw, &invoice.paidRaw, &invoice.creditedRaw,
 			&invoice.baseTotalRaw, &invoice.basePaidRaw, &invoice.baseCreditedRaw,
@@ -343,6 +350,15 @@ func (r *CreditNoteRepository) Allocate(
 		if invoice.status == domain.InvoiceStatusPaid {
 			return nil, domain.ErrInvoicePaid
 		}
+		// Allocation is a subledger reclassification and posts no FX voucher.
+		// A cross-rate settlement would consume a different base amount than the
+		// invoice releases, leaving an AR/AP base residual with no settlement
+		// path. Require the credit note rate to match every target invoice rate
+		// for both partial and full allocations.
+		invoiceRate := decimal.RequireFromString(invoice.exchangeRateRaw)
+		if !noteRate.Equal(invoiceRate) {
+			return nil, domain.ErrCrossRateAllocation
+		}
 
 		invoiceTotal := decimal.RequireFromString(invoice.totalRaw)
 		invoicePaid := decimal.RequireFromString(invoice.paidRaw)
@@ -363,12 +379,12 @@ func (r *CreditNoteRepository) Allocate(
 			Sub(decimal.RequireFromString(invoice.baseCreditedRaw)).Round(4)
 		// Fully crediting an invoice leaves no original-currency outstanding to
 		// carry a base residual, so the residual would have no revaluation path.
-		// Requiring base equality catches prior partial credits that changed the
-		// invoice's remaining base independently of its exchange rate. Partial
-		// allocations are allowed and are covered by period revaluation.
+		// Cross-rate allocations are already rejected above; this second guard
+		// catches historical cross-rate partial credits or rounding drift that
+		// changed the invoice's remaining base independently of its rate.
 		if allocation.Amount.Equal(outstanding) &&
 			base.Sub(invoiceBaseOutstanding).Abs().GreaterThan(decimal.RequireFromString("0.0001")) {
-			return nil, domain.ErrCrossRateFullAllocation
+			return nil, domain.ErrCrossRateAllocation
 		}
 		if base.GreaterThan(invoiceBaseOutstanding) {
 			return nil, domain.ErrInsufficientInvoiceBase

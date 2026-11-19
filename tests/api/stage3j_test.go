@@ -316,13 +316,12 @@ func TestStage3J(t *testing.T) {
 		}
 	})
 
-	t.Run("return with zero original and positive base residual is applied", func(t *testing.T) {
+	t.Run("same-rate allocations leave no base residual on full return", func(t *testing.T) {
 		ensureStage3HStock(t, admin, supplierID, warehouseID, materialID, today)
-		// Invoice 200 USD @7.2 (4 x 50), paid 100 USD @7.3, then a 50 USD
-		// credit note at 7.4 is applied. That higher-rate credit consumes more
-		// base than the invoice-proportional amount, so the final 50 USD return
-		// is fully applied in original currency while a 10.0000 base residual
-		// remains.
+		// Invoice 200 USD @7.2 (4 x 50), paid 100 USD. A same-rate 50 USD
+		// credit note is applied, then 50 USD is returned. Every settlement
+		// consumes invoice-rate base, so the final return clears both original
+		// currency and base without leaving a residual.
 		_, shipmentID, shipmentLineID, invoiceID := stage3JCreateShippedInvoice(
 			t, admin, customerID, warehouseID, materialID, vat0ID,
 			"4", "50.00", "USD", "7.2", today, "stage3j-base-residual-invoice",
@@ -330,11 +329,11 @@ func TestStage3J(t *testing.T) {
 		stage3JPayInvoice(t, admin, "receipt", customerID, invoiceID, "USD", "100.00", "7.3", today, "stage3j-base-residual-payment")
 		_, priorNoteID, _ := stage3JCreateOpenCreditNote(
 			t, admin, customerID, warehouseID, materialID, vat0ID,
-			"50.00", "USD", "7.4", today, "stage3j-base-residual-prior-note",
+			"50.00", "USD", "7.2", today, "stage3j-base-residual-prior-note",
 		)
 		trackNote(priorNoteID)
 		applied := stage3JAllocate(t, admin, priorNoteID, today, stage3JAllocation{invoiceID, "50.00"})
-		stage3JExpect(t, applied, "applied_base_amount", "370.0000")
+		stage3JExpect(t, applied, "applied_base_amount", "360.0000")
 
 		returned := postReturn(t, admin, shipmentID, shipmentLineID, "1", today, "stage3j-base-residual-return")
 		stage3JExpect(t, returned, "credit_note_status", "applied")
@@ -343,9 +342,9 @@ func TestStage3J(t *testing.T) {
 		stage3JExpect(t, note, "amount", "50.0000")
 		stage3JExpect(t, note, "base_amount", "360.0000")
 		stage3JExpect(t, note, "applied_amount", "50.0000")
-		stage3JExpect(t, note, "applied_base_amount", "350.0000")
+		stage3JExpect(t, note, "applied_base_amount", "360.0000")
 		stage3JExpect(t, note, "remaining_amount", "0.0000")
-		stage3JExpect(t, note, "remaining_base_amount", "10.0000")
+		stage3JExpect(t, note, "remaining_base_amount", "0.0000")
 		stage3JExpect(t, note, "status", "applied")
 	})
 
@@ -680,66 +679,97 @@ func TestStage3J(t *testing.T) {
 		stage3JExpect(t, invoice, "base_credited_amount", "0.0000")
 		stage3JExpect(t, invoice, "outstanding_amount", "100.0000")
 		stage3JExpect(t, invoice, "status", "open")
-
-		// Partial cross-rate allocation stays allowed because the invoice keeps
-		// original-currency outstanding for period revaluation.
-		applied := stage3JAllocate(t, admin, noteID, today, stage3JAllocation{invoiceID, "50.00"})
-		stage3JExpect(t, applied, "applied_amount", "50.0000")
-		stage3JExpect(t, applied, "applied_base_amount", "360.0000")
-		stage3JExpect(t, applied, "remaining_amount", "50.0000")
-		stage3JExpect(t, applied, "remaining_base_amount", "360.0000")
-		stage3JExpect(t, applied, "status", "open")
-		invoice = admin.mustGet("/finance/invoices/"+invoiceID, http.StatusOK)
-		stage3JExpect(t, invoice, "credited_amount", "50.0000")
-		stage3JExpect(t, invoice, "base_credited_amount", "360.0000")
-		stage3JExpect(t, invoice, "outstanding_amount", "50.0000")
-		stage3JExpect(t, invoice, "status", "partially_paid")
 	})
 
-	t.Run("full cross-rate allocation compares base after partial credit", func(t *testing.T) {
+	t.Run("partial cross-rate allocation rejected", func(t *testing.T) {
 		ensureStage3HStock(t, admin, supplierID, warehouseID, materialID, today)
-		_, firstNoteID, _ := stage3JCreateOpenCreditNote(
+		_, noteID, _ := stage3JCreateOpenCreditNote(
+			t, admin, customerID, warehouseID, materialID, vat0ID,
+			"100.00", "USD", "7.0", today, "stage3j-cross-rate-partial-note",
+		)
+		trackNote(noteID)
+		_, _, _, invoiceID := stage3JCreateShippedInvoice(
+			t, admin, customerID, warehouseID, materialID, vat0ID,
+			"1", "100.00", "USD", "7.2", today, "stage3j-cross-rate-partial-invoice",
+		)
+
+		// Partial settlement consumes base 350 from the 7.0 note but would release
+		// only base 360 from the 7.2 invoice. Allocation posts no FX voucher, so the
+		// 10 base residual would have no settlement path; reject it outright.
+		admin.expectError(http.MethodPost,
+			"/finance/credit-notes/"+noteID+"/allocations",
+			stage3JAllocationBody(today, invoiceID, "50.00"),
+			http.StatusConflict, "CROSS_RATE_ALLOCATION")
+
+		note := admin.mustGet("/finance/credit-notes/"+noteID, http.StatusOK)
+		stage3JExpect(t, note, "applied_amount", "0.0000")
+		stage3JExpect(t, note, "applied_base_amount", "0.0000")
+		stage3JExpect(t, note, "remaining_amount", "100.0000")
+		stage3JExpect(t, note, "remaining_base_amount", "700.0000")
+		stage3JExpect(t, note, "status", "open")
+		if allocations := stage3JObjects(t, note, "allocations"); len(allocations) != 0 {
+			t.Fatalf("partial cross-rate rejected allocation rows = %d, want 0", len(allocations))
+		}
+		invoice := admin.mustGet("/finance/invoices/"+invoiceID, http.StatusOK)
+		stage3JExpect(t, invoice, "credited_amount", "0.0000")
+		stage3JExpect(t, invoice, "base_credited_amount", "0.0000")
+		stage3JExpect(t, invoice, "outstanding_amount", "100.0000")
+		stage3JExpect(t, invoice, "status", "open")
+
+		// The rejected allocation must leave the note usable for a matching rate.
+		_, _, _, matchingInvoiceID := stage3JCreateShippedInvoice(
+			t, admin, customerID, warehouseID, materialID, vat0ID,
+			"1", "100.00", "USD", "7.0", today, "stage3j-cross-rate-partial-matching-invoice",
+		)
+		applied := stage3JAllocate(t, admin, noteID, today, stage3JAllocation{matchingInvoiceID, "50.00"})
+		stage3JExpect(t, applied, "applied_amount", "50.0000")
+		stage3JExpect(t, applied, "applied_base_amount", "350.0000")
+		stage3JExpect(t, applied, "remaining_amount", "50.0000")
+		stage3JExpect(t, applied, "remaining_base_amount", "350.0000")
+		stage3JExpect(t, applied, "status", "open")
+		matching := admin.mustGet("/finance/invoices/"+matchingInvoiceID, http.StatusOK)
+		stage3JExpect(t, matching, "credited_amount", "50.0000")
+		stage3JExpect(t, matching, "base_credited_amount", "350.0000")
+		stage3JExpect(t, matching, "outstanding_amount", "50.0000")
+		stage3JExpect(t, matching, "status", "partially_paid")
+	})
+
+	t.Run("partial cross-rate allocation rejected before base comparison", func(t *testing.T) {
+		ensureStage3HStock(t, admin, supplierID, warehouseID, materialID, today)
+		_, noteID, _ := stage3JCreateOpenCreditNote(
 			t, admin, customerID, warehouseID, materialID, vat0ID,
 			"50.00", "USD", "7.0", today, "stage3j-cross-rate-base-first-note",
 		)
-		trackNote(firstNoteID)
-		_, secondNoteID, _ := stage3JCreateOpenCreditNote(
-			t, admin, customerID, warehouseID, materialID, vat0ID,
-			"50.00", "USD", "7.2", today, "stage3j-cross-rate-base-second-note",
-		)
-		trackNote(secondNoteID)
+		trackNote(noteID)
 		_, _, _, invoiceID := stage3JCreateShippedInvoice(
 			t, admin, customerID, warehouseID, materialID, vat0ID,
 			"1", "100.00", "USD", "7.2", today, "stage3j-cross-rate-base-invoice",
 		)
 
-		// The 7.0 note credits base 350 instead of the invoice-proportional 360,
-		// leaving 370 base outstanding for the final 50 original-currency
-		// remainder. The 7.2 note would consume only 360, so a full allocation
-		// must be rejected on base equality even though its rate matches.
-		first := stage3JAllocate(t, admin, firstNoteID, today, stage3JAllocation{invoiceID, "50.00"})
-		stage3JExpect(t, first, "applied_amount", "50.0000")
-		stage3JExpect(t, first, "applied_base_amount", "350.0000")
-		stage3JExpect(t, first, "status", "applied")
-
+		// The 7.0 note would credit base 350 instead of the invoice-proportional
+		// 360. Cross-rate allocations are rejected before any base comparison, so
+		// the invoice never receives the partial credit that used to create the
+		// base residual scenario.
 		admin.expectError(http.MethodPost,
-			"/finance/credit-notes/"+secondNoteID+"/allocations",
+			"/finance/credit-notes/"+noteID+"/allocations",
 			stage3JAllocationBody(today, invoiceID, "50.00"),
 			http.StatusConflict, "CROSS_RATE_ALLOCATION")
 
-		second := admin.mustGet("/finance/credit-notes/"+secondNoteID, http.StatusOK)
-		stage3JExpect(t, second, "applied_amount", "0.0000")
-		stage3JExpect(t, second, "remaining_amount", "50.0000")
-		stage3JExpect(t, second, "status", "open")
-		if allocations := stage3JObjects(t, second, "allocations"); len(allocations) != 0 {
+		note := admin.mustGet("/finance/credit-notes/"+noteID, http.StatusOK)
+		stage3JExpect(t, note, "applied_amount", "0.0000")
+		stage3JExpect(t, note, "applied_base_amount", "0.0000")
+		stage3JExpect(t, note, "remaining_amount", "50.0000")
+		stage3JExpect(t, note, "remaining_base_amount", "350.0000")
+		stage3JExpect(t, note, "status", "open")
+		if allocations := stage3JObjects(t, note, "allocations"); len(allocations) != 0 {
 			t.Fatalf("cross-rate base rejected allocation rows = %d, want 0", len(allocations))
 		}
 
 		invoice := admin.mustGet("/finance/invoices/"+invoiceID, http.StatusOK)
-		stage3JExpect(t, invoice, "credited_amount", "50.0000")
-		stage3JExpect(t, invoice, "base_credited_amount", "350.0000")
-		stage3JExpect(t, invoice, "outstanding_amount", "50.0000")
-		stage3JExpect(t, invoice, "status", "partially_paid")
+		stage3JExpect(t, invoice, "credited_amount", "0.0000")
+		stage3JExpect(t, invoice, "base_credited_amount", "0.0000")
+		stage3JExpect(t, invoice, "outstanding_amount", "100.0000")
+		stage3JExpect(t, invoice, "status", "open")
 	})
 
 	t.Run("refund default rate and invalid zero rate", func(t *testing.T) {
