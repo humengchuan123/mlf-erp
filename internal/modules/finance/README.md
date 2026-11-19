@@ -146,7 +146,7 @@ if amount == remaining_amount:
   - SQL 守卫保证 `paid + credited <= total` 且本位币同理。
 - 再更新贷项单 `applied_*`、`remaining_*` 和状态，SQL 守卫保证剩余不为负。
 - 抵用是子账重分类，不生成总账凭证，也不做期间关账校验。
-- 候选接口 `GET /credit-notes/:id/allocation-candidates` 返回同组织、同往来单位、同币种、同方向且未结清的发票，不分页。
+- 候选接口 `GET /credit-notes/:id/allocation-candidates` 返回同组织、同往来单位、同币种、同汇率且同方向且未结清的发票，不分页。
 
 ### 退款单
 

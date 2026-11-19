@@ -24,11 +24,11 @@
 ### 1.2 手工抵用
 
 - 手工选择一个或多个目标发票，支持部分抵用和多次抵用。
-- 目标发票必须同租户、同组织、同往来单位、同币种、同方向。
+- 目标发票必须同租户、同组织、同往来单位、同币种、同汇率、同方向。
 - 所有跨汇率抵用（部分和全额）均拒绝：贷项汇率必须与每张目标发票汇率一致，否则返回 409 `CROSS_RATE_ALLOCATION`。抵用为子账重分类且不生成汇兑凭证，跨汇率抵用会使贷项消耗的本位币与发票应冲减的本位币不一致，留下无法在抵用时结清的 AR/AP 本位币残差。全额抵清的本位币相等守卫（4 位小数容差）仅作为历史数据或舍入偏差的第二道防线。
 - 抵用后更新发票 `credited_amount`、`base_credited_amount`、`outstanding_amount` 和状态。
 - 抵用为子账重分类，不生成总账凭证，也不做期间关账校验。
-- 提供候选发票接口，只返回未结清且条件匹配的发票。
+- 提供候选发票接口，只返回未结清、同汇率且条件匹配的发票。
 
 ### 1.3 退款与汇兑
 
@@ -137,6 +137,7 @@ remaining_base_amount = base_amount - applied_base_amount - refunded_base_amount
 `GET /api/v1/finance/credit-notes/:id/allocation-candidates` 返回：
 
 - 同租户、同组织、同往来单位、同币种。
+- 同汇率：候选发票汇率与贷项汇率一致，和抵用校验使用同一口径，避免候选出现 API 会拒绝的发票。
 - 方向匹配：`sales_return` → `receivable`，`purchase_return` → `payable`。
 - `status <> paid` 且原币/本位币未付金额均大于 0。
 - 不分页，按发票日期和发票号排序。
@@ -148,7 +149,7 @@ remaining_base_amount = base_amount - applied_base_amount - refunded_base_amount
 - 每张发票不超过其未付金额；合计不超过贷项剩余金额。
 - 所有跨汇率抵用（部分和全额）均拒绝：贷项汇率必须与每张目标发票汇率一致，否则返回 409 `CROSS_RATE_ALLOCATION`。抵用是子账重分类，不生成汇兑凭证；跨汇率抵用会使贷项消耗的本位币与发票应冲减的本位币不一致，留下无法在抵用时结清的 AR/AP 本位币残差。
 - 抵用日期默认当天，不能早于贷项单日期。
-- 发票必须同组织、同往来单位、同币种、同方向，且不能已结清。
+- 发票必须同组织、同往来单位、同币种、同汇率、同方向，且不能已结清。
 - 同一 UUID 的不同写法先规范化再查重，避免绕过重复检查。
 - 抵用不做期间关账校验。
 
@@ -339,7 +340,7 @@ pnpm test:api:stage3j
 | initial application allocation history | 销售/采购退货自动冲原发票的初始抵用记录；已付款发票退货无抵用记录 | 通过 |
 | same-rate allocations leave no base residual on full return | USD 发票 200@7.2、付款 100；同汇率 7.2 贷项先抵 50（base 360），再退货 50：贷项 `remaining_amount=0`、`remaining_base_amount=0`、`status=applied`；同汇率结算不产生本位币残值 | 通过 |
 | allocation validation | 跨往来单位/币种/组织/方向、已结清、超贷项、超发票未付、零/负金额、重复发票、早于贷项日期、非法日期、404；付款超核销仍为 400 `OVER_ALLOCATE` | 通过 |
-| allocation candidates | 销售/采购候选方向、组织、往来单位、币种、未结清过滤；排除已付、异客商、外币、异组织发票 | 通过 |
+| allocation candidates | 销售/采购候选方向、组织、往来单位、币种、同汇率、未结清过滤；排除已付、异客商、外币、异汇率、异组织发票；跨汇率发票即使同客商/币种/方向也不在候选中且抵用返回 409 `CROSS_RATE_ALLOCATION` | 通过 |
 | multi invoice allocation in one request | 一次请求抵 2 张应收发票：贷项 applied 50/remaining 50；两条抵用记录金额和本位币正确；两张发票 credited/outstanding/状态正确 | 通过 |
 | allocation rolls back on second line failure | 第一行合法、第二行超发票未付返回 409 `OVER_APPLY`；贷项余额、抵用记录和两张发票均回到请求前；随后合法抵用仍成功 | 通过 |
 | full cross-rate allocation rejected | USD 发票 7.3、贷项 7.2：全额 100 抵清返回 409 `CROSS_RATE_ALLOCATION`；贷项 applied 0、remaining 100、status open，无抵用记录，发票 credited/base 0、outstanding 100、status open | 通过 |
@@ -475,6 +476,17 @@ go test -tags=integration ./tests/api -run 'TestStage3' -count=1 -v
 - 退款只能退给贷项单往来单位，不支持退给其他往来单位。
 - 退款接口无审批流、无幂等键，且会真实出账。幂等键在本阶段明确暂缓，生产启用前必须补服务端幂等键（如 `Idempotency-Key`）和去重；在此之前退款端点客户端不得自动重试，超时/断连只能人工核对退款单后再决定是否重发。
 - 所有跨汇率抵用（部分和全额）均被拒绝（409 `CROSS_RATE_ALLOCATION`）：贷项汇率必须与每张目标发票汇率一致。抵用为子账重分类且不生成汇兑凭证，跨汇率结算会留下无法在抵用时结清的 AR/AP 本位币残差；全额抵清的本位币相等守卫（4 位小数容差）仅作为历史数据/舍入偏差的第二道防线。未做自动换汇或差额单独过账。
+- 上线前必须执行跨汇率抵用审计，以下查询结果必须为 0：
+
+  ```sql
+  SELECT count(*)
+  FROM erp.finance_credit_note_allocations a
+  JOIN erp.finance_credit_notes c ON c.tenant_id=a.tenant_id AND c.id=a.credit_note_id
+  JOIN erp.finance_invoices i ON i.tenant_id=a.tenant_id AND i.id=a.invoice_id
+  WHERE c.exchange_rate <> i.exchange_rate;
+  ```
+
+  Stage 3J 尚未发布，生产环境不应存在跨汇率抵用记录；开发/测试库可能因早期版本或手工数据存在此类记录，发布前必须核对并清理或确认。
 - 原币归零的贷项单一律 `applied`；正数本位币残值仅用于展示/汇兑，不能抵用或退款。本轮起跨汇率抵用被拒绝，新建数据不再产生该残值；历史数据和领域测试仍覆盖 `remaining_amount=0`、`remaining_base_amount>0`、`status=applied` 的状态规则。
 - 抵用不计汇兑；退款按退款日汇率确认汇兑损益。
 - 未使用贷项不参与外币重估。
@@ -485,7 +497,7 @@ go test -tags=integration ./tests/api -run 'TestStage3' -count=1 -v
 
 - [x] 销售贷项可抵同客户应收发票，支持部分/多张/多次。
 - [x] 采购贷项可抵同供应商应付发票。
-- [x] 候选发票只包含同组织、同往来单位、同币种、同方向且未结清的发票。
+- [x] 候选发票只包含同组织、同往来单位、同币种、同汇率、同方向且未结清的发票。
 - [x] 抵用后发票 credited/outstanding/状态正确。
 - [x] 贷项 applied/refunded/remaining/status 正确，原币和本位币不变量成立；原币归零即 `applied`，本位币残值不可操作。
 - [x] 所有跨汇率抵用（部分和全额）返回 409 `CROSS_RATE_ALLOCATION`，贷项汇率必须与目标发票一致；全额抵清的本位币相等守卫保留为第二道防线。

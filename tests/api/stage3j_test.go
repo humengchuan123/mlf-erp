@@ -501,6 +501,34 @@ func TestStage3J(t *testing.T) {
 			}
 		}
 
+		// Candidates must match the credit note exchange rate that allocation
+		// enforces. A same-partner/currency/direction invoice at another rate
+		// must not be offered and must still be rejected with 409.
+		_, usdNoteID, _ := stage3JCreateOpenCreditNote(
+			t, admin, customerID, warehouseID, materialID, vat0ID,
+			"50.00", "USD", "7.2", today, "stage3j-candidates-usd-note",
+		)
+		trackNote(usdNoteID)
+		_, _, _, sameRateInvoiceID := stage3JCreateShippedInvoice(
+			t, admin, customerID, warehouseID, materialID, vat0ID,
+			"1", "40.00", "USD", "7.2", today, "stage3j-candidates-usd-same-rate",
+		)
+		_, _, _, crossRateInvoiceID := stage3JCreateShippedInvoice(
+			t, admin, customerID, warehouseID, materialID, vat0ID,
+			"1", "40.00", "USD", "7.3", today, "stage3j-candidates-usd-cross-rate",
+		)
+		usdCandidates := getArray(admin, "/finance/credit-notes/"+usdNoteID+"/allocation-candidates", http.StatusOK)
+		if findItem(usdCandidates, "id", sameRateInvoiceID) == nil {
+			t.Fatalf("same-rate USD invoice %s missing from candidates", sameRateInvoiceID)
+		}
+		if findItem(usdCandidates, "id", crossRateInvoiceID) != nil {
+			t.Fatalf("cross-rate USD invoice %s should not be an allocation candidate", crossRateInvoiceID)
+		}
+		admin.expectError(http.MethodPost,
+			"/finance/credit-notes/"+usdNoteID+"/allocations",
+			stage3JAllocationBody(today, crossRateInvoiceID, "10.00"),
+			http.StatusConflict, "CROSS_RATE_ALLOCATION")
+
 		purchaseReceiptID, purchaseLineID, _, purchaseInvoiceID, _ := stage3ICreatePurchaseReceipt(
 			t, admin, supplierID, warehouseID, materialID, vat0ID,
 			"1", "50.00", true, "CNY", "", today, today, "stage3j-candidates-purchase-note",

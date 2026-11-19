@@ -621,13 +621,14 @@ func (r *CreditNoteRepository) AllocationCandidates(
 	where := "c.tenant_id = $1 AND c.id = $2"
 	appendScope(&where, &args, "c", filter)
 
-	var creditType, orgID, partnerID, currency, status, remainingAmountRaw, remainingBaseRaw string
+	var creditType, orgID, partnerID, currency, exchangeRate, status, remainingAmountRaw, remainingBaseRaw string
 	err := r.db.QueryRow(ctx, `
 		SELECT c.credit_type, c.org_id::text, c.partner_id::text, c.currency,
+		       c.exchange_rate::text,
 		       c.status, c.remaining_amount::text, c.remaining_base_amount::text
 		FROM erp.finance_credit_notes c
 		WHERE `+where, args...).Scan(
-		&creditType, &orgID, &partnerID, &currency, &status,
+		&creditType, &orgID, &partnerID, &currency, &exchangeRate, &status,
 		&remainingAmountRaw, &remainingBaseRaw,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -652,9 +653,12 @@ func (r *CreditNoteRepository) AllocationCandidates(
 		return nil, domain.ErrInvalidInput
 	}
 
-	args = []any{tenantID, orgID, partnerID, currency, invoiceType}
+	// Candidates must match the exchange rate that allocation enforces, otherwise
+	// the UI would offer invoices the API rejects with CROSS_RATE_ALLOCATION.
+	args = []any{tenantID, orgID, partnerID, currency, invoiceType, exchangeRate}
 	where = `i.tenant_id = $1 AND i.org_id = $2 AND i.partner_id = $3
 		AND i.currency = $4 AND i.invoice_type = $5
+		AND i.exchange_rate = $6
 		AND i.status <> 'paid'
 		AND i.paid_amount + i.credited_amount < i.total_amount
 		AND i.base_paid_amount + i.base_credited_amount < i.base_total_amount`
