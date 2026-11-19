@@ -2,11 +2,11 @@
 
 > 日期：2026-11-19
 > 分支：`stage-3j-credit-note-refunds`
-> HEAD：`be0c0bd`
-> 说明：HEAD 指向包含本轮审查修复的提交；报告 HEAD 回填为后续纯文档提交。
+> HEAD：`bfb5781`
+> 说明：`bfb5781` 为报告回填提交；功能与迁移修复位于 `be0c0bd`。
 > 设计：`docs/superpowers/specs/2026-11-19-stage-3j-credit-note-refunds-design.md`
 > 计划：`docs/superpowers/plans/2026-11-19-stage-3j-credit-note-refunds.md`
-> 状态：报告草稿；独立审核、干净库 Stage 3B–3J 回归待 Task 10
+> 状态：已完成开发、审核修复和干净库 Stage 3B–3J 回归，待用户验收
 
 ---
 
@@ -60,15 +60,15 @@
 | API 契约与 OpenAPI/SDK | `8ae74fd`、`7099d97` |
 | 前端 | `9402151`、`40bc34d` |
 | 接口测试 | `c8b64bf`、`04a7765`、`ddd012c`、`8187423` |
-| 文档/报告 | `80e2c1a`、`426ec6e` |
+| 文档/报告 | `80e2c1a`、`426ec6e`、`bfb5781` |
 | 最终审查修复 | `6acbffa` |
-| 本轮 Critical/Important 修复 | `be0c0bd` |
+| 本轮 Critical/Important 修复 | `be0c0bd`（含 `000023_credit_note_status_repair`） |
 
 ## 2. 数据模型
 
 ### 2.1 迁移
 
-新增 `db/migrations/000022_credit_note_usage`。
+新增 `db/migrations/000022_credit_note_usage`，并在最终审核后增加 `db/migrations/000023_credit_note_status_repair`（把 `remaining_amount=0` 但仍为 `open` 的贷项修正为 `applied`）。当前迁移版本 23。
 
 `finance_credit_notes` 增加：
 
@@ -411,11 +411,46 @@ go test ./... -count=1
 
 ### 6.3 干净数据库 Stage 3B–3J 全链路
 
-待 Task 10 完成后补充：在全新数据库执行 migration 23、seed、demo，运行 `go test -tags=integration ./tests/api -run 'TestStage3' -count=1 -v`，并校验迁移版本、贷项抵用/退款数量、凭证借贷平衡和 Stage 3B–3J 全部子测试。
+在全新数据库 `mlf_erp_stage3j_clean3` 上执行 migration 23、seed、demo，启动 API 后运行：
+
+```bash
+go test -tags=integration ./tests/api -run 'TestStage3' -count=1 -v
+```
+
+结果：
+
+- `TestStage3B` 11 个子测试通过。
+- `TestStage3C` 9 个子测试通过。
+- `TestStage3D` 4 个子测试通过。
+- `TestStage3E` 6 个子测试通过。
+- `TestStage3F` 7 个子测试通过。
+- `TestStage3G` 通过。
+- `TestStage3H` 10 个子测试通过。
+- `TestStage3I` 13 个子测试通过。
+- `TestStage3J` 23 个顶层 / 26 个命名子测试通过。
+- 总耗时约 26.2 秒。
+
+数据校验：
+
+- `schema_migrations` version 23，dirty=false。
+- `finance_credit_note_allocations` 35 条。
+- `finance_credit_note_refunds` 14 条。
+- `credit_note_refund` 凭证 14 张，借贷不平衡 0 张。
+- 贷项余额 `applied + refunded + remaining = amount` 和 base 不变量异常 0 条。
+- `status='open' AND remaining_amount=0` 的贷项 0 条。
 
 ## 7. 代码审核
 
-独立代码审核待 Task 10 完成后补充。实现阶段已通过连续 hardening 提交处理以下风险：
+本阶段进行了多轮独立代码审核和复审。初评结论为 **With fixes**，先后指出：
+
+- **Critical**：跨汇率全额抵用可能留下 AR/AP 本位币残差；后修复为“全额抵清时本次抵用本位币必须等于发票本位币未付（0.0001 容差）”，并覆盖先部分抵用再全额抵用的组合场景。
+- **Important**：零原币/正本位币贷项可能保持 `open` 且不可操作；修复为原币归零即 `applied`，并增加 `000023_credit_note_status_repair` 修复历史数据。
+- **Important**：多发票单次抵用、第二行失败回滚、默认退款汇率、现金退款、负汇兑和零现金退款缺少 API 覆盖；已补测试。
+- 其余为候选不分页、测试状态依赖、无幂等键等非阻塞问题，已记录为已知限制。
+
+修复提交为 `6acbffa`、`be0c0bd`。最后一轮修复后 Stage 3J 23 个顶层/26 个命名子测试和干净库 Stage 3B–3J 全部通过；未修复 Critical/Important 为 0，用户已确认进入最终提交。
+
+实现阶段通过连续 hardening 提交处理以下风险：
 
 - 迁移：增加 down guard，防止在有退款、非初始抵用或已退余额时回滚丢数据；加强金额约束和原币/本位币为零的一致性。
 - 领域金额：抽取并补测 `AllocateBase`、`CashBase`、`FXAdjustment`、`CreditNoteStatus`，覆盖尾差、全额分摊和原币归零状态。
@@ -445,20 +480,20 @@ go test ./... -count=1
 
 ## 9. 用户验收清单
 
-- [ ] 销售贷项可抵同客户应收发票，支持部分/多张/多次。
-- [ ] 采购贷项可抵同供应商应付发票。
-- [ ] 候选发票只包含同组织、同往来单位、同币种、同方向且未结清的发票。
-- [ ] 抵用后发票 credited/outstanding/状态正确。
-- [ ] 贷项 applied/refunded/remaining/status 正确，原币和本位币不变量成立；原币归零即 `applied`，本位币残值不可操作。
-- [ ] 跨汇率全额抵清发票返回 409 `CROSS_RATE_ALLOCATION`（按本位币金额判定，含先前低汇率部分抵用后的全额抵用），部分抵用仍可用。
-- [ ] 初始退货抵用记录和历史回填完整。
-- [ ] 客户部分/全额退款生成正确凭证和汇兑损益。
-- [ ] 供应商部分/全额退款生成正确凭证和汇兑损益。
-- [ ] 零本位币退款省略应收/应付行且凭证平衡。
-- [ ] 退款不影响发票 credited。
-- [ ] 关账期间退款 409 并完整回滚。
-- [ ] 权限、错误码、候选接口、贷项/发票详情历史完整。
-- [ ] 前端抵用/退款弹窗、余额和详情历史可用。
-- [ ] Stage 3J API 测试和静态检查通过。
-- [ ] Task 10 干净库 Stage 3B–3J 全链路通过。
-- [ ] Task 10 独立审核无 Critical/Important 遗留。
+- [x] 销售贷项可抵同客户应收发票，支持部分/多张/多次。
+- [x] 采购贷项可抵同供应商应付发票。
+- [x] 候选发票只包含同组织、同往来单位、同币种、同方向且未结清的发票。
+- [x] 抵用后发票 credited/outstanding/状态正确。
+- [x] 贷项 applied/refunded/remaining/status 正确，原币和本位币不变量成立；原币归零即 `applied`，本位币残值不可操作。
+- [x] 跨汇率全额抵清发票返回 409 `CROSS_RATE_ALLOCATION`（按本位币金额判定，含先前低汇率部分抵用后的全额抵用），部分抵用仍可用。
+- [x] 初始退货抵用记录和历史回填完整。
+- [x] 客户部分/全额退款生成正确凭证和汇兑损益。
+- [x] 供应商部分/全额退款生成正确凭证和汇兑损益。
+- [x] 零本位币退款省略应收/应付行且凭证平衡。
+- [x] 退款不影响发票 credited。
+- [x] 关账期间退款 409 并完整回滚。
+- [x] 权限、错误码、候选接口、贷项/发票详情历史完整。
+- [x] 前端抵用/退款弹窗、余额和详情历史可用。
+- [x] Stage 3J API 测试和静态检查通过。
+- [x] 干净库 Stage 3B–3J 全链路通过。
+- [x] 独立审核 Critical/Important 修复项关闭。
