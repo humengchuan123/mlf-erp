@@ -92,6 +92,7 @@ const creditNoteSelectSQL = `
 	       c.partner_id::text, COALESCE(p.name, ''), c.note_date, c.currency,
 	       c.exchange_rate::text, c.amount::text, c.base_amount::text,
 	       c.applied_amount::text, c.applied_base_amount::text,
+	       c.refunded_amount::text, c.refunded_base_amount::text,
 	       c.remaining_amount::text, c.remaining_base_amount::text,
 	       c.status, c.reason, c.remark, c.created_by::text, c.created_at, c.updated_at
 	FROM erp.finance_credit_notes c
@@ -101,6 +102,7 @@ const creditNoteSelectSQL = `
 func scanCreditNote(row rowScanner) (*domain.CreditNote, error) {
 	var item domain.CreditNote
 	var exchangeRate, amount, baseAmount, appliedAmount, appliedBaseAmount string
+	var refundedAmount, refundedBaseAmount string
 	var remainingAmount, remainingBaseAmount string
 
 	err := row.Scan(
@@ -110,6 +112,7 @@ func scanCreditNote(row rowScanner) (*domain.CreditNote, error) {
 		&item.PartnerID, &item.PartnerName, &item.NoteDate, &item.Currency,
 		&exchangeRate, &amount, &baseAmount,
 		&appliedAmount, &appliedBaseAmount,
+		&refundedAmount, &refundedBaseAmount,
 		&remainingAmount, &remainingBaseAmount,
 		&item.Status, &item.Reason, &item.Remark, &item.CreatedBy, &item.CreatedAt, &item.UpdatedAt,
 	)
@@ -124,6 +127,8 @@ func scanCreditNote(row rowScanner) (*domain.CreditNote, error) {
 	item.BaseAmount = decimal.RequireFromString(baseAmount)
 	item.AppliedAmount = decimal.RequireFromString(appliedAmount)
 	item.AppliedBaseAmount = decimal.RequireFromString(appliedBaseAmount)
+	item.RefundedAmount = decimal.RequireFromString(refundedAmount)
+	item.RefundedBaseAmount = decimal.RequireFromString(refundedBaseAmount)
 	item.RemainingAmount = decimal.RequireFromString(remainingAmount)
 	item.RemainingBaseAmount = decimal.RequireFromString(remainingBaseAmount)
 	return &item, nil

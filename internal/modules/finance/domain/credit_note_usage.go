@@ -2,8 +2,14 @@ package domain
 
 import "github.com/shopspring/decimal"
 
-const baseResidualTolerance = "0.0001"
+var baseResidualTolerance = decimal.RequireFromString("0.0001")
 
+// AllocateBase converts an original-currency amount into base currency in
+// proportion to the credit note's remaining amount and base amount.
+//
+// Callers must validate that amount does not exceed remainingAmount. As a
+// defensive clamp, amounts greater than or equal to remainingAmount return the
+// full remaining base amount (rounded to 4 decimal places).
 func AllocateBase(remainingAmount, remainingBase, amount decimal.Decimal) decimal.Decimal {
 	if !remainingAmount.IsPositive() || !amount.IsPositive() {
 		return decimal.Zero
@@ -11,20 +17,28 @@ func AllocateBase(remainingAmount, remainingBase, amount decimal.Decimal) decima
 	if amount.GreaterThanOrEqual(remainingAmount) {
 		return remainingBase.Round(4)
 	}
-	return remainingBase.Mul(amount).Div(remainingAmount).Round(4)
+	return remainingBase.Mul(amount).DivRound(remainingAmount, 4)
 }
 
+// CashBase computes the base-currency cash amount for a refund using the
+// refund date exchange rate, rounded to 4 decimal places.
 func CashBase(amount, rate decimal.Decimal) decimal.Decimal {
 	return amount.Mul(rate).Round(4)
 }
 
+// FXAdjustment computes the foreign-exchange gain or loss as cash base amount
+// minus the credit-note base amount consumed by the refund, rounded to 4
+// decimal places.
 func FXAdjustment(cashBase, creditBase decimal.Decimal) decimal.Decimal {
 	return cashBase.Sub(creditBase).Round(4)
 }
 
+// CreditNoteStatus derives the credit note status from its remaining original
+// and base amounts. A note is applied when the original amount is fully used and
+// the base residual is within baseResidualTolerance.
 func CreditNoteStatus(remainingAmount, remainingBase decimal.Decimal) string {
 	if remainingAmount.IsZero() &&
-		remainingBase.Abs().LessThanOrEqual(decimal.RequireFromString(baseResidualTolerance)) {
+		remainingBase.Abs().LessThanOrEqual(baseResidualTolerance) {
 		return CreditNoteStatusApplied
 	}
 	return CreditNoteStatusOpen

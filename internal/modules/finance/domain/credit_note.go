@@ -12,6 +12,8 @@ const (
 
 	CreditNoteTypeSalesReturn    = "sales_return"
 	CreditNoteTypePurchaseReturn = "purchase_return"
+
+	CreditNoteRefundStatusPosted = "posted"
 )
 
 type CreditNote struct {
@@ -44,8 +46,9 @@ type CreditNote struct {
 	CreatedBy           string
 	CreatedAt           time.Time
 	UpdatedAt           time.Time
-	Allocations         []*CreditNoteAllocation
-	Refunds             []*CreditNoteRefund
+	// Allocations and Refunds are populated by detail queries (Get), not list queries.
+	Allocations []*CreditNoteAllocation
+	Refunds     []*CreditNoteRefund
 }
 
 func (c *CreditNote) Remaining() decimal.Decimal {
