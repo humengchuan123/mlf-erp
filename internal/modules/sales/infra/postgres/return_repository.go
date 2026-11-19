@@ -394,6 +394,17 @@ func (r *ReturnRepository) Create(
 			if tag.RowsAffected() != 1 {
 				return nil, domain.ErrInvalidInput
 			}
+
+			if _, err := tx.Exec(ctx, `
+			INSERT INTO erp.finance_credit_note_allocations (
+				id, tenant_id, org_id, credit_note_id, invoice_id,
+				amount, base_amount, allocation_date, created_by
+			) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+				uuid.NewString(), tenantID, ret.OrgID, creditNoteID, invoiceID,
+				applied.String(), appliedBase.String(), ret.ReturnDate, userID,
+			); err != nil {
+				return nil, fmt.Errorf("insert initial credit note allocation: %w", err)
+			}
 		}
 
 		if _, err := tx.Exec(ctx, `
