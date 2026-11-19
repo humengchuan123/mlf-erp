@@ -181,8 +181,14 @@ assertFile('apps/web/src/views/finance/CreditNoteListView.vue', [
   'creditNotes.refund',
   'creditNotes.allocationCandidates',
   'refunded_amount',
-  'allocations',
-  'refunds',
+  'prop="refunded_amount"',
+  'detail.allocations',
+  'detail.refunds',
+  'canAllocateNote',
+  'refundCreditBase',
+  'refundCashBase',
+  'refundFxAdjustment',
+  'el-dialog',
   'finance.credit_note.apply',
   'finance.credit_note.refund'
 ])
@@ -204,8 +210,9 @@ assertFile('apps/web/src/views/finance/InvoiceListView.vue', [
   'credited_amount',
   'base_credited_amount',
   'outstanding_amount',
-  'allocations',
-  'credit_note_allocations',
+  'detail.allocations',
+  'detail.credit_note_allocations',
+  'credit_note_code',
   '贷项抵用'
 ])
 

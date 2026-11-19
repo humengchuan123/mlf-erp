@@ -48,7 +48,7 @@
           <template #default="{ row }">
             <el-button link type="primary" @click="openDetail(row)">详情</el-button>
             <el-button
-              v-if="isActionable(row) && canApply"
+              v-if="canAllocateNote(row) && canApply"
               link
               type="success"
               @click="openAllocate(row)"
@@ -56,7 +56,7 @@
               抵用
             </el-button>
             <el-button
-              v-if="isActionable(row) && canRefund"
+              v-if="hasRemaining(row) && canRefund"
               link
               type="warning"
               @click="openRefund(row)"
@@ -141,7 +141,7 @@
       </template>
     </el-drawer>
 
-    <el-dialog v-model="applyVisible" title="贷项抵用" width="980px">
+    <el-dialog v-model="applyVisible" title="贷项抵用" width="1120px">
       <template v-if="applyTarget">
         <p class="dialog-hint">
           {{ applyTarget.code }} · {{ applyTarget.partner_name }} · {{ applyTarget.currency }} ·
@@ -166,6 +166,10 @@
           <el-table-column prop="paid_amount" label="已收/已付" width="120" align="right" />
           <el-table-column prop="credited_amount" label="已冲" width="120" align="right" />
           <el-table-column prop="outstanding_amount" label="未付" width="120" align="right" />
+          <el-table-column prop="base_outstanding_amount" label="本位币未付" width="130" align="right" />
+          <el-table-column label="预计本位币" width="130" align="right">
+            <template #default="{ row }">{{ allocationBaseEstimate(row.invoice_id) }}</template>
+          </el-table-column>
           <el-table-column label="本次抵用" width="170">
             <template #default="{ row }">
               <el-input v-model="row.amount" placeholder="0.0000" />
@@ -178,7 +182,8 @@
           :image-size="80"
         />
         <div class="dialog-total">
-          本次合计：{{ allocationTotal.toFixed(4) }} · 抵用后剩余：{{ allocationRemainingAfter }}
+          本次合计：{{ allocationTotal.toFixed(4) }} · 预计本位币：{{ allocationBaseTotal }} ·
+          抵用后剩余：{{ allocationRemainingAfter }}
         </div>
       </template>
       <template #footer>
@@ -186,7 +191,7 @@
         <el-button
           type="primary"
           :loading="saving"
-          :disabled="candidatesLoading || allocationLines.length === 0"
+          :disabled="candidatesLoading || allocationLines.length === 0 || allocationTotal <= 0"
           @click="saveAllocate"
         >
           确认抵用
@@ -239,7 +244,7 @@
             {{ refundCashBase ?? '按退款日汇率' }}
           </el-descriptions-item>
           <el-descriptions-item label="预计汇兑调整" :span="2">
-            {{ refundFxAdjustment ?? '-' }}
+            {{ refundFxAdjustment }}
           </el-descriptions-item>
         </el-descriptions>
       </template>
@@ -273,7 +278,20 @@ interface AllocationLine {
   paid_amount: string
   credited_amount: string
   outstanding_amount: string
+  base_total_amount: string
+  base_paid_amount: string
+  base_credited_amount: string
+  base_outstanding_amount: string
   amount: string
+}
+
+interface RefundForm {
+  refund_date: string | null
+  amount: string
+  exchange_rate: string
+  method: string
+  reference: string
+  remark: string
 }
 
 const authStore = useAuthStore()
@@ -295,12 +313,13 @@ const detail = ref<CreditNote | null>(null)
 const applyVisible = ref(false)
 const applyTarget = ref<CreditNoteSummary | null>(null)
 const candidatesLoading = ref(false)
-const allocationDate = ref(today())
+const allocationDate = ref<string | null>(today())
 const allocationLines = ref<AllocationLine[]>([])
+let candidatesRequestToken = 0
 
 const refundVisible = ref(false)
 const refundTarget = ref<CreditNoteSummary | null>(null)
-const refundForm = reactive({
+const refundForm = reactive<RefundForm>({
   refund_date: today(),
   amount: '',
   exchange_rate: '',
@@ -328,9 +347,43 @@ const allocationRemainingAfter = computed(() => {
   return (remaining - allocationTotal.value).toFixed(4)
 })
 
+function estimatedAllocationBases(note: CreditNoteSummary) {
+  const estimates = new Map<string, number>()
+  let remainingAmount = Number(note.remaining_amount)
+  let remainingBase = Number(note.remaining_base_amount)
+  if (!Number.isFinite(remainingAmount) || remainingAmount <= 0) return estimates
+  if (!Number.isFinite(remainingBase) || remainingBase <= 0) return estimates
+  for (const line of allocationLines.value) {
+    const amount = Number(line.amount)
+    if (!Number.isFinite(amount) || amount <= 0) continue
+    if (remainingAmount <= 0) break
+    const base = amount === remainingAmount ? remainingBase : round4((remainingBase * amount) / remainingAmount)
+    estimates.set(line.invoice_id, base)
+    remainingAmount = round4(remainingAmount - amount)
+    remainingBase = round4(remainingBase - base)
+  }
+  return estimates
+}
+
+const allocationBaseEstimates = computed(() => {
+  if (!applyTarget.value) return new Map<string, number>()
+  return estimatedAllocationBases(applyTarget.value)
+})
+
+const allocationBaseTotal = computed(() => {
+  let total = 0
+  for (const base of allocationBaseEstimates.value.values()) total += base
+  return round4(total).toFixed(4)
+})
+
+function allocationBaseEstimate(invoiceID: string) {
+  const base = allocationBaseEstimates.value.get(invoiceID)
+  return base === undefined ? '-' : base.toFixed(4)
+}
+
 const refundAmount = computed(() => {
   const amount = Number(refundForm.amount)
-  return Number.isFinite(amount) ? amount : 0
+  return Number.isFinite(amount) ? round4(amount) : 0
 })
 
 const refundCreditBase = computed(() => {
@@ -353,7 +406,10 @@ const refundCashBase = computed(() => {
 })
 
 const refundFxAdjustment = computed(() => {
-  if (refundCashBase.value === null) return null
+  if (refundTarget.value && refundTarget.value.currency !== 'CNY' && !refundForm.exchange_rate) {
+    return '按退款日汇率'
+  }
+  if (refundCashBase.value === null) return '-'
   return round4(Number(refundCashBase.value) - Number(refundCreditBase.value)).toFixed(4)
 })
 
@@ -427,8 +483,12 @@ async function reloadAfterChange() {
   await refreshDetail()
 }
 
-function isActionable(note: CreditNoteSummary) {
+function hasRemaining(note: CreditNoteSummary) {
   return note.status === 'open' && Number(note.remaining_amount) > 0
+}
+
+function canAllocateNote(note: CreditNoteSummary) {
+  return hasRemaining(note) && Number(note.remaining_base_amount) > 0
 }
 
 function statusLabel(note: { status: string; refunded_amount?: string }) {
@@ -464,6 +524,11 @@ function methodLabel(value: string) {
 }
 
 async function openAllocate(note: CreditNoteSummary) {
+  if (!canAllocateNote(note)) {
+    ElMessage.warning('该贷项单没有可抵用的本位币余额')
+    return
+  }
+  const requestToken = ++candidatesRequestToken
   applyTarget.value = note
   allocationDate.value = today()
   allocationLines.value = []
@@ -471,6 +536,7 @@ async function openAllocate(note: CreditNoteSummary) {
   candidatesLoading.value = true
   try {
     const candidates = await financeApi.creditNotes.allocationCandidates(note.id)
+    if (requestToken !== candidatesRequestToken || applyTarget.value?.id !== note.id) return
     allocationLines.value = candidates
       .filter((invoice) => Number(invoice.outstanding_amount) > 0)
       .map((invoice: Invoice) => ({
@@ -482,27 +548,39 @@ async function openAllocate(note: CreditNoteSummary) {
         paid_amount: invoice.paid_amount,
         credited_amount: invoice.credited_amount,
         outstanding_amount: invoice.outstanding_amount,
+        base_total_amount: invoice.base_total_amount,
+        base_paid_amount: invoice.base_paid_amount,
+        base_credited_amount: invoice.base_credited_amount,
+        base_outstanding_amount: round4(
+          Number(invoice.base_total_amount) -
+            Number(invoice.base_paid_amount) -
+            Number(invoice.base_credited_amount)
+        ).toFixed(4),
         amount: ''
       }))
   } catch (error) {
+    if (requestToken !== candidatesRequestToken) return
     ElMessage.error(error instanceof Error ? error.message : '加载可抵用发票失败')
     applyVisible.value = false
   } finally {
-    candidatesLoading.value = false
+    if (requestToken === candidatesRequestToken) {
+      candidatesLoading.value = false
+    }
   }
 }
 
 function validateAllocation() {
-  if (!applyTarget.value) return false
-  if (applyTarget.value.status !== 'open' || Number(applyTarget.value.remaining_amount) <= 0) {
-    ElMessage.warning('该贷项单已无剩余可抵用金额')
+  const note = applyTarget.value
+  if (!note) return false
+  if (!canAllocateNote(note)) {
+    ElMessage.warning('该贷项单没有可抵用的剩余金额或本位币余额')
     return false
   }
   if (!allocationDate.value) {
     ElMessage.warning('请选择抵用日期')
     return false
   }
-  if (allocationDate.value < applyTarget.value.note_date) {
+  if (allocationDate.value < note.note_date) {
     ElMessage.warning('抵用日期不能早于贷项单日期')
     return false
   }
@@ -533,15 +611,34 @@ function validateAllocation() {
     ElMessage.warning('请至少填写一行抵用金额')
     return false
   }
-  if (total > Number(applyTarget.value.remaining_amount)) {
+  if (total > Number(note.remaining_amount)) {
     ElMessage.warning('抵用合计不能超过贷项单剩余金额')
     return false
+  }
+
+  const baseEstimates = estimatedAllocationBases(note)
+  for (const line of allocationLines.value) {
+    const amount = Number(line.amount)
+    if (!Number.isFinite(amount) || amount <= 0) continue
+    const base = baseEstimates.get(line.invoice_id)
+    if (base === undefined) {
+      ElMessage.warning(`发票 ${line.code} 的本位币抵用额无法计算`)
+      return false
+    }
+    if (base > Number(line.base_outstanding_amount)) {
+      ElMessage.warning(
+        `发票 ${line.code} 抵用本位币不能超过未付本位币 ${line.base_outstanding_amount}`
+      )
+      return false
+    }
   }
   return true
 }
 
 async function saveAllocate() {
   if (!applyTarget.value || !validateAllocation()) return
+  const allocationDateValue = allocationDate.value
+  if (!allocationDateValue) return
   const allocations = allocationLines.value
     .filter((line) => Number(line.amount) > 0)
     .map((line) => ({ invoice_id: line.invoice_id, amount: line.amount }))
@@ -549,7 +646,7 @@ async function saveAllocate() {
   saving.value = true
   try {
     await financeApi.creditNotes.allocate(applyTarget.value.id, {
-      allocation_date: allocationDate.value,
+      allocation_date: allocationDateValue,
       allocations
     })
     ElMessage.success('抵用成功')
@@ -589,7 +686,7 @@ function validateRefund() {
     ElMessage.warning('退款日期不能早于贷项单日期')
     return false
   }
-  const amount = Number(refundForm.amount)
+  const amount = refundAmount.value
   if (!Number.isFinite(amount) || amount <= 0) {
     ElMessage.warning('退款金额必须是正数')
     return false
@@ -614,11 +711,13 @@ function validateRefund() {
 
 async function saveRefund() {
   if (!refundTarget.value || !validateRefund()) return
+  const refundDate = refundForm.refund_date
+  if (!refundDate) return
   saving.value = true
   try {
     await financeApi.creditNotes.refund(refundTarget.value.id, {
-      refund_date: refundForm.refund_date,
-      amount: refundForm.amount,
+      refund_date: refundDate,
+      amount: refundAmount.value.toFixed(4),
       exchange_rate: refundForm.exchange_rate || undefined,
       method: refundForm.method,
       reference: refundForm.reference,
