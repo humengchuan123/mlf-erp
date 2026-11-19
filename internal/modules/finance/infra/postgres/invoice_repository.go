@@ -196,7 +196,10 @@ func (r *InvoiceRepository) ListAllocations(ctx context.Context, filter scope.Fi
 func (r *InvoiceRepository) ListCreditNoteAllocations(ctx context.Context, filter scope.Filter, tenantID, invoiceID string) ([]*domain.CreditNoteAllocation, error) {
 	args := []any{tenantID, invoiceID}
 	where := "a.tenant_id = $1 AND a.invoice_id = $2"
-	appendScope(&where, &args, "c", filter)
+	// Scope on the parent invoice: the invoice itself was already authorized for
+	// read, so child allocation rows must not additionally be filtered by the
+	// credit note creator.
+	appendScope(&where, &args, "i", filter)
 
 	rows, err := r.db.Query(ctx, `
 		SELECT a.id::text, a.tenant_id::text, a.org_id::text, a.credit_note_id::text,

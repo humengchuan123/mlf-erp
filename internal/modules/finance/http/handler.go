@@ -156,34 +156,38 @@ type creditNoteRefundResponse struct {
 	VoucherCode    string `json:"voucher_code"`
 }
 
+type creditNoteSummaryResponse struct {
+	ID                  string    `json:"id"`
+	Code                string    `json:"code"`
+	CreditType          string    `json:"credit_type"`
+	SourceType          string    `json:"source_type"`
+	SourceID            string    `json:"source_id"`
+	SourceCode          string    `json:"source_code"`
+	InvoiceID           string    `json:"invoice_id"`
+	InvoiceCode         string    `json:"invoice_code"`
+	PartnerID           string    `json:"partner_id"`
+	PartnerName         string    `json:"partner_name"`
+	NoteDate            string    `json:"note_date"`
+	Currency            string    `json:"currency"`
+	ExchangeRate        string    `json:"exchange_rate"`
+	Amount              string    `json:"amount"`
+	BaseAmount          string    `json:"base_amount"`
+	AppliedAmount       string    `json:"applied_amount"`
+	AppliedBaseAmount   string    `json:"applied_base_amount"`
+	RefundedAmount      string    `json:"refunded_amount"`
+	RefundedBaseAmount  string    `json:"refunded_base_amount"`
+	RemainingAmount     string    `json:"remaining_amount"`
+	RemainingBaseAmount string    `json:"remaining_base_amount"`
+	Status              string    `json:"status"`
+	Reason              string    `json:"reason"`
+	Remark              string    `json:"remark"`
+	CreatedAt           time.Time `json:"created_at"`
+}
+
 type creditNoteResponse struct {
-	ID                  string                         `json:"id"`
-	Code                string                         `json:"code"`
-	CreditType          string                         `json:"credit_type"`
-	SourceType          string                         `json:"source_type"`
-	SourceID            string                         `json:"source_id"`
-	SourceCode          string                         `json:"source_code"`
-	InvoiceID           string                         `json:"invoice_id"`
-	InvoiceCode         string                         `json:"invoice_code"`
-	PartnerID           string                         `json:"partner_id"`
-	PartnerName         string                         `json:"partner_name"`
-	NoteDate            string                         `json:"note_date"`
-	Currency            string                         `json:"currency"`
-	ExchangeRate        string                         `json:"exchange_rate"`
-	Amount              string                         `json:"amount"`
-	BaseAmount          string                         `json:"base_amount"`
-	AppliedAmount       string                         `json:"applied_amount"`
-	AppliedBaseAmount   string                         `json:"applied_base_amount"`
-	RefundedAmount      string                         `json:"refunded_amount"`
-	RefundedBaseAmount  string                         `json:"refunded_base_amount"`
-	RemainingAmount     string                         `json:"remaining_amount"`
-	RemainingBaseAmount string                         `json:"remaining_base_amount"`
-	Status              string                         `json:"status"`
-	Reason              string                         `json:"reason"`
-	Remark              string                         `json:"remark"`
-	Allocations         []creditNoteAllocationResponse `json:"allocations"`
-	Refunds             []creditNoteRefundResponse     `json:"refunds"`
-	CreatedAt           time.Time                      `json:"created_at"`
+	creditNoteSummaryResponse
+	Allocations []creditNoteAllocationResponse `json:"allocations"`
+	Refunds     []creditNoteRefundResponse     `json:"refunds"`
 }
 
 type creditNoteAllocationRequest struct {
@@ -497,11 +501,11 @@ func (h *Handler) listCreditNotes(c *gin.Context) {
 		return
 	}
 
-	responses := make([]creditNoteResponse, 0, len(items))
+	responses := make([]creditNoteSummaryResponse, 0, len(items))
 	for _, item := range items {
-		responses = append(responses, toCreditNoteResponse(item))
+		responses = append(responses, toCreditNoteSummaryResponse(item))
 	}
-	httpx.OK(c, pagedResponse[creditNoteResponse]{Items: responses, Total: total})
+	httpx.OK(c, pagedResponse[creditNoteSummaryResponse]{Items: responses, Total: total})
 }
 
 func (h *Handler) getCreditNote(c *gin.Context) {
@@ -569,6 +573,10 @@ func (h *Handler) refundCreditNote(c *gin.Context) {
 	var request creditNoteRefundRequest
 	if err := c.ShouldBindJSON(&request); err != nil {
 		httpx.Error(c, http.StatusBadRequest, httpx.CodeBadRequest, "invalid credit note refund payload")
+		return
+	}
+	if strings.TrimSpace(request.RefundDate) == "" || strings.TrimSpace(request.Method) == "" {
+		httpx.Error(c, http.StatusBadRequest, httpx.CodeBadRequest, "refund date and method are required")
 		return
 	}
 	refundDate, err := parseDate(request.RefundDate)
@@ -714,7 +722,8 @@ func (h *Handler) allocatePayment(c *gin.Context) {
 }
 
 func parseDate(value string) (time.Time, error) {
-	if strings.TrimSpace(value) == "" {
+	value = strings.TrimSpace(value)
+	if value == "" {
 		return time.Time{}, nil
 	}
 	return time.Parse("2006-01-02", value)
@@ -756,15 +765,13 @@ func (h *Handler) handleError(c *gin.Context, err error) {
 	case errors.Is(err, domain.ErrOrgMismatch):
 		httpx.Error(c, http.StatusBadRequest, "ORG_MISMATCH", "organization does not match")
 	case errors.Is(err, domain.ErrOverAllocate):
-		if strings.Contains(c.FullPath(), "/finance/credit-notes/") {
-			httpx.Error(c, http.StatusConflict, "OVER_APPLY", "credit note allocation exceeds invoice outstanding amount")
-		} else {
-			httpx.Error(c, http.StatusBadRequest, "OVER_ALLOCATE", "allocation exceeds outstanding amount")
-		}
+		httpx.Error(c, http.StatusBadRequest, "OVER_ALLOCATE", "allocation exceeds outstanding amount")
 	case errors.Is(err, domain.ErrCreditNoteClosed):
 		httpx.Error(c, http.StatusConflict, "CREDIT_NOTE_CLOSED", "credit note is not open")
 	case errors.Is(err, domain.ErrOverApply):
 		httpx.Error(c, http.StatusConflict, "OVER_APPLY", "credit note allocation exceeds remaining amount")
+	case errors.Is(err, domain.ErrCreditNoteOverInvoice):
+		httpx.Error(c, http.StatusConflict, "OVER_APPLY", "credit note allocation exceeds invoice outstanding amount")
 	case errors.Is(err, domain.ErrOverRefund):
 		httpx.Error(c, http.StatusConflict, "OVER_REFUND", "credit note refund exceeds remaining amount")
 	case errors.Is(err, domain.ErrInsufficientInvoiceBase):
@@ -831,6 +838,26 @@ func toInvoiceResponse(item *domain.Invoice) invoiceResponse {
 	}
 }
 
+func toCreditNoteSummaryResponse(item *domain.CreditNote) creditNoteSummaryResponse {
+	return creditNoteSummaryResponse{
+		ID: item.ID, Code: item.Code, CreditType: item.CreditType,
+		SourceType: item.SourceType, SourceID: item.SourceID, SourceCode: item.SourceCode,
+		InvoiceID: item.InvoiceID, InvoiceCode: item.InvoiceCode,
+		PartnerID: item.PartnerID, PartnerName: item.PartnerName,
+		NoteDate: item.NoteDate.Format("2006-01-02"), Currency: item.Currency,
+		ExchangeRate: item.ExchangeRate.StringFixed(8),
+		Amount:       item.Amount.StringFixed(4), BaseAmount: item.BaseAmount.StringFixed(4),
+		AppliedAmount:       item.AppliedAmount.StringFixed(4),
+		AppliedBaseAmount:   item.AppliedBaseAmount.StringFixed(4),
+		RefundedAmount:      item.RefundedAmount.StringFixed(4),
+		RefundedBaseAmount:  item.RefundedBaseAmount.StringFixed(4),
+		RemainingAmount:     item.RemainingAmount.StringFixed(4),
+		RemainingBaseAmount: item.RemainingBaseAmount.StringFixed(4),
+		Status:              item.Status, Reason: item.Reason, Remark: item.Remark,
+		CreatedAt: item.CreatedAt,
+	}
+}
+
 func toCreditNoteResponse(item *domain.CreditNote) creditNoteResponse {
 	allocations := make([]creditNoteAllocationResponse, 0, len(item.Allocations))
 	for _, allocation := range item.Allocations {
@@ -857,22 +884,9 @@ func toCreditNoteResponse(item *domain.CreditNote) creditNoteResponse {
 		})
 	}
 	return creditNoteResponse{
-		ID: item.ID, Code: item.Code, CreditType: item.CreditType,
-		SourceType: item.SourceType, SourceID: item.SourceID, SourceCode: item.SourceCode,
-		InvoiceID: item.InvoiceID, InvoiceCode: item.InvoiceCode,
-		PartnerID: item.PartnerID, PartnerName: item.PartnerName,
-		NoteDate: item.NoteDate.Format("2006-01-02"), Currency: item.Currency,
-		ExchangeRate: item.ExchangeRate.StringFixed(8),
-		Amount:       item.Amount.StringFixed(4), BaseAmount: item.BaseAmount.StringFixed(4),
-		AppliedAmount:       item.AppliedAmount.StringFixed(4),
-		AppliedBaseAmount:   item.AppliedBaseAmount.StringFixed(4),
-		RefundedAmount:      item.RefundedAmount.StringFixed(4),
-		RefundedBaseAmount:  item.RefundedBaseAmount.StringFixed(4),
-		RemainingAmount:     item.RemainingAmount.StringFixed(4),
-		RemainingBaseAmount: item.RemainingBaseAmount.StringFixed(4),
-		Status:              item.Status, Reason: item.Reason, Remark: item.Remark,
-		Allocations: allocations, Refunds: refunds,
-		CreatedAt: item.CreatedAt,
+		creditNoteSummaryResponse: toCreditNoteSummaryResponse(item),
+		Allocations:               allocations,
+		Refunds:                   refunds,
 	}
 }
 

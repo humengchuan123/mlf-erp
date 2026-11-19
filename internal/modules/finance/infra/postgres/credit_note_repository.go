@@ -350,7 +350,7 @@ func (r *CreditNoteRepository) Allocate(
 			return nil, domain.ErrInvoicePaid
 		}
 		if allocation.Amount.GreaterThan(outstanding) {
-			return nil, domain.ErrOverAllocate
+			return nil, domain.ErrCreditNoteOverInvoice
 		}
 		if allocation.Amount.GreaterThan(remainingAmount) {
 			return nil, domain.ErrOverApply
@@ -400,7 +400,7 @@ func (r *CreditNoteRepository) Allocate(
 			if base.GreaterThan(invoiceBaseOutstanding) {
 				return nil, domain.ErrInsufficientInvoiceBase
 			}
-			return nil, domain.ErrOverAllocate
+			return nil, domain.ErrCreditNoteOverInvoice
 		}
 
 		remainingAmount = remainingAmount.Sub(allocation.Amount)

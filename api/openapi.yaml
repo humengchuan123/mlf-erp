@@ -1108,7 +1108,7 @@ paths:
                           items:
                             type: array
                             items:
-                              $ref: '#/components/schemas/CreditNote'
+                              $ref: '#/components/schemas/CreditNoteSummary'
                           total:
                             type: integer
   /finance/credit-notes/{id}:
@@ -1163,6 +1163,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ApiResponse'
+        '404':
+          description: Credit note not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
         '409':
           description: Credit note closed, over-apply, invoice paid, or insufficient invoice base
           content:
@@ -1172,6 +1178,7 @@ paths:
   /finance/credit-notes/{id}/allocation-candidates:
     get:
       summary: List invoices eligible for credit note allocation
+      description: Returns all eligible invoices without pagination.
       parameters:
         - $ref: '#/components/parameters/ID'
       responses:
@@ -1225,6 +1232,12 @@ paths:
                         $ref: '#/components/schemas/CreditNote'
         '400':
           description: Invalid input, exchange rate not found, or refund amount too small
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+        '404':
+          description: Credit note not found
           content:
             application/json:
               schema:
@@ -3175,7 +3188,7 @@ components:
               type: array
               items:
                 $ref: '#/components/schemas/InvoiceCreditNoteAllocation'
-    CreditNote:
+    CreditNoteSummary:
       type: object
       properties:
         id:
@@ -3230,17 +3243,22 @@ components:
           type: string
         remark:
           type: string
-        allocations:
-          type: array
-          items:
-            $ref: '#/components/schemas/CreditNoteAllocation'
-        refunds:
-          type: array
-          items:
-            $ref: '#/components/schemas/CreditNoteRefund'
         created_at:
           type: string
           format: date-time
+    CreditNote:
+      allOf:
+        - $ref: '#/components/schemas/CreditNoteSummary'
+        - type: object
+          properties:
+            allocations:
+              type: array
+              items:
+                $ref: '#/components/schemas/CreditNoteAllocation'
+            refunds:
+              type: array
+              items:
+                $ref: '#/components/schemas/CreditNoteRefund'
     CreditNoteAllocation:
       type: object
       properties:

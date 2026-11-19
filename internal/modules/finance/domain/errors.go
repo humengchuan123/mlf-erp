@@ -17,6 +17,7 @@ var (
 
 	ErrCreditNoteClosed        = errors.New("credit note is not open")
 	ErrOverApply               = errors.New("credit note allocation exceeds remaining amount")
+	ErrCreditNoteOverInvoice   = errors.New("credit note allocation exceeds invoice outstanding")
 	ErrOverRefund              = errors.New("credit note refund exceeds remaining amount")
 	ErrInsufficientInvoiceBase = errors.New("insufficient invoice base amount")
 	ErrInvoiceTypeMismatch     = errors.New("credit note and invoice type mismatch")

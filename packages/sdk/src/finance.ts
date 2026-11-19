@@ -102,7 +102,7 @@ export interface CreditNoteRefund {
   voucher_code: string
 }
 
-export interface CreditNote {
+export interface CreditNoteSummary {
   id: string
   code: string
   credit_type: string
@@ -127,9 +127,12 @@ export interface CreditNote {
   status: string
   reason: string
   remark: string
+  created_at: string
+}
+
+export interface CreditNote extends CreditNoteSummary {
   allocations?: CreditNoteAllocation[]
   refunds?: CreditNoteRefund[]
-  created_at: string
 }
 
 export interface AllocateCreditNoteInput {
@@ -226,12 +229,6 @@ function queryString(params: Record<string, string | number | undefined>): strin
   return query ? `?${query}` : ''
 }
 
-/**
- * Credit note usage API surface:
- *   financeApi.creditNotes.allocate(id, input)
- *   financeApi.creditNotes.allocationCandidates(id)
- *   financeApi.creditNotes.refund(id, input)
- */
 export const financeApi = {
   invoices(params: {
     invoice_type?: string
@@ -254,8 +251,8 @@ export const financeApi = {
     return api.post<Invoice>(`/finance/invoices/${id}/void`)
   },
   creditNotes: {
-    list(params: CreditNoteListParams = {}): Promise<Paged<CreditNote>> {
-      return api.get<Paged<CreditNote>>(`/finance/credit-notes${queryString(params)}`)
+    list(params: CreditNoteListParams = {}): Promise<Paged<CreditNoteSummary>> {
+      return api.get<Paged<CreditNoteSummary>>(`/finance/credit-notes${queryString(params)}`)
     },
     get(id: string): Promise<CreditNote> {
       return api.get<CreditNote>(`/finance/credit-notes/${id}`)
