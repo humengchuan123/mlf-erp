@@ -2,8 +2,8 @@
 
 > 日期：2026-11-19
 > 分支：`stage-3j-credit-note-refunds`
-> HEAD：`待回填`（本轮拒绝所有跨汇率抵用的功能修复；其后仅有报告回填提交）
-> 说明：本轮最终修复拒绝所有跨汇率抵用；早期功能与迁移修复位于 `be0c0bd`。
+> HEAD：`8654ed2`（本轮拒绝所有跨汇率抵用的功能修复）
+> 说明：`8654ed2` 为最终修复提交；其后仅有报告回填提交。早期功能与迁移修复位于 `be0c0bd`。
 > 设计：`docs/superpowers/specs/2026-11-19-stage-3j-credit-note-refunds-design.md`
 > 计划：`docs/superpowers/plans/2026-11-19-stage-3j-credit-note-refunds.md`
 > 状态：已完成开发、审核修复和干净库 Stage 3B–3J 回归，待用户验收
@@ -63,7 +63,7 @@
 | 文档/报告 | `80e2c1a`、`426ec6e`、`bfb5781` |
 | 最终审查修复 | `6acbffa` |
 | 本轮 Critical/Important 修复 | `be0c0bd`（含 `000023_credit_note_status_repair`） |
-| 最终审查 Critical（跨汇率抵用） | 待回填（拒绝所有跨汇率抵用） |
+| 最终审查 Critical（跨汇率抵用） | `8654ed2`（拒绝所有跨汇率抵用） |
 
 ## 2. 数据模型
 
@@ -451,7 +451,7 @@ go test -tags=integration ./tests/api -run 'TestStage3' -count=1 -v
 - **Important**：多发票单次抵用、第二行失败回滚、默认退款汇率、现金退款、负汇兑和零现金退款缺少 API 覆盖；已补测试。
 - 其余为候选不分页、测试状态依赖、无幂等键等非阻塞问题，已记录为已知限制。
 
-修复提交为 `6acbffa`、`be0c0bd` 和本轮拒绝所有跨汇率抵用的最终修复。最终修复后 Stage 3J 24 个顶层/27 个命名子测试和干净库 Stage 3B–3J 全部通过；未修复 Critical/Important 为 0，用户已确认进入最终提交。
+修复提交为 `6acbffa`、`be0c0bd` 和 `8654ed2`。最终修复后 Stage 3J 24 个顶层/27 个命名子测试和干净库 Stage 3B–3J 全部通过；未修复 Critical/Important 为 0，用户已确认进入最终提交。
 
 实现阶段通过连续 hardening 提交处理以下风险：
 
