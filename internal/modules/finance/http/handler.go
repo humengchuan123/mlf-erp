@@ -596,6 +596,10 @@ func (h *Handler) refundCreditNote(c *gin.Context) {
 			httpx.Error(c, http.StatusBadRequest, httpx.CodeBadRequest, "invalid exchange rate")
 			return
 		}
+		if !exchangeRate.IsPositive() {
+			httpx.Error(c, http.StatusBadRequest, "INVALID_EXCHANGE_RATE", "invalid exchange rate")
+			return
+		}
 	}
 
 	note, err := h.creditNotes.Refund(c.Request.Context(), c.Param("id"), domain.RefundInput{
@@ -768,6 +772,8 @@ func (h *Handler) handleError(c *gin.Context, err error) {
 		httpx.Error(c, http.StatusBadRequest, "OVER_ALLOCATE", "allocation exceeds outstanding amount")
 	case errors.Is(err, domain.ErrCreditNoteClosed):
 		httpx.Error(c, http.StatusConflict, "CREDIT_NOTE_CLOSED", "credit note is not open")
+	case errors.Is(err, domain.ErrCrossRateFullAllocation):
+		httpx.Error(c, http.StatusConflict, "CROSS_RATE_ALLOCATION", "full credit note allocation requires matching exchange rates")
 	case errors.Is(err, domain.ErrOverApply):
 		httpx.Error(c, http.StatusConflict, "OVER_APPLY", "credit note allocation exceeds remaining amount")
 	case errors.Is(err, domain.ErrCreditNoteOverInvoice):

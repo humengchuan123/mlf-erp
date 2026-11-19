@@ -2,8 +2,6 @@ package domain
 
 import "github.com/shopspring/decimal"
 
-var baseResidualTolerance = decimal.RequireFromString("0.0001")
-
 // AllocateBase converts an original-currency amount into base currency in
 // proportion to the credit note's remaining amount and base amount.
 //
@@ -34,11 +32,12 @@ func FXAdjustment(cashBase, creditBase decimal.Decimal) decimal.Decimal {
 }
 
 // CreditNoteStatus derives the credit note status from its remaining original
-// and base amounts. A note is applied when the original amount is fully used and
-// the base residual is within baseResidualTolerance.
+// and base amounts. A note is applied as soon as the original amount is fully
+// used, even when a base-currency residual remains. The residual is a display
+// and FX amount, not an actionable balance: allocation and refund both require
+// a positive remaining original amount.
 func CreditNoteStatus(remainingAmount, remainingBase decimal.Decimal) string {
-	if remainingAmount.IsZero() &&
-		remainingBase.Abs().LessThanOrEqual(baseResidualTolerance) {
+	if remainingAmount.IsZero() {
 		return CreditNoteStatusApplied
 	}
 	return CreditNoteStatusOpen

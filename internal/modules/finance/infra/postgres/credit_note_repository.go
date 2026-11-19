@@ -225,19 +225,21 @@ func (r *CreditNoteRepository) Allocate(
 		orgID            string
 		partnerID        string
 		currency         string
+		exchangeRate     string
 		status           string
 		remainingRaw     string
 		remainingBaseRaw string
 		noteDate         time.Time
 	}
 	err = tx.QueryRow(ctx, `
-		SELECT c.credit_type, c.org_id::text, c.partner_id::text, c.currency, c.status,
+		SELECT c.credit_type, c.org_id::text, c.partner_id::text, c.currency,
+		       c.exchange_rate::text, c.status,
 		       c.remaining_amount::text, c.remaining_base_amount::text, c.note_date
 		FROM erp.finance_credit_notes c
 		WHERE `+where+`
 		FOR UPDATE OF c`, args...).Scan(
-		&note.creditType, &note.orgID, &note.partnerID, &note.currency, &note.status,
-		&note.remainingRaw, &note.remainingBaseRaw, &note.noteDate,
+		&note.creditType, &note.orgID, &note.partnerID, &note.currency, &note.exchangeRate,
+		&note.status, &note.remainingRaw, &note.remainingBaseRaw, &note.noteDate,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, domain.ErrNotFound
@@ -277,6 +279,7 @@ func (r *CreditNoteRepository) Allocate(
 		partnerID       string
 		orgID           string
 		currency        string
+		exchangeRate    string
 		status          string
 		totalRaw        string
 		paidRaw         string
@@ -293,13 +296,15 @@ func (r *CreditNoteRepository) Allocate(
 
 		invoice := &lockedInvoice{}
 		err = tx.QueryRow(ctx, `
-			SELECT i.invoice_type, i.partner_id::text, i.org_id::text, i.currency, i.status,
+			SELECT i.invoice_type, i.partner_id::text, i.org_id::text, i.currency,
+			       i.exchange_rate::text, i.status,
 			       i.total_amount::text, i.paid_amount::text, i.credited_amount::text,
 			       i.base_total_amount::text, i.base_paid_amount::text, i.base_credited_amount::text
 			FROM erp.finance_invoices i
 			WHERE `+invoiceWhere+`
 			FOR UPDATE OF i`, invoiceArgs...).Scan(
-			&invoice.invoiceType, &invoice.partnerID, &invoice.orgID, &invoice.currency, &invoice.status,
+			&invoice.invoiceType, &invoice.partnerID, &invoice.orgID, &invoice.currency,
+			&invoice.exchangeRate, &invoice.status,
 			&invoice.totalRaw, &invoice.paidRaw, &invoice.creditedRaw,
 			&invoice.baseTotalRaw, &invoice.basePaidRaw, &invoice.baseCreditedRaw,
 		)
@@ -354,6 +359,14 @@ func (r *CreditNoteRepository) Allocate(
 		}
 		if allocation.Amount.GreaterThan(remainingAmount) {
 			return nil, domain.ErrOverApply
+		}
+		// Fully crediting an invoice at a different rate than the credit note
+		// leaves no original-currency outstanding to carry the base residual,
+		// so the residual would have no revaluation path. Partial cross-rate
+		// allocations are allowed and are covered by period revaluation.
+		if allocation.Amount.Equal(outstanding) &&
+			!decimal.RequireFromString(note.exchangeRate).Equal(decimal.RequireFromString(invoice.exchangeRate)) {
+			return nil, domain.ErrCrossRateFullAllocation
 		}
 
 		base := domain.AllocateBase(remainingAmount, remainingBase, allocation.Amount)

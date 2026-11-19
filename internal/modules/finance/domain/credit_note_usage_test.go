@@ -91,7 +91,8 @@ func TestCreditNoteStatus(t *testing.T) {
 		{"fully used", "0", "0", CreditNoteStatusApplied},
 		{"base residual within tolerance", "0", "0.0001", CreditNoteStatusApplied},
 		{"negative base residual within tolerance", "0", "-0.0001", CreditNoteStatusApplied},
-		{"base residual above tolerance", "0", "0.0002", CreditNoteStatusOpen},
+		{"base residual above tolerance stays applied", "0", "0.0002", CreditNoteStatusApplied},
+		{"large positive base residual stays applied", "0", "10", CreditNoteStatusApplied},
 		{"remaining amount", "1", "0", CreditNoteStatusOpen},
 	}
 	for _, tt := range tests {

@@ -23,4 +23,5 @@ var (
 	ErrInvoiceTypeMismatch     = errors.New("credit note and invoice type mismatch")
 	ErrOrgMismatch             = errors.New("organization does not match")
 	ErrRefundAmountTooSmall    = errors.New("refund cash base amount rounds to zero")
+	ErrCrossRateFullAllocation = errors.New("full credit note allocation requires matching exchange rates")
 )
