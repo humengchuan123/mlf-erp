@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/mlf-erp/mlf-erp/internal/modules/finance/domain"
+	glpost "github.com/mlf-erp/mlf-erp/internal/modules/gl/infra/postgres"
 	"github.com/mlf-erp/mlf-erp/internal/platform/scope"
 	"github.com/shopspring/decimal"
 )
@@ -431,6 +432,144 @@ func (r *CreditNoteRepository) Allocate(
 
 	if err := tx.Commit(ctx); err != nil {
 		return nil, fmt.Errorf("commit allocate credit note: %w", err)
+	}
+	return r.Get(ctx, filter, tenantID, creditNoteID)
+}
+
+func (r *CreditNoteRepository) Refund(
+	ctx context.Context,
+	filter scope.Filter,
+	tenantID, creditNoteID, userID string,
+	input domain.RefundInput,
+	code, voucherCode string,
+	exchangeRate decimal.Decimal,
+) (*domain.CreditNote, error) {
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("begin refund credit note: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	args := []any{tenantID, creditNoteID}
+	where := "c.tenant_id = $1 AND c.id = $2"
+	appendScope(&where, &args, "c", filter)
+
+	var note struct {
+		creditType       string
+		orgID            string
+		partnerID        string
+		currency         string
+		status           string
+		noteDate         time.Time
+		remainingRaw     string
+		remainingBaseRaw string
+	}
+	err = tx.QueryRow(ctx, `
+		SELECT c.credit_type, c.org_id::text, c.partner_id::text, c.currency,
+		       c.status, c.note_date, c.remaining_amount::text, c.remaining_base_amount::text
+		FROM erp.finance_credit_notes c
+		WHERE `+where+`
+		FOR UPDATE OF c`, args...).Scan(
+		&note.creditType, &note.orgID, &note.partnerID, &note.currency,
+		&note.status, &note.noteDate, &note.remainingRaw, &note.remainingBaseRaw,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, domain.ErrNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("lock credit note for refund: %w", err)
+	}
+	if note.status != domain.CreditNoteStatusOpen {
+		return nil, domain.ErrCreditNoteClosed
+	}
+	remainingAmount := decimal.RequireFromString(note.remainingRaw)
+	remainingBase := decimal.RequireFromString(note.remainingBaseRaw)
+	if !remainingAmount.IsPositive() {
+		return nil, domain.ErrCreditNoteClosed
+	}
+
+	refundDate := input.RefundDate
+	if refundDate.IsZero() {
+		refundDate = time.Now()
+	}
+	refundDate = time.Date(refundDate.Year(), refundDate.Month(), refundDate.Day(), 0, 0, 0, 0, time.UTC)
+	noteDate := time.Date(note.noteDate.Year(), note.noteDate.Month(), note.noteDate.Day(), 0, 0, 0, 0, time.UTC)
+	if refundDate.Before(noteDate) {
+		return nil, domain.ErrInvalidInput
+	}
+
+	method := input.Method
+	if method != "bank" && method != "cash" {
+		return nil, domain.ErrInvalidInput
+	}
+
+	amount := input.Amount.Round(4)
+	if !amount.IsPositive() || amount.GreaterThan(remainingAmount) {
+		return nil, domain.ErrOverRefund
+	}
+	base := domain.AllocateBase(remainingAmount, remainingBase, amount)
+	cashBase := domain.CashBase(amount, exchangeRate)
+	if !cashBase.IsPositive() {
+		return nil, domain.ErrRefundAmountTooSmall
+	}
+	fx := domain.FXAdjustment(cashBase, base)
+
+	refundID := uuid.NewString()
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO erp.finance_credit_note_refunds (
+			id, tenant_id, org_id, code, credit_note_id, refund_date, status,
+			currency, exchange_rate, amount, base_amount, cash_base_amount,
+			fx_adjustment, method, reference, remark, voucher_code, created_by
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)`,
+		refundID, tenantID, note.orgID, code, creditNoteID, refundDate,
+		domain.CreditNoteRefundStatusPosted, note.currency, exchangeRate.String(),
+		amount.String(), base.String(), cashBase.String(), fx.String(),
+		method, input.Reference, input.Remark, voucherCode, userID,
+	); err != nil {
+		return nil, fmt.Errorf("insert credit note refund: %w", mapDBError(err))
+	}
+
+	status := domain.CreditNoteStatus(remainingAmount.Sub(amount), remainingBase.Sub(base))
+	tag, err := tx.Exec(ctx, `
+		UPDATE erp.finance_credit_notes
+		SET refunded_amount = refunded_amount + $3,
+		    refunded_base_amount = refunded_base_amount + $4,
+		    remaining_amount = remaining_amount - $3,
+		    remaining_base_amount = remaining_base_amount - $4,
+		    status = $5,
+		    updated_at = now()
+		WHERE tenant_id = $1 AND id = $2
+		  AND status = 'open'
+		  AND remaining_amount >= $3
+		  AND remaining_base_amount >= $4`,
+		tenantID, creditNoteID, amount.String(), base.String(), status)
+	if err != nil {
+		return nil, fmt.Errorf("update credit note refund amounts: %w", err)
+	}
+	if tag.RowsAffected() != 1 {
+		return nil, domain.ErrOverRefund
+	}
+
+	if err := glpost.PostCreditNoteRefund(ctx, tx, glpost.CreditNoteRefundPosting{
+		TenantID:       tenantID,
+		OrgID:          note.orgID,
+		VoucherCode:    voucherCode,
+		SourceID:       refundID,
+		SourceCode:     code,
+		CreditType:     note.creditType,
+		PartnerID:      note.partnerID,
+		VoucherDate:    refundDate,
+		BaseAmount:     base,
+		CashBaseAmount: cashBase,
+		FXAdjustment:   fx,
+		Method:         method,
+		CreatedBy:      userID,
+	}); err != nil {
+		return nil, fmt.Errorf("post credit note refund voucher: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("commit refund credit note: %w", err)
 	}
 	return r.Get(ctx, filter, tenantID, creditNoteID)
 }

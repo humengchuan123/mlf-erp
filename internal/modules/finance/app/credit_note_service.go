@@ -126,3 +126,68 @@ func (s *CreditNoteService) AllocationCandidates(ctx context.Context, id string)
 	}
 	return s.notes.AllocationCandidates(ctx, scope.FromActor(ctx, tenantID), tenantID, parsed.String())
 }
+
+func (s *CreditNoteService) Refund(ctx context.Context, id string, input domain.RefundInput) (*domain.CreditNote, error) {
+	tenantID, _, userID := tenantActor(ctx)
+	noteID, err := uuid.Parse(strings.TrimSpace(id))
+	if err != nil {
+		return nil, domain.ErrInvalidInput
+	}
+
+	amount := input.Amount.Round(4)
+	if !amount.IsPositive() {
+		return nil, domain.ErrInvalidInput
+	}
+	method := strings.ToLower(strings.TrimSpace(input.Method))
+	if method == "" {
+		method = "bank"
+	}
+	if method != "bank" && method != "cash" {
+		return nil, domain.ErrInvalidInput
+	}
+	refundDate := input.RefundDate
+	if refundDate.IsZero() {
+		refundDate = time.Now()
+	}
+
+	filter := scope.FromActor(ctx, tenantID)
+	note, err := s.notes.Get(ctx, filter, tenantID, noteID.String())
+	if err != nil {
+		return nil, err
+	}
+	rate, err := fx.Resolve(ctx, s.rates, tenantID, note.Currency, refundDate, input.ExchangeRate)
+	if err != nil {
+		return nil, err
+	}
+	if !domain.CashBase(amount, rate).IsPositive() {
+		return nil, domain.ErrRefundAmountTooSmall
+	}
+
+	code, err := s.codes.Next(ctx, tenantID, "credit_note_refund")
+	if err != nil {
+		return nil, err
+	}
+	voucherCode, err := s.codes.Next(ctx, tenantID, "gl_voucher")
+	if err != nil {
+		return nil, err
+	}
+
+	return s.notes.Refund(
+		ctx,
+		filter,
+		tenantID,
+		noteID.String(),
+		userID,
+		domain.RefundInput{
+			RefundDate:   refundDate,
+			Amount:       amount,
+			ExchangeRate: rate,
+			Method:       method,
+			Reference:    strings.TrimSpace(input.Reference),
+			Remark:       strings.TrimSpace(input.Remark),
+		},
+		code,
+		voucherCode,
+		rate,
+	)
+}

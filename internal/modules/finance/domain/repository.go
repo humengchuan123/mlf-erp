@@ -22,6 +22,8 @@ type CreditNoteRepository interface {
 	Allocate(ctx context.Context, filter scope.Filter, tenantID, creditNoteID, userID string,
 		allocationDate time.Time, allocations []*AllocationInput) (*CreditNote, error)
 	AllocationCandidates(ctx context.Context, filter scope.Filter, tenantID, creditNoteID string) ([]*Invoice, error)
+	Refund(ctx context.Context, filter scope.Filter, tenantID, creditNoteID, userID string,
+		input RefundInput, code, voucherCode string, exchangeRate decimal.Decimal) (*CreditNote, error)
 }
 
 type PaymentRepository interface {

@@ -84,6 +84,22 @@ type PaymentPosting struct {
 	PaymentMethod string
 }
 
+type CreditNoteRefundPosting struct {
+	TenantID       string
+	OrgID          string
+	VoucherCode    string
+	SourceID       string
+	SourceCode     string
+	CreditType     string
+	PartnerID      string
+	VoucherDate    time.Time
+	BaseAmount     decimal.Decimal
+	CashBaseAmount decimal.Decimal
+	FXAdjustment   decimal.Decimal
+	Method         string
+	CreatedBy      string
+}
+
 type FXSettlementPosting struct {
 	TenantID       string
 	OrgID          string
@@ -289,6 +305,61 @@ func PostPayment(ctx context.Context, tx pgx.Tx, input PaymentPosting) error {
 		CreatedBy:   input.CreatedBy,
 		Lines:       lines,
 	})
+}
+
+func PostCreditNoteRefund(ctx context.Context, tx pgx.Tx, input CreditNoteRefundPosting) error {
+	lines := creditNoteRefundPostingLines(input)
+	if len(lines) == 0 {
+		return nil
+	}
+	return postVoucherTx(ctx, tx, voucherPostingInput{
+		TenantID:    input.TenantID,
+		OrgID:       input.OrgID,
+		VoucherCode: input.VoucherCode,
+		VoucherDate: input.VoucherDate,
+		VoucherType: domain.VoucherTypeCreditNoteRefund,
+		SourceType:  domain.SourceTypeCreditNoteRefund,
+		SourceID:    input.SourceID,
+		SourceCode:  input.SourceCode,
+		Memo:        "贷项退款 " + input.SourceCode,
+		CreatedBy:   input.CreatedBy,
+		Lines:       lines,
+	})
+}
+
+func creditNoteRefundPostingLines(input CreditNoteRefundPosting) []postingLine {
+	cashKey := "bank"
+	if input.Method == "cash" {
+		cashKey = "cash"
+	}
+
+	lines := make([]postingLine, 0, 3)
+	fx := input.FXAdjustment.Round(4)
+	if input.CreditType == "sales_return" {
+		if input.BaseAmount.IsPositive() {
+			lines = append(lines, postingLine{AccountKey: "ar", Summary: "贷项退款应收", Debit: input.BaseAmount, PartnerID: input.PartnerID})
+		}
+		lines = append(lines, postingLine{AccountKey: cashKey, Summary: "客户退款", Credit: input.CashBaseAmount})
+	} else {
+		lines = append(lines, postingLine{AccountKey: cashKey, Summary: "供应商退款", Debit: input.CashBaseAmount})
+		if input.BaseAmount.IsPositive() {
+			lines = append(lines, postingLine{AccountKey: "ap", Summary: "贷项退款应付", Credit: input.BaseAmount, PartnerID: input.PartnerID})
+		}
+	}
+	if fx.IsPositive() {
+		if input.CreditType == "sales_return" {
+			lines = append(lines, postingLine{AccountKey: "fx_loss", Summary: "退款汇兑损失", Debit: fx, PartnerID: input.PartnerID})
+		} else {
+			lines = append(lines, postingLine{AccountKey: "fx_gain", Summary: "退款汇兑收益", Credit: fx, PartnerID: input.PartnerID})
+		}
+	} else if fx.IsNegative() {
+		if input.CreditType == "sales_return" {
+			lines = append(lines, postingLine{AccountKey: "fx_gain", Summary: "退款汇兑收益", Credit: fx.Abs(), PartnerID: input.PartnerID})
+		} else {
+			lines = append(lines, postingLine{AccountKey: "fx_loss", Summary: "退款汇兑损失", Debit: fx.Abs(), PartnerID: input.PartnerID})
+		}
+	}
+	return lines
 }
 
 func PostFXSettlement(ctx context.Context, tx pgx.Tx, input FXSettlementPosting) error {

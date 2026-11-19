@@ -27,6 +27,7 @@ const (
 	VoucherTypeFXRevaluationReversal       = "fx_revaluation_reversal"
 	VoucherTypeFXRevaluationReopen         = "fx_revaluation_reopen"
 	VoucherTypeFXRevaluationReopenReversal = "fx_revaluation_reversal_reopen"
+	VoucherTypeCreditNoteRefund            = "credit_note_refund"
 
 	SourceTypeManual                      = "manual"
 	SourceTypeSalesShipment               = "sales_shipment"
@@ -44,6 +45,7 @@ const (
 	SourceTypeFXRevaluationReversal       = "fx_revaluation_reversal"
 	SourceTypeFXRevaluationReopen         = "fx_revaluation_reopen"
 	SourceTypeFXRevaluationReopenReversal = "fx_revaluation_reversal_reopen"
+	SourceTypeCreditNoteRefund            = "credit_note_refund"
 )
 
 type Voucher struct {
