@@ -347,7 +347,8 @@ func (r *ReturnRepository) Create(
 		remaining := ret.TotalAmount.Sub(applied).Round(4)
 		remainingBase := ret.BaseTotalAmount.Sub(appliedBase).Round(4)
 		noteStatus := "open"
-		if remaining.IsZero() && remainingBase.IsZero() {
+		if remaining.IsZero() &&
+			remainingBase.Abs().LessThanOrEqual(decimal.RequireFromString("0.0001")) {
 			noteStatus = "applied"
 		}
 
@@ -403,7 +404,7 @@ func (r *ReturnRepository) Create(
 				uuid.NewString(), tenantID, ret.OrgID, creditNoteID, invoiceID,
 				applied.String(), appliedBase.String(), ret.ReturnDate, userID,
 			); err != nil {
-				return nil, fmt.Errorf("insert initial credit note allocation: %w", err)
+				return nil, fmt.Errorf("insert initial credit note allocation: %w", mapDBError(err))
 			}
 		}
 

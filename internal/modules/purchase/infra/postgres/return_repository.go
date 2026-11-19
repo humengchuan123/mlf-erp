@@ -387,7 +387,7 @@ func (r *ReturnRepository) Create(
 				uuid.NewString(), tenantID, ret.OrgID, creditNoteID, invoiceID,
 				applied.String(), appliedBase.String(), ret.ReturnDate, userID,
 			); err != nil {
-				return nil, fmt.Errorf("insert initial credit note allocation: %w", err)
+				return nil, fmt.Errorf("insert initial credit note allocation: %w", mapDBError(err))
 			}
 		}
 
