@@ -12,6 +12,7 @@ type InvoiceRepository interface {
 	List(ctx context.Context, filter scope.Filter, tenantID, invoiceType, status, vatInvoiceStatus, partnerID, keyword string, offset, limit int) ([]*Invoice, int, error)
 	Get(ctx context.Context, filter scope.Filter, tenantID, id string) (*Invoice, error)
 	ListAllocations(ctx context.Context, filter scope.Filter, tenantID, invoiceID string) ([]*Allocation, error)
+	ListCreditNoteAllocations(ctx context.Context, filter scope.Filter, tenantID, invoiceID string) ([]*CreditNoteAllocation, error)
 	Issue(ctx context.Context, filter scope.Filter, tenantID, id string, input IssueInput) (*Invoice, error)
 	Void(ctx context.Context, filter scope.Filter, tenantID, id, userID string) (*Invoice, error)
 }

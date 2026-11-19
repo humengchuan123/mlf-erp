@@ -17,8 +17,9 @@ func NewInvoiceService(invoices domain.InvoiceRepository) *InvoiceService {
 }
 
 type InvoiceDetail struct {
-	Invoice     *domain.Invoice
-	Allocations []*domain.Allocation
+	Invoice               *domain.Invoice
+	Allocations           []*domain.Allocation
+	CreditNoteAllocations []*domain.CreditNoteAllocation
 }
 
 func (s *InvoiceService) List(
@@ -53,7 +54,15 @@ func (s *InvoiceService) Get(ctx context.Context, id string) (*InvoiceDetail, er
 	if err != nil {
 		return nil, err
 	}
-	return &InvoiceDetail{Invoice: invoice, Allocations: allocations}, nil
+	creditNoteAllocations, err := s.invoices.ListCreditNoteAllocations(ctx, filter, tenantID, id)
+	if err != nil {
+		return nil, err
+	}
+	return &InvoiceDetail{
+		Invoice:               invoice,
+		Allocations:           allocations,
+		CreditNoteAllocations: creditNoteAllocations,
+	}, nil
 }
 
 func (s *InvoiceService) Issue(ctx context.Context, id string, input domain.IssueInput) (*domain.Invoice, error) {

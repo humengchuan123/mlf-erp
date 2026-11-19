@@ -1,12 +1,13 @@
 openapi: 3.1.0
 info:
   title: MLF ERP API
-  version: 1.0.0
+  version: 1.1.0
   description: |
-    MLF ERP Stage 1 + Stage 2 + Stage 3A/3B/3C/3D/3E/3F/3G/3H/3I API contract.
+    MLF ERP Stage 1 + Stage 2 + Stage 3A/3B/3C/3D/3E/3F/3G/3H/3I/3J API contract.
     Master data uses a generic CRUD surface under /masterdata/{entity}.
     Purchase, sales, inventory, receivables/payables, payments, general ledger and reports are included.
     Stage 3H adds sales returns and credit notes; Stage 3I adds purchase returns.
+    Stage 3J adds credit note allocation and refund workflows.
 servers:
   - url: /api/v1
 security:
@@ -1129,6 +1130,107 @@ paths:
                         $ref: '#/components/schemas/CreditNote'
         '404':
           description: Credit note not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+  /finance/credit-notes/{id}/allocations:
+    post:
+      summary: Apply a credit note to one or more invoices
+      parameters:
+        - $ref: '#/components/parameters/ID'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AllocateCreditNoteInput'
+      responses:
+        '200':
+          description: Allocated
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/CreditNote'
+        '400':
+          description: Invalid input, type mismatch, organization/partner/currency mismatch
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+        '409':
+          description: Credit note closed, over-apply, invoice paid, or insufficient invoice base
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+  /finance/credit-notes/{id}/allocation-candidates:
+    get:
+      summary: List invoices eligible for credit note allocation
+      parameters:
+        - $ref: '#/components/parameters/ID'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Invoice'
+        '404':
+          description: Credit note not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+        '409':
+          description: Credit note is not open
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+  /finance/credit-notes/{id}/refunds:
+    post:
+      summary: Refund a credit note
+      parameters:
+        - $ref: '#/components/parameters/ID'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefundCreditNoteInput'
+      responses:
+        '200':
+          description: Refunded
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/CreditNote'
+        '400':
+          description: Invalid input, exchange rate not found, or refund amount too small
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+        '409':
+          description: Credit note closed, over-refund, or accounting period closed
           content:
             application/json:
               schema:
@@ -3036,6 +3138,30 @@ components:
         created_at:
           type: string
           format: date-time
+    InvoiceCreditNoteAllocation:
+      type: object
+      properties:
+        id:
+          type: string
+        credit_note_id:
+          type: string
+        credit_note_code:
+          type: string
+        credit_type:
+          type: string
+          enum: [sales_return, purchase_return]
+        note_date:
+          type: string
+          format: date
+        invoice_id:
+          type: string
+        amount:
+          type: string
+        base_amount:
+          type: string
+        allocation_date:
+          type: string
+          format: date
     InvoiceDetail:
       allOf:
         - $ref: '#/components/schemas/Invoice'
@@ -3045,6 +3171,10 @@ components:
               type: array
               items:
                 $ref: '#/components/schemas/InvoiceAllocation'
+            credit_note_allocations:
+              type: array
+              items:
+                $ref: '#/components/schemas/InvoiceCreditNoteAllocation'
     CreditNote:
       type: object
       properties:
@@ -3085,6 +3215,10 @@ components:
           type: string
         applied_base_amount:
           type: string
+        refunded_amount:
+          type: string
+        refunded_base_amount:
+          type: string
         remaining_amount:
           type: string
         remaining_base_amount:
@@ -3096,9 +3230,111 @@ components:
           type: string
         remark:
           type: string
+        allocations:
+          type: array
+          items:
+            $ref: '#/components/schemas/CreditNoteAllocation'
+        refunds:
+          type: array
+          items:
+            $ref: '#/components/schemas/CreditNoteRefund'
         created_at:
           type: string
           format: date-time
+    CreditNoteAllocation:
+      type: object
+      properties:
+        id:
+          type: string
+        credit_note_id:
+          type: string
+        invoice_id:
+          type: string
+        invoice_code:
+          type: string
+        invoice_date:
+          type: string
+          format: date
+        amount:
+          type: string
+        base_amount:
+          type: string
+        allocation_date:
+          type: string
+          format: date
+    CreditNoteRefund:
+      type: object
+      properties:
+        id:
+          type: string
+        code:
+          type: string
+        credit_note_id:
+          type: string
+        refund_date:
+          type: string
+          format: date
+        status:
+          type: string
+          enum: [posted]
+        currency:
+          type: string
+        exchange_rate:
+          type: string
+        amount:
+          type: string
+        base_amount:
+          type: string
+        cash_base_amount:
+          type: string
+        fx_adjustment:
+          type: string
+        method:
+          type: string
+          enum: [bank, cash]
+        reference:
+          type: string
+        remark:
+          type: string
+        voucher_code:
+          type: string
+    AllocateCreditNoteInput:
+      type: object
+      required: [allocations]
+      properties:
+        allocation_date:
+          type: string
+          format: date
+        allocations:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            required: [invoice_id, amount]
+            properties:
+              invoice_id:
+                type: string
+                format: uuid
+              amount:
+                type: string
+    RefundCreditNoteInput:
+      type: object
+      required: [refund_date, amount, method]
+      properties:
+        refund_date:
+          type: string
+          format: date
+        amount:
+          type: string
+        exchange_rate:
+          type: string
+        method:
+          type: string
+          enum: [bank, cash]
+        reference:
+          type: string
+        remark:
+          type: string
     Payment:
       type: object
       properties:

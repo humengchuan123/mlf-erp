@@ -60,6 +60,9 @@ type CreditNoteAllocation struct {
 	TenantID       string
 	OrgID          string
 	CreditNoteID   string
+	CreditNoteCode string
+	CreditType     string
+	NoteDate       time.Time
 	InvoiceID      string
 	InvoiceCode    string
 	InvoiceDate    time.Time

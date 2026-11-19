@@ -193,6 +193,47 @@ func (r *InvoiceRepository) ListAllocations(ctx context.Context, filter scope.Fi
 	return items, rows.Err()
 }
 
+func (r *InvoiceRepository) ListCreditNoteAllocations(ctx context.Context, filter scope.Filter, tenantID, invoiceID string) ([]*domain.CreditNoteAllocation, error) {
+	args := []any{tenantID, invoiceID}
+	where := "a.tenant_id = $1 AND a.invoice_id = $2"
+	appendScope(&where, &args, "c", filter)
+
+	rows, err := r.db.Query(ctx, `
+		SELECT a.id::text, a.tenant_id::text, a.org_id::text, a.credit_note_id::text,
+		       c.code, c.credit_type, c.note_date,
+		       a.invoice_id::text, i.code, i.invoice_date,
+		       a.amount::text, a.base_amount::text, a.allocation_date,
+		       a.created_by::text, a.created_at
+		FROM erp.finance_credit_note_allocations a
+		JOIN erp.finance_credit_notes c ON c.tenant_id = a.tenant_id AND c.id = a.credit_note_id
+		JOIN erp.finance_invoices i ON i.tenant_id = a.tenant_id AND i.id = a.invoice_id
+		WHERE `+where+`
+		ORDER BY a.allocation_date, a.id`, args...)
+	if err != nil {
+		return nil, fmt.Errorf("list invoice credit note allocations: %w", err)
+	}
+	defer rows.Close()
+
+	items := make([]*domain.CreditNoteAllocation, 0)
+	for rows.Next() {
+		item := &domain.CreditNoteAllocation{}
+		var amount, baseAmount string
+		if err := rows.Scan(
+			&item.ID, &item.TenantID, &item.OrgID, &item.CreditNoteID,
+			&item.CreditNoteCode, &item.CreditType, &item.NoteDate,
+			&item.InvoiceID, &item.InvoiceCode, &item.InvoiceDate,
+			&amount, &baseAmount, &item.AllocationDate,
+			&item.CreatedBy, &item.CreatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scan invoice credit note allocation: %w", err)
+		}
+		item.Amount = decimal.RequireFromString(amount)
+		item.BaseAmount = decimal.RequireFromString(baseAmount)
+		items = append(items, item)
+	}
+	return items, rows.Err()
+}
+
 const invoiceSelectSQL = `
 	SELECT i.id::text, i.tenant_id::text, i.org_id::text, i.code, i.invoice_type,
 	       i.source_type, i.source_id::text, i.source_code,

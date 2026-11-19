@@ -293,9 +293,17 @@ assertFile('packages/sdk/src/finance.ts', [
   'issueInvoice(',
   'voidInvoice(',
   'creditNotes',
+  'creditNotes.allocate',
+  'creditNotes.allocationCandidates',
+  'creditNotes.refund',
   'CreditNote',
+  'CreditNoteAllocation',
+  'CreditNoteRefund',
+  'AllocateCreditNoteInput',
+  'RefundCreditNoteInput',
   'credit_type',
   '/finance/credit-notes',
+  'credit_note_allocations',
   'remaining_amount',
   'exchangeRates',
   'exchange_rate',
@@ -331,11 +339,18 @@ assertFile('api/openapi.yaml', [
   '/sales/returns/{id}:',
   '/finance/credit-notes:',
   '/finance/credit-notes/{id}:',
+  '/finance/credit-notes/{id}/allocations:',
+  '/finance/credit-notes/{id}/allocation-candidates:',
+  '/finance/credit-notes/{id}/refunds:',
   'CreatePurchaseReturnInput',
   'PurchaseReturn',
   'CreateSalesReturnInput',
   'SalesReturn',
-  'CreditNote'
+  'CreditNoteAllocation',
+  'CreditNoteRefund',
+  'AllocateCreditNoteInput',
+  'RefundCreditNoteInput',
+  'credit_note_allocations'
 ])
 
 assertFile('packages/sdk/src/gl.ts', [

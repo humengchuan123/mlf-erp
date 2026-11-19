@@ -56,8 +56,50 @@ export interface InvoiceAllocation {
   created_at: string
 }
 
+export interface InvoiceCreditNoteAllocation {
+  id: string
+  credit_note_id: string
+  credit_note_code: string
+  credit_type: string
+  note_date: string
+  invoice_id: string
+  amount: string
+  base_amount: string
+  allocation_date: string
+}
+
 export interface InvoiceDetail extends Invoice {
   allocations: InvoiceAllocation[]
+  credit_note_allocations: InvoiceCreditNoteAllocation[]
+}
+
+export interface CreditNoteAllocation {
+  id: string
+  credit_note_id: string
+  invoice_id: string
+  invoice_code: string
+  invoice_date: string
+  amount: string
+  base_amount: string
+  allocation_date: string
+}
+
+export interface CreditNoteRefund {
+  id: string
+  code: string
+  credit_note_id: string
+  refund_date: string
+  status: string
+  currency: string
+  exchange_rate: string
+  amount: string
+  base_amount: string
+  cash_base_amount: string
+  fx_adjustment: string
+  method: string
+  reference: string
+  remark: string
+  voucher_code: string
 }
 
 export interface CreditNote {
@@ -78,12 +120,30 @@ export interface CreditNote {
   base_amount: string
   applied_amount: string
   applied_base_amount: string
+  refunded_amount: string
+  refunded_base_amount: string
   remaining_amount: string
   remaining_base_amount: string
   status: string
   reason: string
   remark: string
+  allocations?: CreditNoteAllocation[]
+  refunds?: CreditNoteRefund[]
   created_at: string
+}
+
+export interface AllocateCreditNoteInput {
+  allocation_date?: string
+  allocations: { invoice_id: string; amount: string }[]
+}
+
+export interface RefundCreditNoteInput {
+  refund_date: string
+  amount: string
+  exchange_rate?: string
+  method: string
+  reference?: string
+  remark?: string
 }
 
 export type CreditNoteListParams = {
@@ -166,6 +226,12 @@ function queryString(params: Record<string, string | number | undefined>): strin
   return query ? `?${query}` : ''
 }
 
+/**
+ * Credit note usage API surface:
+ *   financeApi.creditNotes.allocate(id, input)
+ *   financeApi.creditNotes.allocationCandidates(id)
+ *   financeApi.creditNotes.refund(id, input)
+ */
 export const financeApi = {
   invoices(params: {
     invoice_type?: string
@@ -193,6 +259,15 @@ export const financeApi = {
     },
     get(id: string): Promise<CreditNote> {
       return api.get<CreditNote>(`/finance/credit-notes/${id}`)
+    },
+    allocate(id: string, input: AllocateCreditNoteInput): Promise<CreditNote> {
+      return api.post<CreditNote>(`/finance/credit-notes/${id}/allocations`, input)
+    },
+    allocationCandidates(id: string): Promise<Invoice[]> {
+      return api.get<Invoice[]>(`/finance/credit-notes/${id}/allocation-candidates`)
+    },
+    refund(id: string, input: RefundCreditNoteInput): Promise<CreditNote> {
+      return api.post<CreditNote>(`/finance/credit-notes/${id}/refunds`, input)
     }
   },
   payments(params: {
