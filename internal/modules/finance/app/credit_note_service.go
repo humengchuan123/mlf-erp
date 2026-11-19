@@ -155,6 +155,9 @@ func (s *CreditNoteService) Refund(ctx context.Context, id string, input domain.
 	if err != nil {
 		return nil, err
 	}
+	if note.Status != domain.CreditNoteStatusOpen || !note.RemainingAmount.IsPositive() {
+		return nil, domain.ErrCreditNoteClosed
+	}
 	rate, err := fx.Resolve(ctx, s.rates, tenantID, note.Currency, refundDate, input.ExchangeRate)
 	if err != nil {
 		return nil, err
@@ -188,6 +191,5 @@ func (s *CreditNoteService) Refund(ctx context.Context, id string, input domain.
 		},
 		code,
 		voucherCode,
-		rate,
 	)
 }

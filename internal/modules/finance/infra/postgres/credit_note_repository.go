@@ -442,7 +442,6 @@ func (r *CreditNoteRepository) Refund(
 	tenantID, creditNoteID, userID string,
 	input domain.RefundInput,
 	code, voucherCode string,
-	exchangeRate decimal.Decimal,
 ) (*domain.CreditNote, error) {
 	tx, err := r.db.Begin(ctx)
 	if err != nil {
@@ -488,6 +487,12 @@ func (r *CreditNoteRepository) Refund(
 		return nil, domain.ErrCreditNoteClosed
 	}
 
+	switch note.creditType {
+	case domain.CreditNoteTypeSalesReturn, domain.CreditNoteTypePurchaseReturn:
+	default:
+		return nil, domain.ErrInvalidInput
+	}
+
 	refundDate := input.RefundDate
 	if refundDate.IsZero() {
 		refundDate = time.Now()
@@ -504,8 +509,15 @@ func (r *CreditNoteRepository) Refund(
 	}
 
 	amount := input.Amount.Round(4)
-	if !amount.IsPositive() || amount.GreaterThan(remainingAmount) {
+	if !amount.IsPositive() {
+		return nil, domain.ErrInvalidInput
+	}
+	if amount.GreaterThan(remainingAmount) {
 		return nil, domain.ErrOverRefund
+	}
+	exchangeRate := input.ExchangeRate
+	if !exchangeRate.IsPositive() {
+		return nil, domain.ErrInvalidInput
 	}
 	base := domain.AllocateBase(remainingAmount, remainingBase, amount)
 	cashBase := domain.CashBase(amount, exchangeRate)
