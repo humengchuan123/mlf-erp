@@ -1,13 +1,29 @@
--- Rollback Stage 3J. Refuse when refund data exists because dropping the
--- tables would leave credit note/GL state inconsistent.
+-- Rollback Stage 3J. Refuse when refunds or non-initial allocations exist
+-- because dropping the tables would lose credit note/GL state.
 
 DO $$
 BEGIN
+    IF EXISTS (SELECT 1 FROM erp.finance_credit_note_refunds) THEN
+        RAISE EXCEPTION 'cannot roll back 000022_credit_note_usage while credit note refunds exist; reverse refunds first';
+    END IF;
+    IF EXISTS (
+        SELECT 1
+        FROM erp.finance_credit_notes c
+        JOIN erp.finance_credit_note_allocations a
+          ON a.tenant_id = c.tenant_id AND a.credit_note_id = c.id
+        GROUP BY c.tenant_id, c.id, c.invoice_id, c.applied_amount, c.applied_base_amount
+        HAVING count(*) > 1
+            OR bool_or(a.invoice_id <> c.invoice_id)
+            OR bool_or(a.amount <> c.applied_amount)
+            OR bool_or(a.base_amount <> c.applied_base_amount)
+    ) THEN
+        RAISE EXCEPTION 'cannot roll back 000022_credit_note_usage while non-initial credit note allocations exist; reverse allocations first';
+    END IF;
     IF EXISTS (
         SELECT 1 FROM erp.finance_credit_notes
         WHERE refunded_amount > 0 OR refunded_base_amount > 0
     ) THEN
-        RAISE EXCEPTION 'cannot roll back 000022_credit_note_usage while credit note refunds exist; reverse refunds first';
+        RAISE EXCEPTION 'cannot roll back 000022_credit_note_usage while credit note refunded balances exist; reverse refunds first';
     END IF;
 END $$;
 

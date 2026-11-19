@@ -14,6 +14,8 @@ ALTER TABLE erp.finance_credit_notes
         AND remaining_amount >= 0 AND remaining_base_amount >= 0
         AND applied_amount + refunded_amount + remaining_amount = amount
         AND applied_base_amount + refunded_base_amount + remaining_base_amount = base_amount
+        AND (applied_amount > 0 OR applied_base_amount = 0)
+        AND (refunded_amount > 0 OR refunded_base_amount = 0)
     );
 
 CREATE TABLE IF NOT EXISTS erp.finance_credit_note_allocations (
@@ -27,6 +29,7 @@ CREATE TABLE IF NOT EXISTS erp.finance_credit_note_allocations (
     allocation_date date NOT NULL,
     created_by uuid NOT NULL,
     created_at timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT finance_credit_note_allocations_tenant_id_key UNIQUE (tenant_id, id),
     CONSTRAINT finance_credit_note_allocations_note_fk
         FOREIGN KEY (tenant_id, credit_note_id)
         REFERENCES erp.finance_credit_notes (tenant_id, id),
@@ -52,7 +55,7 @@ CREATE TABLE IF NOT EXISTS erp.finance_credit_note_refunds (
     exchange_rate numeric(19,8) NOT NULL CHECK (exchange_rate > 0),
     amount numeric(19,4) NOT NULL CHECK (amount > 0),
     base_amount numeric(19,4) NOT NULL CHECK (base_amount >= 0),
-    cash_base_amount numeric(19,4) NOT NULL CHECK (cash_base_amount >= 0),
+    cash_base_amount numeric(19,4) NOT NULL CHECK (cash_base_amount > 0),
     fx_adjustment numeric(19,4) NOT NULL DEFAULT 0,
     method text NOT NULL DEFAULT 'bank',
     reference text NOT NULL DEFAULT '',
@@ -61,6 +64,7 @@ CREATE TABLE IF NOT EXISTS erp.finance_credit_note_refunds (
     created_by uuid NOT NULL,
     created_at timestamptz NOT NULL DEFAULT now(),
     CONSTRAINT finance_credit_note_refunds_tenant_code_key UNIQUE (tenant_id, code),
+    CONSTRAINT finance_credit_note_refunds_tenant_id_key UNIQUE (tenant_id, id),
     CONSTRAINT finance_credit_note_refunds_note_fk
         FOREIGN KEY (tenant_id, credit_note_id)
         REFERENCES erp.finance_credit_notes (tenant_id, id),
@@ -77,20 +81,15 @@ CREATE INDEX IF NOT EXISTS finance_credit_note_refunds_list_idx
 
 INSERT INTO erp.finance_credit_note_allocations (
     id, tenant_id, org_id, credit_note_id, invoice_id,
-    amount, base_amount, allocation_date, created_by
+    amount, base_amount, allocation_date, created_by, created_at
 )
 SELECT gen_random_uuid(), c.tenant_id, c.org_id, c.id, c.invoice_id,
-       c.applied_amount, c.applied_base_amount, c.note_date, c.created_by
+       c.applied_amount, c.applied_base_amount, c.note_date, c.created_by, c.created_at
 FROM erp.finance_credit_notes c
 WHERE c.applied_amount > 0
-  AND c.invoice_id IS NOT NULL
   AND NOT EXISTS (
       SELECT 1 FROM erp.finance_credit_note_allocations a
-      WHERE a.tenant_id = c.tenant_id
-        AND a.credit_note_id = c.id
-        AND a.invoice_id = c.invoice_id
-        AND a.allocation_date = c.note_date
-        AND a.amount = c.applied_amount
+      WHERE a.tenant_id = c.tenant_id AND a.credit_note_id = c.id
   );
 
 INSERT INTO erp.code_rules (
