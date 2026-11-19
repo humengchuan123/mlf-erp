@@ -14,4 +14,12 @@ var (
 	ErrPaymentAllocated    = errors.New("payment is already fully allocated")
 	ErrInvoiceStatus       = errors.New("invoice status does not allow this operation")
 	ErrVatInvoiceDuplicate = errors.New("VAT invoice number is already used")
+
+	ErrCreditNoteClosed        = errors.New("credit note is closed")
+	ErrOverApply               = errors.New("credit note allocation exceeds remaining amount")
+	ErrOverRefund              = errors.New("credit note refund exceeds remaining amount")
+	ErrInsufficientInvoiceBase = errors.New("insufficient invoice base amount")
+	ErrInvoiceTypeMismatch     = errors.New("invoice type does not match credit note")
+	ErrOrgMismatch             = errors.New("organization does not match")
+	ErrRefundAmountTooSmall    = errors.New("refund cash base amount is zero")
 )
