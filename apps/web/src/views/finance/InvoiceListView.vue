@@ -151,6 +151,23 @@
           <el-table-column prop="amount" label="核销金额" width="130" align="right" />
         </el-table>
         <el-empty v-if="detail.allocations.length === 0" description="暂无核销记录" :image-size="80" />
+
+        <el-divider content-position="left">贷项抵用记录</el-divider>
+        <el-table :data="detail.credit_note_allocations ?? []" border>
+          <el-table-column prop="credit_note_code" label="贷项单号" min-width="160" />
+          <el-table-column prop="credit_type" label="贷项类型" width="110">
+            <template #default="{ row }">{{ creditTypeLabel(row.credit_type) }}</template>
+          </el-table-column>
+          <el-table-column prop="note_date" label="单据日期" width="110" />
+          <el-table-column prop="amount" label="抵用金额" width="130" align="right" />
+          <el-table-column prop="base_amount" label="本位币金额" width="130" align="right" />
+          <el-table-column prop="allocation_date" label="抵用日期" width="110" />
+        </el-table>
+        <el-empty
+          v-if="(detail.credit_note_allocations ?? []).length === 0"
+          description="暂无贷项抵用记录"
+          :image-size="80"
+        />
       </template>
     </el-drawer>
 
@@ -297,6 +314,12 @@ function vatTypeLabel(value: string) {
   if (value === 'special') return '专用发票'
   if (value === 'general') return '普通发票'
   return '-'
+}
+
+function creditTypeLabel(value: string) {
+  if (value === 'sales_return') return '销售退货'
+  if (value === 'purchase_return') return '采购退货'
+  return value || '-'
 }
 
 function openIssue(invoice: Invoice) {

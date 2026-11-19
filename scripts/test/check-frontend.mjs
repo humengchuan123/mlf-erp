@@ -176,7 +176,15 @@ assertFile('apps/web/src/views/finance/CreditNoteListView.vue', [
   'financeApi.creditNotes.get',
   'credit_type',
   'creditTypeLabel',
-  'purchase_return'
+  'purchase_return',
+  'creditNotes.allocate',
+  'creditNotes.refund',
+  'creditNotes.allocationCandidates',
+  'refunded_amount',
+  'allocations',
+  'refunds',
+  'finance.credit_note.apply',
+  'finance.credit_note.refund'
 ])
 
 assertFile('apps/web/src/views/finance/InvoiceListView.vue', [
@@ -196,7 +204,9 @@ assertFile('apps/web/src/views/finance/InvoiceListView.vue', [
   'credited_amount',
   'base_credited_amount',
   'outstanding_amount',
-  'allocations'
+  'allocations',
+  'credit_note_allocations',
+  '贷项抵用'
 ])
 
 assertFile('apps/web/src/views/finance/PaymentListView.vue', [
