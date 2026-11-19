@@ -70,6 +70,16 @@ func TestStage3J(t *testing.T) {
 
 	ensureStage3HStock(t, admin, supplierID, warehouseID, materialID, today)
 
+	// Track credit notes created by this test so the demo_dept data-scope check
+	// cannot silently miss a note created by an earlier subtest.
+	var stage3JNoteIDs []string
+	trackNote := func(id string) string {
+		if id != "" {
+			stage3JNoteIDs = append(stage3JNoteIDs, id)
+		}
+		return id
+	}
+
 	t.Run("sales credit applies across receivable invoices", func(t *testing.T) {
 		ensureStage3HStock(t, admin, supplierID, warehouseID, materialID, today)
 
@@ -81,6 +91,7 @@ func TestStage3J(t *testing.T) {
 		returned := postReturn(t, admin, shipmentAID, shipmentALineID, "1", today, "stage3j-apply-return")
 		noteID := text(returned, "credit_note_id")
 		noteCode := text(returned, "credit_note_code")
+		trackNote(noteID)
 		if noteID == "" || noteCode == "" {
 			t.Fatalf("credit note id/code missing: %v", returned)
 		}
@@ -212,6 +223,7 @@ func TestStage3J(t *testing.T) {
 		stage3JPayInvoice(t, admin, "payment", supplierID, invoiceAID, "CNY", "100.00", "", today, "stage3j-purchase-a-payment")
 		returned := stage3IPostPurchaseReturn(t, admin, receiptAID, receiptALineID, "1", today, "supplier return", "stage3j-purchase-return")
 		noteID := text(returned, "credit_note_id")
+		trackNote(noteID)
 		if noteID == "" {
 			t.Fatalf("purchase credit note id missing: %v", returned)
 		}
@@ -245,7 +257,7 @@ func TestStage3J(t *testing.T) {
 		salesReturn := postReturn(t, admin, shipmentID, shipmentLineID, "1", today, "stage3j-initial-sales-return")
 		stage3JExpect(t, salesReturn, "credit_note_applied_amount", "100.0000")
 		stage3JExpect(t, salesReturn, "credit_note_status", "applied")
-		salesNoteID := text(salesReturn, "credit_note_id")
+		salesNoteID := trackNote(text(salesReturn, "credit_note_id"))
 		salesNote := admin.mustGet("/finance/credit-notes/"+salesNoteID, http.StatusOK)
 		stage3JExpect(t, salesNote, "applied_amount", "100.0000")
 		stage3JExpect(t, salesNote, "applied_base_amount", "100.0000")
@@ -265,7 +277,8 @@ func TestStage3J(t *testing.T) {
 		)
 		purchaseReturn := stage3IPostPurchaseReturn(t, admin, receiptID, receiptLineID, "1", today, "supplier return", "stage3j-initial-purchase-return")
 		stage3JExpect(t, purchaseReturn, "credit_note_applied_amount", "100.0000")
-		purchaseNote := admin.mustGet("/finance/credit-notes/"+text(purchaseReturn, "credit_note_id"), http.StatusOK)
+		purchaseNoteID := trackNote(text(purchaseReturn, "credit_note_id"))
+		purchaseNote := admin.mustGet("/finance/credit-notes/"+purchaseNoteID, http.StatusOK)
 		purchaseAllocations := stage3JObjects(t, purchaseNote, "allocations")
 		if len(purchaseAllocations) != 1 {
 			t.Fatalf("initial purchase allocation rows = %d, want 1", len(purchaseAllocations))
@@ -282,7 +295,8 @@ func TestStage3J(t *testing.T) {
 		stage3JPayInvoice(t, admin, "receipt", customerID, paidInvoiceID, "CNY", "100.00", "", today, "stage3j-initial-paid-payment")
 		paidReturn := postReturn(t, admin, paidShipmentID, paidShipmentLineID, "1", today, "stage3j-initial-paid-return")
 		stage3JExpect(t, paidReturn, "credit_note_applied_amount", "0.0000")
-		paidNote := admin.mustGet("/finance/credit-notes/"+text(paidReturn, "credit_note_id"), http.StatusOK)
+		paidNoteID := trackNote(text(paidReturn, "credit_note_id"))
+		paidNote := admin.mustGet("/finance/credit-notes/"+paidNoteID, http.StatusOK)
 		if allocations := stage3JObjects(t, paidNote, "allocations"); len(allocations) != 0 {
 			t.Fatalf("paid-invoice return allocations = %d, want 0", len(allocations))
 		}
@@ -297,6 +311,7 @@ func TestStage3J(t *testing.T) {
 		stage3JPayInvoice(t, admin, "receipt", customerID, paidInvoiceID, "CNY", "100.00", "", today, "stage3j-validation-paid-payment")
 		returned := postReturn(t, admin, shipmentID, shipmentLineID, "1", today, "stage3j-validation-note")
 		noteID := text(returned, "credit_note_id")
+		trackNote(noteID)
 		if noteID == "" {
 			t.Fatalf("validation credit note id missing: %v", returned)
 		}
@@ -359,7 +374,7 @@ func TestStage3J(t *testing.T) {
 		stage3JExpect(t, applied, "status", "applied")
 		admin.expectError(http.MethodPost, path, stage3JAllocationBody(today, invoiceBID, "1.00"), http.StatusConflict, "CREDIT_NOTE_CLOSED")
 
-		// Payment over-allocation keeps the established 400 OVER_ALLOCATE contract.
+		// Guard: payment over-allocation must remain 400 OVER_ALLOCATE while credit-note over-invoice returns 409 OVER_APPLY.
 		overPayment := admin.mustPost("/finance/payments", map[string]any{
 			"payment_type": "receipt",
 			"partner_id":   customerID,
@@ -400,6 +415,7 @@ func TestStage3J(t *testing.T) {
 			t, admin, customerID, warehouseID, materialID, vat0ID,
 			"50.00", "CNY", "", today, "stage3j-candidates-sales-note",
 		)
+		trackNote(salesNoteID)
 
 		candidates := getArray(admin, "/finance/credit-notes/"+salesNoteID+"/allocation-candidates", http.StatusOK)
 		if findItem(candidates, "id", candidateInvoiceID) == nil {
@@ -438,6 +454,7 @@ func TestStage3J(t *testing.T) {
 			t, admin, customerID, warehouseID, materialID, vat0ID,
 			"100.00", "USD", "7.2", today, "stage3j-customer-refund",
 		)
+		trackNote(noteID)
 		note := admin.mustGet("/finance/credit-notes/"+noteID, http.StatusOK)
 		stage3JExpect(t, note, "currency", "USD")
 		stage3JExpect(t, note, "amount", "100.0000")
@@ -544,6 +561,7 @@ func TestStage3J(t *testing.T) {
 		stage3JPayInvoice(t, admin, "payment", supplierID, invoiceID, "USD", "100.00", "7.2", today, "stage3j-supplier-refund-payment")
 		returned := stage3IPostPurchaseReturn(t, admin, receiptID, receiptLineID, "1", today, "supplier return", "stage3j-supplier-refund-return")
 		noteID := text(returned, "credit_note_id")
+		trackNote(noteID)
 		note := admin.mustGet("/finance/credit-notes/"+noteID, http.StatusOK)
 		stage3JExpect(t, note, "credit_type", "purchase_return")
 		stage3JExpect(t, note, "currency", "USD")
@@ -552,30 +570,74 @@ func TestStage3J(t *testing.T) {
 		stage3JExpect(t, note, "remaining_amount", "100.0000")
 		stage3JExpect(t, note, "status", "open")
 
-		refunded := stage3JRefund(t, admin, noteID, today, "100.00", "7.3", "bank", "stage3j-supplier-refund-post")
+		refunded := stage3JRefund(t, admin, noteID, today, "40.00", "7.3", "bank", "stage3j-supplier-refund-partial")
+		stage3JExpect(t, refunded, "refunded_amount", "40.0000")
+		stage3JExpect(t, refunded, "refunded_base_amount", "288.0000")
+		stage3JExpect(t, refunded, "remaining_amount", "60.0000")
+		stage3JExpect(t, refunded, "remaining_base_amount", "432.0000")
+		stage3JExpect(t, refunded, "status", "open")
+		refunds := stage3JObjects(t, refunded, "refunds")
+		if len(refunds) != 1 {
+			t.Fatalf("supplier refund rows after partial refund = %d, want 1", len(refunds))
+		}
+		firstRefund := refunds[0]
+		stage3JExpect(t, firstRefund, "amount", "40.0000")
+		stage3JExpect(t, firstRefund, "base_amount", "288.0000")
+		stage3JExpect(t, firstRefund, "cash_base_amount", "292.0000")
+		stage3JExpect(t, firstRefund, "fx_adjustment", "4.0000")
+		firstLines := stage3JRefundVoucherLines(t, admin, firstRefund)
+		assertVoucherBalanced(t, firstLines)
+		if got := number(t, findLineByAccount(t, firstLines, "1002"), "debit"); !nearlyEqual(got, 292) {
+			t.Fatalf("supplier partial refund bank debit = %v, want 292", got)
+		}
+		if got := number(t, findLineByAccount(t, firstLines, "2202"), "credit"); !nearlyEqual(got, 288) {
+			t.Fatalf("supplier partial refund AP credit = %v, want 288", got)
+		}
+		if got := number(t, findLineByAccount(t, firstLines, "660302"), "credit"); !nearlyEqual(got, 4) {
+			t.Fatalf("supplier partial refund fx gain credit = %v, want 4", got)
+		}
+
+		firstRefundID := text(firstRefund, "id")
+		refunded = stage3JRefund(t, admin, noteID, today, "60.00", "7.2", "bank", "stage3j-supplier-refund-final")
 		stage3JExpect(t, refunded, "refunded_amount", "100.0000")
 		stage3JExpect(t, refunded, "refunded_base_amount", "720.0000")
 		stage3JExpect(t, refunded, "remaining_amount", "0.0000")
+		stage3JExpect(t, refunded, "remaining_base_amount", "0.0000")
 		stage3JExpect(t, refunded, "status", "applied")
-		refunds := stage3JObjects(t, refunded, "refunds")
-		if len(refunds) != 1 {
-			t.Fatalf("supplier refund rows = %d, want 1", len(refunds))
+		refunds = stage3JObjects(t, refunded, "refunds")
+		if len(refunds) != 2 {
+			t.Fatalf("supplier refund rows after final refund = %d, want 2", len(refunds))
 		}
-		refund := refunds[0]
-		stage3JExpect(t, refund, "amount", "100.0000")
-		stage3JExpect(t, refund, "base_amount", "720.0000")
-		stage3JExpect(t, refund, "cash_base_amount", "730.0000")
-		stage3JExpect(t, refund, "fx_adjustment", "10.0000")
-		lines := stage3JRefundVoucherLines(t, admin, refund)
-		assertVoucherBalanced(t, lines)
-		if got := number(t, findLineByAccount(t, lines, "1002"), "debit"); !nearlyEqual(got, 730) {
-			t.Fatalf("supplier refund bank debit = %v, want 730", got)
+		var finalRefund map[string]any
+		for _, refund := range refunds {
+			if text(refund, "id") != firstRefundID {
+				finalRefund = refund
+				break
+			}
 		}
-		if got := number(t, findLineByAccount(t, lines, "2202"), "credit"); !nearlyEqual(got, 720) {
-			t.Fatalf("supplier refund AP credit = %v, want 720", got)
+		if finalRefund == nil {
+			t.Fatal("supplier final refund row not found")
 		}
-		if got := number(t, findLineByAccount(t, lines, "660302"), "credit"); !nearlyEqual(got, 10) {
-			t.Fatalf("supplier refund fx gain credit = %v, want 10", got)
+		stage3JExpect(t, finalRefund, "amount", "60.0000")
+		stage3JExpect(t, finalRefund, "base_amount", "432.0000")
+		stage3JExpect(t, finalRefund, "cash_base_amount", "432.0000")
+		stage3JExpect(t, finalRefund, "fx_adjustment", "0.0000")
+		finalLines := stage3JRefundVoucherLines(t, admin, finalRefund)
+		assertVoucherBalanced(t, finalLines)
+		if len(finalLines) != 2 {
+			t.Fatalf("supplier final refund voucher lines = %d, want 2 (no FX line)", len(finalLines))
+		}
+		if got := number(t, findLineByAccount(t, finalLines, "1002"), "debit"); !nearlyEqual(got, 432) {
+			t.Fatalf("supplier final refund bank debit = %v, want 432", got)
+		}
+		if got := number(t, findLineByAccount(t, finalLines, "2202"), "credit"); !nearlyEqual(got, 432) {
+			t.Fatalf("supplier final refund AP credit = %v, want 432", got)
+		}
+		for _, raw := range finalLines {
+			line := raw.(map[string]any)
+			if code := text(line, "account_code"); code == "660301" || code == "660302" {
+				t.Fatalf("supplier final refund voucher unexpectedly contains FX account %s", code)
+			}
 		}
 	})
 
@@ -585,6 +647,7 @@ func TestStage3J(t *testing.T) {
 			t, admin, customerID, warehouseID, materialID, vat0ID,
 			"100.00", "CNY", "", today, "stage3j-refund-validation",
 		)
+		trackNote(noteID)
 		path := "/finance/credit-notes/" + noteID + "/refunds"
 		admin.expectError(http.MethodPost, path, map[string]any{
 			"amount": "10.00", "method": "bank",
@@ -653,6 +716,7 @@ func TestStage3J(t *testing.T) {
 		stage3JPayInvoice(t, admin, "receipt", customerID, invoiceID, "CNY", "100.00", "", orderDate, "stage3j-period-closed-payment")
 		returned := postReturn(t, admin, shipmentID, shipmentLineID, "1", refundDate, "stage3j-period-closed-return")
 		noteID := text(returned, "credit_note_id")
+		trackNote(noteID)
 		if noteID == "" {
 			t.Fatalf("period closed credit note id missing: %v", returned)
 		}
@@ -706,12 +770,106 @@ func TestStage3J(t *testing.T) {
 		}
 	})
 
+	// Credit application must reduce the base outstanding used by period-end FX
+	// revaluation; unused credit notes themselves are not revalued.
+	t.Run("fx revaluation after credit application", func(t *testing.T) {
+		year := cleanRevaluationYear(t, admin)
+		ensureTestYear(t, admin, year)
+		ensureStage3HStock(t, admin, supplierID, warehouseID, materialID, today)
+		invoiceDate := fmt.Sprintf("%04d-01-15", year)
+		janStart := fmt.Sprintf("%04d-01-01", year)
+		closeDate := fmt.Sprintf("%04d-01-31", year)
+
+		_, shipmentAID, shipmentALineID, invoiceAID := stage3JCreateShippedInvoice(
+			t, admin, customerID, warehouseID, materialID, vat0ID,
+			"1", "100.00", "USD", "7.2", invoiceDate, "stage3j-fx-revaluation-a",
+		)
+		stage3JPayInvoice(t, admin, "receipt", customerID, invoiceAID, "USD", "100.00", "7.2", invoiceDate, "stage3j-fx-revaluation-a-payment")
+		returned := postReturn(t, admin, shipmentAID, shipmentALineID, "1", invoiceDate, "stage3j-fx-revaluation-a-return")
+		noteID := text(returned, "credit_note_id")
+		trackNote(noteID)
+		note := admin.mustGet("/finance/credit-notes/"+noteID, http.StatusOK)
+		stage3JExpect(t, note, "amount", "100.0000")
+		stage3JExpect(t, note, "base_amount", "720.0000")
+		stage3JExpect(t, note, "applied_amount", "0.0000")
+		stage3JExpect(t, note, "remaining_amount", "100.0000")
+		stage3JExpect(t, note, "status", "open")
+
+		_, _, _, invoiceBID := stage3JCreateShippedInvoice(
+			t, admin, customerID, warehouseID, materialID, vat0ID,
+			"2", "100.00", "USD", "7.2", invoiceDate, "stage3j-fx-revaluation-b",
+		)
+		applied := stage3JAllocate(t, admin, noteID, invoiceDate, stage3JAllocation{invoiceBID, "100.00"})
+		stage3JExpect(t, applied, "applied_amount", "100.0000")
+		stage3JExpect(t, applied, "applied_base_amount", "720.0000")
+		stage3JExpect(t, applied, "remaining_amount", "0.0000")
+		stage3JExpect(t, applied, "remaining_base_amount", "0.0000")
+		stage3JExpect(t, applied, "status", "applied")
+		invoiceB := admin.mustGet("/finance/invoices/"+invoiceBID, http.StatusOK)
+		stage3JExpect(t, invoiceB, "credited_amount", "100.0000")
+		stage3JExpect(t, invoiceB, "base_credited_amount", "720.0000")
+		stage3JExpect(t, invoiceB, "outstanding_amount", "100.0000")
+		stage3JExpect(t, invoiceB, "base_revalued_amount", "0.0000")
+		stage3JExpect(t, invoiceB, "status", "partially_paid")
+		baseOutstanding := number(t, invoiceB, "base_total_amount") - number(t, invoiceB, "base_credited_amount")
+		if !nearlyEqual(baseOutstanding, 720) {
+			t.Fatalf("invoice B base outstanding after credit application = %v, want 720", baseOutstanding)
+		}
+
+		admin.mustPost("/finance/exchange-rates", map[string]any{
+			"currency_code": "USD",
+			"rate_date":     closeDate,
+			"rate":          "7.3",
+		}, http.StatusCreated)
+
+		yearPeriods := getArray(admin, periodsPath(year), http.StatusOK)
+		var january map[string]any
+		for _, period := range yearPeriods {
+			if month, ok := period["month"].(float64); ok && int(month) == 1 {
+				january = period
+				break
+			}
+		}
+		if january == nil {
+			t.Fatalf("January %d period not found", year)
+		}
+		januaryID := text(january, "id")
+		if text(january, "status") == "closed" {
+			admin.mustPost("/finance/periods/"+januaryID+"/reopen", nil, http.StatusOK)
+		}
+		admin.mustPost("/finance/periods/"+januaryID+"/close", nil, http.StatusOK)
+		defer func() {
+			admin.mustPost("/finance/periods/"+januaryID+"/reopen", nil, http.StatusOK)
+		}()
+
+		revaluations := listItems(admin,
+			"/finance/vouchers?voucher_type=fx_revaluation&start_date="+janStart+"&end_date="+closeDate+"&page_size=50",
+			http.StatusOK,
+		)
+		revaluation := findItem(revaluations, "source_code", fmt.Sprintf("%04d-01", year))
+		if revaluation == nil {
+			t.Fatalf("FX revaluation voucher for %04d-01 not found", year)
+		}
+		revaluationDetail := admin.mustGet("/finance/vouchers/"+text(revaluation, "id"), http.StatusOK)
+		revaluationLines, _ := revaluationDetail["lines"].([]any)
+		assertVoucherBalanced(t, revaluationLines)
+		if got := number(t, findLineByAccount(t, revaluationLines, "1122"), "debit"); !nearlyEqual(got, 10) {
+			t.Fatalf("FX revaluation AR debit after credit application = %v, want 10", got)
+		}
+		if got := number(t, findLineByAccount(t, revaluationLines, "660302"), "credit"); !nearlyEqual(got, 10) {
+			t.Fatalf("FX revaluation gain credit after credit application = %v, want 10", got)
+		}
+		revalued := admin.mustGet("/finance/invoices/"+invoiceBID, http.StatusOK)
+		stage3JExpect(t, revalued, "base_revalued_amount", "10.0000")
+	})
+
 	t.Run("invoice detail lists credit note allocations", func(t *testing.T) {
 		ensureStage3HStock(t, admin, supplierID, warehouseID, materialID, today)
 		_, noteID, noteCode := stage3JCreateOpenCreditNote(
 			t, admin, customerID, warehouseID, materialID, vat0ID,
 			"50.00", "CNY", "", today, "stage3j-invoice-detail-note",
 		)
+		trackNote(noteID)
 		_, _, _, invoiceID, _ := createShippedOrder(
 			t, admin, customerID, warehouseID, materialID, vat0ID,
 			"1", "100.00", true, "stage3j-invoice-detail-target",
@@ -749,6 +907,7 @@ func TestStage3J(t *testing.T) {
 			t, admin, customerID, warehouseID, materialID, vat0ID,
 			"100.00", "CNY", "", today, "stage3j-permissions",
 		)
+		trackNote(noteID)
 		_, _, _, targetInvoiceID, _ := createShippedOrder(
 			t, admin, customerID, warehouseID, materialID, vat0ID,
 			"1", "50.00", true, "stage3j-permissions-target",
@@ -769,6 +928,29 @@ func TestStage3J(t *testing.T) {
 		dept.expectError(http.MethodPost, "/finance/credit-notes/"+noteID+"/allocations", applyBody, http.StatusForbidden, "FORBIDDEN")
 		dept.expectError(http.MethodPost, "/finance/credit-notes/"+noteID+"/refunds", refundBody, http.StatusForbidden, "FORBIDDEN")
 		dept.expectError(http.MethodGet, "/finance/credit-notes/"+noteID+"/allocation-candidates", nil, http.StatusForbidden, "FORBIDDEN")
+
+		status, payload := dept.request(http.MethodGet, "/finance/credit-notes?page_size=200", nil, dept.token)
+		switch status {
+		case http.StatusForbidden:
+			if payload.Code != "FORBIDDEN" {
+				t.Fatalf("demo_dept credit note list code = %q, want FORBIDDEN", payload.Code)
+			}
+		case http.StatusOK:
+			rawItems, _ := payload.Data["items"].([]any)
+			for _, raw := range rawItems {
+				row, ok := raw.(map[string]any)
+				if !ok {
+					continue
+				}
+				for _, stage3JNoteID := range stage3JNoteIDs {
+					if text(row, "id") == stage3JNoteID {
+						t.Fatalf("demo_dept can see Stage 3J credit note %s outside its scope", stage3JNoteID)
+					}
+				}
+			}
+		default:
+			t.Fatalf("demo_dept credit note list status = %d, want 200 or 403, payload = %v", status, payload)
+		}
 	})
 
 	t.Run("concurrent apply and refund", func(t *testing.T) {
@@ -778,6 +960,7 @@ func TestStage3J(t *testing.T) {
 				t, admin, customerID, warehouseID, materialID, vat0ID,
 				"60.00", "CNY", "", today, "stage3j-concurrent-apply",
 			)
+			trackNote(noteID)
 			_, _, _, invoiceBID, _ := createShippedOrder(
 				t, admin, customerID, warehouseID, materialID, vat0ID,
 				"1", "50.00", true, "stage3j-concurrent-apply-b",
@@ -837,6 +1020,7 @@ func TestStage3J(t *testing.T) {
 				t, admin, customerID, warehouseID, materialID, vat0ID,
 				"60.00", "CNY", "", today, "stage3j-concurrent-refund",
 			)
+			trackNote(noteID)
 			body := map[string]any{
 				"refund_date": today,
 				"amount":      "50.00",
@@ -886,6 +1070,7 @@ func TestStage3J(t *testing.T) {
 				t, admin, customerID, warehouseID, materialID, vat0ID,
 				"100.00", "USD", "7.2", today, "stage3j-concurrent-mixed",
 			)
+			trackNote(noteID)
 			_, _, _, invoiceBID := stage3JCreateShippedInvoice(
 				t, admin, customerID, warehouseID, materialID, vat0ID,
 				"1", "50.00", "USD", "7.2", today, "stage3j-concurrent-mixed-b",
