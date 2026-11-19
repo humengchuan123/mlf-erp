@@ -186,7 +186,7 @@ func main() {
 	creditNoteRepository := financepostgres.NewCreditNoteRepository(db)
 	paymentRepository := financepostgres.NewPaymentRepository(db, codeRuleService)
 	invoiceService := financeapp.NewInvoiceService(invoiceRepository)
-	creditNoteService := financeapp.NewCreditNoteService(creditNoteRepository)
+	creditNoteService := financeapp.NewCreditNoteService(creditNoteRepository, codeRuleService, exchangeRateRepository)
 	paymentService := financeapp.NewPaymentService(paymentRepository, codeRuleService, partnerRepository, exchangeRateRepository)
 	exchangeRateService := financeapp.NewExchangeRateService(exchangeRateRepository)
 	financehttp.Register(protected, invoiceService, creditNoteService, paymentService, exchangeRateService, auditService, log)

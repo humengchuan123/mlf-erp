@@ -19,6 +19,9 @@ type InvoiceRepository interface {
 type CreditNoteRepository interface {
 	List(ctx context.Context, filter scope.Filter, tenantID, creditType, status, partnerID, keyword string, offset, limit int) ([]*CreditNote, int, error)
 	Get(ctx context.Context, filter scope.Filter, tenantID, id string) (*CreditNote, error)
+	Allocate(ctx context.Context, filter scope.Filter, tenantID, creditNoteID, userID string,
+		allocationDate time.Time, allocations []*AllocationInput) (*CreditNote, error)
+	AllocationCandidates(ctx context.Context, filter scope.Filter, tenantID, creditNoteID string) ([]*Invoice, error)
 }
 
 type PaymentRepository interface {
