@@ -88,6 +88,8 @@ var permissions = []struct {
 	{"finance.report.read", "查看财务报表", "finance", "api"},
 	{"finance.exchange_rate.read", "查看汇率", "finance", "api"},
 	{"finance.exchange_rate.write", "管理汇率", "finance", "api"},
+	{"finance.credit_note.apply", "贷项单抵用", "finance", "api"},
+	{"finance.credit_note.refund", "贷项单退款", "finance", "api"},
 }
 
 var defaultCodeRules = []struct {
@@ -108,6 +110,7 @@ var defaultCodeRules = []struct {
 	{"sales_shipment", "DN", "yyyyMMdd", "-", 4, "day"},
 	{"sales_return", "SR", "yyyyMMdd", "-", 4, "day"},
 	{"finance_credit_note", "CN", "yyyyMMdd", "-", 4, "day"},
+	{"credit_note_refund", "RF", "yyyyMMdd", "-", 4, "day"},
 	{"sales_receivable", "AR", "yyyyMMdd", "-", 4, "day"},
 	{"purchase_payable", "AP", "yyyyMMdd", "-", 4, "day"},
 	{"finance_receipt", "RCPT", "yyyyMMdd", "-", 4, "day"},
