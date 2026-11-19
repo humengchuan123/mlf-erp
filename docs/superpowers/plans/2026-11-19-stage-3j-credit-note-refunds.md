@@ -412,6 +412,7 @@ ErrOverRefund              = errors.New("credit note refund exceeds remaining am
 ErrInsufficientInvoiceBase = errors.New("insufficient invoice base amount")
 ErrInvoiceTypeMismatch     = errors.New("invoice type does not match credit note")
 ErrOrgMismatch             = errors.New("organization does not match")
+ErrRefundAmountTooSmall    = errors.New("refund cash base amount is zero")
 ```
 
 复用现有 `ErrPartnerMismatch`、`ErrCurrencyMismatch`、`ErrInvoicePaid`。
@@ -676,6 +677,15 @@ func TestCreditNoteRefundPostingLines(t *testing.T) {
 		})
 		assertRefundLines(t, lines, "ap", "bank", "fx_gain", "10")
 	})
+	t.Run("zero base customer refund", func(t *testing.T) {
+		lines := creditNoteRefundPostingLines(CreditNoteRefundPosting{
+			CreditType: "sales_return", PartnerID: "p1",
+			BaseAmount: decimal.Zero,
+			CashBaseAmount: decimal.RequireFromString("100"),
+			FXAdjustment: decimal.RequireFromString("100"),
+		})
+		assertRefundLines(t, lines, "", "bank", "fx_loss", "100")
+	})
 }
 ```
 
@@ -718,11 +728,15 @@ if input.Method == "cash" { cashKey = "cash" }
 lines := []postingLine{}
 fx := input.FXAdjustment.Round(4)
 if input.CreditType == "sales_return" {
-	lines = append(lines, postingLine{AccountKey: "ar", Summary: "贷项退款应收", Debit: input.BaseAmount, PartnerID: input.PartnerID})
+	if input.BaseAmount.IsPositive() {
+		lines = append(lines, postingLine{AccountKey: "ar", Summary: "贷项退款应收", Debit: input.BaseAmount, PartnerID: input.PartnerID})
+	}
 	lines = append(lines, postingLine{AccountKey: cashKey, Summary: "客户退款", Credit: input.CashBaseAmount})
 } else {
 	lines = append(lines, postingLine{AccountKey: cashKey, Summary: "供应商退款", Debit: input.CashBaseAmount})
-	lines = append(lines, postingLine{AccountKey: "ap", Summary: "贷项退款应付", Credit: input.BaseAmount, PartnerID: input.PartnerID})
+	if input.BaseAmount.IsPositive() {
+		lines = append(lines, postingLine{AccountKey: "ap", Summary: "贷项退款应付", Credit: input.BaseAmount, PartnerID: input.PartnerID})
+	}
 }
 if fx.IsPositive() {
 	if input.CreditType == "sales_return" {
@@ -775,6 +789,7 @@ if fx.IsPositive() {
   ```go
   rate, err := fx.Resolve(ctx, s.rates, tenantID, note.Currency, refundDate, input.ExchangeRate)
   ```
+- 校验 `domain.CashBase(input.Amount, rate).IsPositive()`；否则返回 `domain.ErrRefundAmountTooSmall`（HTTP 映射 400 `REFUND_AMOUNT_TOO_SMALL`）。
 - 生成退款编码 `credit_note_refund` 和凭证编码 `gl_voucher`。
 - 调用仓储。
 
@@ -850,6 +865,7 @@ type creditNoteRefundRequest struct {
   - `ErrPartnerMismatch` → 400 `PARTNER_MISMATCH`
   - `ErrCurrencyMismatch` → 400 `CURRENCY_MISMATCH`
   - `ErrInvoicePaid` → 409 `INVOICE_PAID`
+  - `ErrRefundAmountTooSmall` → 400 `REFUND_AMOUNT_TOO_SMALL`
   - `gldomain.ErrPeriodClosed` → 409 `PERIOD_CLOSED`
   - `fx.ErrRateNotFound` → 400 `EXCHANGE_RATE_NOT_FOUND`
 
@@ -1046,6 +1062,7 @@ git commit -m "feat(stage-3j): add credit note usage UI"
    - 匿名 401、demo_dept 403。
 5. `customer credit refund with fx`
    - USD 销售发票 100 @7.2，退货 1 -> 贷项 100/base 720。
+   - 零本位币退款：构造贷项 `remaining_amount > 0`、`remaining_base_amount = 0`（例如抵用/退款尾差场景），退款金额 > 0，断言凭证不含应收行，现金行与汇兑行平衡。
    - 退款 50，退款汇率 7.3：
      - 贷项 refunded 50/base 360，remaining 50/base 360。
      - 退款现金本位币 365，汇兑调整 +5。
@@ -1054,6 +1071,7 @@ git commit -m "feat(stage-3j): add credit note usage UI"
 6. `supplier credit refund with fx`
    - 采购 USD 发票 100 @7.2，退货 1 -> 贷项 100/base 720。
    - 退款 100 @7.3 -> 供应商退款凭证 bank debit 730, AP credit 720, fx_gain credit 10。
+   - 零本位币退款：断言凭证不含应付行，现金行与汇兑行平衡。
 7. `refund validation and rollback`
    - 超退、零/负金额、非法方式、已关闭贷项、关账期间退款 409 `PERIOD_CLOSED`，贷项/退款表/凭证回滚。
 8. `refund does not change invoice credited`

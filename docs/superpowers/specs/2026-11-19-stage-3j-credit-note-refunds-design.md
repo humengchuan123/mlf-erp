@@ -246,6 +246,7 @@ fx_adjustment = cash_base - base
 
 - 更新贷项单 `refunded_amount`、`refunded_base_amount`、`remaining_*`，状态按剩余归零。
 - 退款不修改发票 credited。
+- 零本位币退款：当贷项 `remaining_amount > 0` 但 `remaining_base_amount = 0` 时，允许退款，`base = 0`；凭证省略应收/应付行，由现金行和汇兑行平衡。若 `cash_base` 四舍五入后为 0，返回 400 `REFUND_AMOUNT_TOO_SMALL`。
 
 ### 5.3 凭证
 
@@ -266,6 +267,7 @@ fx_adjustment = cash_base - base
 | 汇兑损失（fx_adjustment < 0） | 汇兑收益（fx_adjustment > 0） |
 
 - `fx_adjustment = 0` 时省略汇兑行。
+- `base = 0` 时省略应收/应付行，现金行与汇兑行平衡。
 - 退款单、贷项余额更新和凭证在同一事务内完成。
 - 凭证失败整体回滚；期间关账返回 409 `PERIOD_CLOSED`。
 
@@ -318,7 +320,7 @@ fx_adjustment = cash_base - base
 - 409 `INSUFFICIENT_INVOICE_BASE`
 - 409 `PERIOD_CLOSED`
 - 400 `PARTNER_MISMATCH` / `CURRENCY_MISMATCH` / `INVOICE_TYPE_MISMATCH`
-- 400 `BAD_REQUEST` / `EXCHANGE_RATE_NOT_FOUND`
+- 400 `BAD_REQUEST` / `EXCHANGE_RATE_NOT_FOUND` / `REFUND_AMOUNT_TOO_SMALL`
 - 404、401、403
 
 ## 7. SDK、OpenAPI 与前端
@@ -353,6 +355,7 @@ fx_adjustment = cash_base - base
 - 拒绝跨往来单位、跨币种、跨组织、错误发票类型、已结清、超抵、超发票未付、零/负金额、已关闭贷项。
 - 客户部分/全额退款，校验贷项已退/剩余、凭证借贷和汇兑损益。
 - 供应商部分/全额退款。
+- 零本位币剩余金额退款：省略应收/应付行，现金与汇兑行平衡；销售/采购两个方向都覆盖。
 - 关账期间退款 409 并回滚。
 - 退款不影响发票 credited。
 - 期间重估按抵用后的发票未付本位币计算。
