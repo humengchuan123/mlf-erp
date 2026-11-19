@@ -2,7 +2,7 @@
 
 企业级 ERP Monorepo 骨架，支持 **SaaS 订阅** 与 **私有化安装** 两种交付形态。
 
-> 当前状态：Stage 1 平台底座 + Stage 2 主数据/编码规则/数据权限 + Stage 3A 采购/库存 + Stage 3B 销售/应收应付 + Stage 3C 总账/自动凭证/基础报表 + Stage 3D 期末结转/辅助核算 + Stage 3E 税务/发票/价税分离 + Stage 3F 多币种/汇率/汇兑损益 + Stage 3G 现金流量表 + Stage 3H 销售退货/贷项单 + Stage 3I 采购退货/应付贷项单。
+> 当前状态：Stage 1 平台底座 + Stage 2 主数据/编码规则/数据权限 + Stage 3A 采购/库存 + Stage 3B 销售/应收应付 + Stage 3C 总账/自动凭证/基础报表 + Stage 3D 期末结转/辅助核算 + Stage 3E 税务/发票/价税分离 + Stage 3F 多币种/汇率/汇兑损益 + Stage 3G 现金流量表 + Stage 3H 销售退货/贷项单 + Stage 3I 采购退货/应付贷项单 + Stage 3J 贷项抵用/退款。
 > 设计参考：工作区根目录的《企业ERP应用开发指南》。
 
 ## 技术栈
@@ -287,6 +287,10 @@ pnpm test:api:stage3h
 # Writes to the local dev database and consumes a clean year for FX revaluation; use a clean database for full regression.
 pnpm test:api:stage3i
 
+# Stage 3J API integration test (credit note allocation and refunds)
+# Writes to the local dev database and consumes a clean year for period-close rollback; use a clean database for full regression.
+pnpm test:api:stage3j
+
 # Docker
 docker build -f deploy/docker/api.Dockerfile -t mlf-erp/api:dev .
 docker build -f deploy/docker/worker.Dockerfile -t mlf-erp/worker:dev .
@@ -419,19 +423,32 @@ docker build -f deploy/docker/web.Dockerfile -t mlf-erp/web:dev .
 - Stage 3I 真实 HTTP API 集成测试和前端完整度检查。
 - API 测试命令：`pnpm test:api:stage3i`（写入本地开发库并消耗一个干净年度，完整回归请使用干净数据库）。
 
+### Stage 3J 贷项抵用与退款
+
+- 销售退货贷项可手工抵同客户其他应收发票，采购退货贷项可抵同供应商应付发票，支持部分/多次/多张抵用。
+- 抵用按贷项剩余原币/本位币比例计算，更新发票 `credited_amount`、未收金额和状态；抵用为子账操作，不生成凭证。
+- 贷项单增加 `refunded_amount`、`refunded_base_amount`，余额口径为 `amount - applied - refunded`。
+- 客户/供应商退款支持银行/现金、部分/多次退款；外币退款按退款日汇率确认现金本位币和汇兑损益，生成 `credit_note_refund` 凭证。
+- 退款受期间关账控制，关账期间返回 `PERIOD_CLOSED` 并整体回滚；退款不修改发票 `credited_amount`。
+- 贷项详情返回抵用/退款历史，发票详情返回 `credit_note_allocations`；候选发票按同组织/往来单位/币种/未结清过滤。
+- 新增权限 `finance.credit_note.apply`、`finance.credit_note.refund`；API、SDK、OpenAPI 和前端同步。
+- 抵用/退款并发通过贷项行锁串行化，余额和本位币不变量不被破坏。
+- Stage 3J 真实 HTTP API 集成测试和前端完整度检查。
+- API 测试命令：`pnpm test:api:stage3j`（写入本地开发库并消耗一个干净年度用于关账回滚，完整回归请使用干净数据库）。
+
 ### 工程与交付
 
 - Monorepo 工作区与共享包。
 - PostgreSQL 迁移、seed、Docker Compose。
 - Dockerfile、GitHub Actions CI、SaaS/私有化发布模板。
-- CI 包含单元测试、构建、Stage 3B/3C/3D/3E/3F/3G/3H/3I 真实 PostgreSQL API 集成测试。
+- CI 包含单元测试、构建、Stage 3B/3C/3D/3E/3F/3G/3H/3I/3J 真实 PostgreSQL API 集成测试。
 - OpenAPI 契约与模块文档。
 
 ## 下一步
 
 - 银行/现金外币重估、跨币种核销、多本位币/合并报表折算。
 - 价格协议、客户信用。
-- 收付款反核销、红字发票、贷项单抵其他发票/退款、账龄分析。
+- 收付款反核销、红字发票、账龄分析。
 - 审批流引擎、导入导出、附件。
 - 数据范围管理 API/UI。
 - 登录限流、token version、httpOnly Cookie 评估。
