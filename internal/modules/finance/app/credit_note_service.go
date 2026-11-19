@@ -92,9 +92,11 @@ func (s *CreditNoteService) Allocate(
 		if invoiceID == "" || !amount.IsPositive() {
 			return nil, domain.ErrInvalidInput
 		}
-		if _, err := uuid.Parse(invoiceID); err != nil {
+		parsed, err := uuid.Parse(invoiceID)
+		if err != nil {
 			return nil, domain.ErrInvalidInput
 		}
+		invoiceID = parsed.String()
 		if _, exists := seen[invoiceID]; exists {
 			return nil, domain.ErrInvalidInput
 		}

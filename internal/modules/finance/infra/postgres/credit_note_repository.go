@@ -179,15 +179,30 @@ func (r *CreditNoteRepository) Allocate(
 	if len(allocations) == 0 {
 		return nil, domain.ErrInvalidInput
 	}
+
+	// Canonicalize invoice IDs before duplicate detection so alternative UUID
+	// spellings (upper case, braces, URN form) cannot bypass the check. The
+	// canonical order still follows the request so base-currency calculation
+	// is deterministic for the caller.
+	canonical := make([]*domain.AllocationInput, 0, len(allocations))
 	seen := make(map[string]struct{}, len(allocations))
 	for _, allocation := range allocations {
 		if allocation == nil || allocation.InvoiceID == "" || !allocation.Amount.IsPositive() {
 			return nil, domain.ErrInvalidInput
 		}
-		if _, exists := seen[allocation.InvoiceID]; exists {
+		parsed, err := uuid.Parse(allocation.InvoiceID)
+		if err != nil {
 			return nil, domain.ErrInvalidInput
 		}
-		seen[allocation.InvoiceID] = struct{}{}
+		invoiceID := parsed.String()
+		if _, exists := seen[invoiceID]; exists {
+			return nil, domain.ErrInvalidInput
+		}
+		seen[invoiceID] = struct{}{}
+		canonical = append(canonical, &domain.AllocationInput{
+			InvoiceID: invoiceID,
+			Amount:    allocation.Amount,
+		})
 	}
 
 	tx, err := r.db.Begin(ctx)
@@ -206,28 +221,18 @@ func (r *CreditNoteRepository) Allocate(
 		partnerID        string
 		currency         string
 		status           string
-		amountRaw        string
-		appliedRaw       string
-		refundedRaw      string
 		remainingRaw     string
-		baseRaw          string
-		appliedBaseRaw   string
-		refundedBaseRaw  string
 		remainingBaseRaw string
 		noteDate         time.Time
 	}
 	err = tx.QueryRow(ctx, `
 		SELECT c.credit_type, c.org_id::text, c.partner_id::text, c.currency, c.status,
-		       c.amount::text, c.applied_amount::text, c.refunded_amount::text,
-		       c.remaining_amount::text, c.base_amount::text, c.applied_base_amount::text,
-		       c.refunded_base_amount::text, c.remaining_base_amount::text, c.note_date
+		       c.remaining_amount::text, c.remaining_base_amount::text, c.note_date
 		FROM erp.finance_credit_notes c
 		WHERE `+where+`
 		FOR UPDATE OF c`, args...).Scan(
 		&note.creditType, &note.orgID, &note.partnerID, &note.currency, &note.status,
-		&note.amountRaw, &note.appliedRaw, &note.refundedRaw,
-		&note.remainingRaw, &note.baseRaw, &note.appliedBaseRaw,
-		&note.refundedBaseRaw, &note.remainingBaseRaw, &note.noteDate,
+		&note.remainingRaw, &note.remainingBaseRaw, &note.noteDate,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, domain.ErrNotFound
@@ -240,7 +245,7 @@ func (r *CreditNoteRepository) Allocate(
 	}
 	remainingAmount := decimal.RequireFromString(note.remainingRaw)
 	remainingBase := decimal.RequireFromString(note.remainingBaseRaw)
-	if !remainingAmount.IsPositive() {
+	if !remainingAmount.IsPositive() || !remainingBase.IsPositive() {
 		return nil, domain.ErrCreditNoteClosed
 	}
 
@@ -254,31 +259,34 @@ func (r *CreditNoteRepository) Allocate(
 	}
 
 	// Lock invoices in a stable order to avoid deadlocks between concurrent
-	// allocations that touch the same invoice set.
-	ordered := make([]*domain.AllocationInput, len(allocations))
-	copy(ordered, allocations)
-	sort.SliceStable(ordered, func(i, j int) bool { return ordered[i].InvoiceID < ordered[j].InvoiceID })
+	// allocations that touch the same invoice set. Locking is separate from
+	// processing: allocations themselves are processed in request order.
+	lockOrder := make([]string, 0, len(canonical))
+	for _, allocation := range canonical {
+		lockOrder = append(lockOrder, allocation.InvoiceID)
+	}
+	sort.Strings(lockOrder)
 
-	totalAmount := decimal.Zero
-	totalBase := decimal.Zero
-	for _, allocation := range ordered {
-		invoiceArgs := []any{tenantID, allocation.InvoiceID}
+	type lockedInvoice struct {
+		invoiceType     string
+		partnerID       string
+		orgID           string
+		currency        string
+		status          string
+		totalRaw        string
+		paidRaw         string
+		creditedRaw     string
+		baseTotalRaw    string
+		basePaidRaw     string
+		baseCreditedRaw string
+	}
+	invoices := make(map[string]*lockedInvoice, len(lockOrder))
+	for _, invoiceID := range lockOrder {
+		invoiceArgs := []any{tenantID, invoiceID}
 		invoiceWhere := "i.tenant_id = $1 AND i.id = $2"
 		appendScope(&invoiceWhere, &invoiceArgs, "i", filter)
 
-		var invoice struct {
-			invoiceType     string
-			partnerID       string
-			orgID           string
-			currency        string
-			status          string
-			totalRaw        string
-			paidRaw         string
-			creditedRaw     string
-			baseTotalRaw    string
-			basePaidRaw     string
-			baseCreditedRaw string
-		}
+		invoice := &lockedInvoice{}
 		err = tx.QueryRow(ctx, `
 			SELECT i.invoice_type, i.partner_id::text, i.org_id::text, i.currency, i.status,
 			       i.total_amount::text, i.paid_amount::text, i.credited_amount::text,
@@ -296,6 +304,13 @@ func (r *CreditNoteRepository) Allocate(
 		if err != nil {
 			return nil, fmt.Errorf("lock invoice for credit note allocation: %w", err)
 		}
+		invoices[invoiceID] = invoice
+	}
+
+	totalAmount := decimal.Zero
+	totalBase := decimal.Zero
+	for _, allocation := range canonical {
+		invoice := invoices[allocation.InvoiceID]
 
 		switch note.creditType {
 		case domain.CreditNoteTypeSalesReturn:
@@ -454,8 +469,7 @@ func (r *CreditNoteRepository) AllocationCandidates(
 	appendScope(&where, &args, "i", filter)
 
 	rows, err := r.db.Query(ctx, invoiceSelectSQL+` WHERE `+where+`
-		ORDER BY i.invoice_date, i.code
-		LIMIT 200`, args...)
+		ORDER BY i.invoice_date, i.code`, args...)
 	if err != nil {
 		return nil, fmt.Errorf("list credit note allocation candidates: %w", err)
 	}
