@@ -2,8 +2,8 @@
 
 > 日期：2026-11-19
 > 分支：`stage-3j-credit-note-refunds`
-> HEAD：`ffa311b`（本轮候选发票汇率过滤修复）
-> 说明：`ffa311b` 为最终修复提交；其后仅有报告回填提交。早期功能与迁移修复位于 `be0c0bd`。
+> HEAD：`4c0bd8f`
+> 说明：`4c0bd8f` 为报告回填提交；最终功能修复位于 `ffa311b`，迁移修复位于 `be0c0bd`。
 > 设计：`docs/superpowers/specs/2026-11-19-stage-3j-credit-note-refunds-design.md`
 > 计划：`docs/superpowers/plans/2026-11-19-stage-3j-credit-note-refunds.md`
 > 状态：已完成开发、审核修复和干净库 Stage 3B–3J 回归，待用户验收
@@ -416,7 +416,7 @@ go test ./... -count=1
 
 ### 6.3 干净数据库 Stage 3B–3J 全链路
 
-在全新数据库 `mlf_erp_stage3j_clean3` 上执行 migration 23、seed、demo，启动 API 后运行：
+在全新数据库 `mlf_erp_stage3j_clean4` 上执行 migration 23、seed、demo，启动 API 后运行：
 
 ```bash
 go test -tags=integration ./tests/api -run 'TestStage3' -count=1 -v
@@ -433,16 +433,17 @@ go test -tags=integration ./tests/api -run 'TestStage3' -count=1 -v
 - `TestStage3H` 10 个子测试通过。
 - `TestStage3I` 13 个子测试通过。
 - `TestStage3J` 24 个顶层 / 27 个命名子测试通过。
-- 总耗时约 26.2 秒。
+- 总耗时约 26.4 秒。
 
 数据校验：
 
 - `schema_migrations` version 23，dirty=false。
-- `finance_credit_note_allocations` 35 条。
+- `finance_credit_note_allocations` 34 条。
 - `finance_credit_note_refunds` 14 条。
 - `credit_note_refund` 凭证 14 张，借贷不平衡 0 张。
 - 贷项余额 `applied + refunded + remaining = amount` 和 base 不变量异常 0 条。
 - `status='open' AND remaining_amount=0` 的贷项 0 条。
+- 跨汇率抵用记录 0 条。
 
 ## 7. 代码审核
 
