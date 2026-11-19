@@ -187,7 +187,11 @@ func (r *CreditNoteRepository) Allocate(
 	canonical := make([]*domain.AllocationInput, 0, len(allocations))
 	seen := make(map[string]struct{}, len(allocations))
 	for _, allocation := range allocations {
-		if allocation == nil || allocation.InvoiceID == "" || !allocation.Amount.IsPositive() {
+		if allocation == nil || allocation.InvoiceID == "" {
+			return nil, domain.ErrInvalidInput
+		}
+		amount := allocation.Amount.Round(4)
+		if !amount.IsPositive() {
 			return nil, domain.ErrInvalidInput
 		}
 		parsed, err := uuid.Parse(allocation.InvoiceID)
@@ -201,7 +205,7 @@ func (r *CreditNoteRepository) Allocate(
 		seen[invoiceID] = struct{}{}
 		canonical = append(canonical, &domain.AllocationInput{
 			InvoiceID: invoiceID,
-			Amount:    allocation.Amount,
+			Amount:    amount,
 		})
 	}
 
@@ -386,7 +390,7 @@ func (r *CreditNoteRepository) Allocate(
 			    updated_by = $5, updated_at = now()
 			WHERE tenant_id = $1 AND id = $2
 			  AND paid_amount + credited_amount + $3 <= total_amount
-			  AND base_credited_amount + $4 <= base_total_amount`,
+			  AND base_paid_amount + base_credited_amount + $4 <= base_total_amount`,
 			tenantID, allocation.InvoiceID, allocation.Amount.String(), base.String(), userID)
 		if err != nil {
 			return nil, fmt.Errorf("update invoice credited amount: %w", err)
@@ -414,6 +418,7 @@ func (r *CreditNoteRepository) Allocate(
 		    status = $5,
 		    updated_at = now()
 		WHERE tenant_id = $1 AND id = $2
+		  AND status = 'open'
 		  AND remaining_amount >= $3
 		  AND remaining_base_amount >= $4`,
 		tenantID, creditNoteID, totalAmount.String(), totalBase.String(), status)
@@ -439,16 +444,25 @@ func (r *CreditNoteRepository) AllocationCandidates(
 	where := "c.tenant_id = $1 AND c.id = $2"
 	appendScope(&where, &args, "c", filter)
 
-	var creditType, orgID, partnerID, currency string
+	var creditType, orgID, partnerID, currency, status, remainingAmountRaw, remainingBaseRaw string
 	err := r.db.QueryRow(ctx, `
-		SELECT c.credit_type, c.org_id::text, c.partner_id::text, c.currency
+		SELECT c.credit_type, c.org_id::text, c.partner_id::text, c.currency,
+		       c.status, c.remaining_amount::text, c.remaining_base_amount::text
 		FROM erp.finance_credit_notes c
-		WHERE `+where, args...).Scan(&creditType, &orgID, &partnerID, &currency)
+		WHERE `+where, args...).Scan(
+		&creditType, &orgID, &partnerID, &currency, &status,
+		&remainingAmountRaw, &remainingBaseRaw,
+	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, domain.ErrNotFound
 	}
 	if err != nil {
 		return nil, fmt.Errorf("load credit note for allocation candidates: %w", err)
+	}
+	if status != domain.CreditNoteStatusOpen ||
+		!decimal.RequireFromString(remainingAmountRaw).IsPositive() ||
+		!decimal.RequireFromString(remainingBaseRaw).IsPositive() {
+		return nil, domain.ErrCreditNoteClosed
 	}
 
 	invoiceType := ""
@@ -465,7 +479,8 @@ func (r *CreditNoteRepository) AllocationCandidates(
 	where = `i.tenant_id = $1 AND i.org_id = $2 AND i.partner_id = $3
 		AND i.currency = $4 AND i.invoice_type = $5
 		AND i.status <> 'paid'
-		AND i.paid_amount + i.credited_amount < i.total_amount`
+		AND i.paid_amount + i.credited_amount < i.total_amount
+		AND i.base_paid_amount + i.base_credited_amount < i.base_total_amount`
 	appendScope(&where, &args, "i", filter)
 
 	rows, err := r.db.Query(ctx, invoiceSelectSQL+` WHERE `+where+`

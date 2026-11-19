@@ -197,12 +197,17 @@ func (r *PaymentRepository) Allocate(
 		if allocation == nil || allocation.InvoiceID == "" || !allocation.Amount.IsPositive() {
 			return domain.ErrInvalidInput
 		}
-		if _, exists := seen[allocation.InvoiceID]; exists {
+		parsed, err := uuid.Parse(allocation.InvoiceID)
+		if err != nil {
 			return domain.ErrInvalidInput
 		}
-		seen[allocation.InvoiceID] = struct{}{}
-		invoiceIDs = append(invoiceIDs, allocation.InvoiceID)
-		byInvoice[allocation.InvoiceID] = allocation.Amount
+		invoiceID := parsed.String()
+		if _, exists := seen[invoiceID]; exists {
+			return domain.ErrInvalidInput
+		}
+		seen[invoiceID] = struct{}{}
+		invoiceIDs = append(invoiceIDs, invoiceID)
+		byInvoice[invoiceID] = allocation.Amount
 	}
 	sort.Strings(invoiceIDs)
 

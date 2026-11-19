@@ -59,11 +59,11 @@ func (s *CreditNoteService) List(
 
 func (s *CreditNoteService) Get(ctx context.Context, id string) (*domain.CreditNote, error) {
 	tenantID, _, _ := tenantActor(ctx)
-	id = strings.TrimSpace(id)
-	if _, err := uuid.Parse(id); err != nil {
+	parsed, err := uuid.Parse(strings.TrimSpace(id))
+	if err != nil {
 		return nil, domain.ErrInvalidInput
 	}
-	return s.notes.Get(ctx, scope.FromActor(ctx, tenantID), tenantID, id)
+	return s.notes.Get(ctx, scope.FromActor(ctx, tenantID), tenantID, parsed.String())
 }
 
 func (s *CreditNoteService) Allocate(
@@ -73,8 +73,8 @@ func (s *CreditNoteService) Allocate(
 	allocations []domain.AllocationInput,
 ) (*domain.CreditNote, error) {
 	tenantID, _, userID := tenantActor(ctx)
-	id = strings.TrimSpace(id)
-	if _, err := uuid.Parse(id); err != nil {
+	noteID, err := uuid.Parse(strings.TrimSpace(id))
+	if err != nil {
 		return nil, domain.ErrInvalidInput
 	}
 	if len(allocations) == 0 {
@@ -111,7 +111,7 @@ func (s *CreditNoteService) Allocate(
 		ctx,
 		scope.FromActor(ctx, tenantID),
 		tenantID,
-		id,
+		noteID.String(),
 		userID,
 		allocationDate,
 		inputs,
@@ -120,9 +120,9 @@ func (s *CreditNoteService) Allocate(
 
 func (s *CreditNoteService) AllocationCandidates(ctx context.Context, id string) ([]*domain.Invoice, error) {
 	tenantID, _, _ := tenantActor(ctx)
-	id = strings.TrimSpace(id)
-	if _, err := uuid.Parse(id); err != nil {
+	parsed, err := uuid.Parse(strings.TrimSpace(id))
+	if err != nil {
 		return nil, domain.ErrInvalidInput
 	}
-	return s.notes.AllocationCandidates(ctx, scope.FromActor(ctx, tenantID), tenantID, id)
+	return s.notes.AllocationCandidates(ctx, scope.FromActor(ctx, tenantID), tenantID, parsed.String())
 }

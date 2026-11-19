@@ -174,6 +174,11 @@ func (s *PaymentService) Allocate(ctx context.Context, paymentID string, input A
 		if invoiceID == "" || !amount.IsPositive() {
 			return nil, domain.ErrInvalidInput
 		}
+		parsed, err := uuid.Parse(invoiceID)
+		if err != nil {
+			return nil, domain.ErrInvalidInput
+		}
+		invoiceID = parsed.String()
 		if _, exists := seen[invoiceID]; exists {
 			return nil, domain.ErrInvalidInput
 		}
