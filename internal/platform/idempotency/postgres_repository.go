@@ -95,10 +95,8 @@ func (r *PostgresRepository) Acquire(ctx context.Context, in AcquireInput) (Acqu
 		}
 		result.State = StateAcquired
 	case record.Status == statusFailed:
-		if record.RequestHash != in.RequestHash {
-			result.State = StateConflict
-			break
-		}
+		// The previous attempt produced no successful side effect. Allow a
+		// retry with the same or a corrected payload under the same key.
 		if err := resetRecord(ctx, tx, record, in, now); err != nil {
 			return AcquireResult{}, err
 		}

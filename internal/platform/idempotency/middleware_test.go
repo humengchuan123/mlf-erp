@@ -317,8 +317,40 @@ func TestMiddlewareFailAllowsRetry(t *testing.T) {
 	}
 }
 
+func TestMiddlewareFailedDifferentPayloadRetries(t *testing.T) {
+	repo := newFakeRepository()
+	handlerCalls := 0
+	router := newTestEngine(repo, testConfig("/test"), func(c *gin.Context) {
+		handlerCalls++
+		if handlerCalls == 1 {
+			c.JSON(http.StatusInternalServerError, gin.H{"code": "INTERNAL"})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"ok": true})
+	})
+
+	first := performRequest(t, router, http.MethodPost, "/test", "key-12345678", `{"amount":"10"}`)
+	if first.Code != http.StatusInternalServerError {
+		t.Fatalf("first status = %d, want 500", first.Code)
+	}
+	if repo.failCalls != 1 || repo.completeCalls != 0 {
+		t.Fatalf("fail calls = %d, complete calls = %d; want 1 and 0", repo.failCalls, repo.completeCalls)
+	}
+
+	second := performRequest(t, router, http.MethodPost, "/test", "key-12345678", `{"amount":"11"}`)
+	if second.Code != http.StatusOK {
+		t.Fatalf("retry status = %d, want 200; body=%s", second.Code, second.Body.String())
+	}
+	if handlerCalls != 2 {
+		t.Fatalf("handler calls = %d, want 2", handlerCalls)
+	}
+	if repo.failCalls != 1 || repo.completeCalls != 1 {
+		t.Fatalf("after retry fail calls = %d, complete calls = %d; want 1 and 1", repo.failCalls, repo.completeCalls)
+	}
+}
+
 func TestMiddlewareRetryableStatuses(t *testing.T) {
-	for _, status := range []int{http.StatusUnauthorized, http.StatusForbidden, http.StatusTooManyRequests} {
+	for _, status := range []int{http.StatusUnauthorized, http.StatusForbidden, http.StatusRequestTimeout, http.StatusTooManyRequests} {
 		t.Run(http.StatusText(status), func(t *testing.T) {
 			repo := newFakeRepository()
 			router := newTestEngine(repo, testConfig("/test"), func(c *gin.Context) {
@@ -566,14 +598,12 @@ func (r *fakeRepository) Acquire(_ context.Context, in AcquireInput) (AcquireRes
 		return AcquireResult{State: StateAcquired, Record: recordOf(entry)}, nil
 	}
 
-	if !entry.expiresAt.After(now) || (entry.status == statusFailed && entry.requestHash == in.RequestHash) {
+	if !entry.expiresAt.After(now) || entry.status == statusFailed {
 		resetFakeEntry(entry, in)
 		return AcquireResult{State: StateAcquired, Record: recordOf(entry)}, nil
 	}
 
 	switch entry.status {
-	case statusFailed:
-		return AcquireResult{State: StateConflict, Record: recordOf(entry)}, nil
 	case statusCompleted:
 		switch {
 		case entry.requestHash != in.RequestHash:

@@ -471,7 +471,7 @@ docker build -f deploy/docker/web.Dockerfile -t mlf-erp/web:dev .
 - Key 去空白后 8–128 字符，允许 `A-Z a-z 0-9 . _ : -`；作用域含实际请求路径（资源 ID 不同即视为不同操作）。
 - 默认 TTL 24 小时，过期 key 可重新使用；API 进程每小时清理过期记录（`IDEMPOTENCY_CLEANUP_INTERVAL`）。
 - Header 默认可选（`IDEMPOTENCY_REQUIRED=false`），旧客户端不带 key 仍可提交；强制模式（`true`）下缺少 key 返回 400 `IDEMPOTENCY_KEY_REQUIRED`。
-- 错误码：400 `IDEMPOTENCY_KEY_REQUIRED` / `IDEMPOTENCY_KEY_INVALID`；409 `IDEMPOTENCY_CONFLICT`（同 key 不同请求）、`IDEMPOTENCY_IN_PROGRESS`（同 key 同请求仍在执行）、`IDEMPOTENCY_RESPONSE_UNAVAILABLE`（首次响应超过 4 MB 未保存）；5xx/401/403/429 标记失败，允许同 key 重试。
+- 错误码：400 `IDEMPOTENCY_KEY_REQUIRED` / `IDEMPOTENCY_KEY_INVALID`；409 `IDEMPOTENCY_CONFLICT`（已完成记录 + 同 key 不同请求）、`IDEMPOTENCY_IN_PROGRESS`（同 key 请求仍在执行，含不同 payload）、`IDEMPOTENCY_RESPONSE_UNAVAILABLE`（首次响应超过 4 MB 未保存）；5xx/401/403/408/429 标记失败，允许同 key 修正后重试。
 - 前端 6 个视图（收付款、贷项单、销售订单、采购订单、发货、采购收货）打开提交弹窗时用 `newIdempotencyKey()` 生成 key（优先 `crypto.randomUUID`，非 HTTPS 环境回退 `getRandomValues`），通过 SDK 传递；成功后清空；网络/5xx/401/403/408/429 及幂等冲突/进行中保留 key，其余 4xx 旋转新 key；关闭弹窗时重新生成。
 - API 测试命令：`pnpm test:api:stage4a`（写入本地开发库，完整回归请使用干净数据库）。
 - 已知限制：key 默认可选；幂等记录明文保存响应体并保留 24 小时；超过 4 MB 的响应无法回放；清理任务运行在 API 进程内；不覆盖消息队列/Outbox 重试、GET 查询和客户端自动重试 UI。

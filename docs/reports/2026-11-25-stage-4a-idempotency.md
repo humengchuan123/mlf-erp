@@ -17,7 +17,7 @@
 
 - 同一租户 + 用户 + key + method + path + 相同请求体只执行一次。
 - 重复请求回放首次响应，响应头 `Idempotency-Replayed: true`。
-- 同一 key + 不同请求体返回 409 `IDEMPOTENCY_CONFLICT`。
+- 同一 key + 不同请求体且首次请求已完成返回 409 `IDEMPOTENCY_CONFLICT`；仍在执行时返回 409 `IDEMPOTENCY_IN_PROGRESS`。
 - 并发同一请求返回 409 `IDEMPOTENCY_IN_PROGRESS`，首次完成后可重试回放。
 - 记录默认保留 24 小时，过期后可重新使用；后台清理过期记录。
 
@@ -37,7 +37,7 @@
 
 ### 1.3 前端
 
-- 6 个页面、8 个提交动作在打开弹窗时生成 `newIdempotencyKey()`（优先 `crypto.randomUUID`，非 HTTPS 回退 `getRandomValues`）：
+- 6 个页面、9 个提交动作在打开弹窗时生成 `newIdempotencyKey()`（优先 `crypto.randomUUID`，非 HTTPS 回退 `getRandomValues`）：
   - 收付款创建、核销、反核销。
   - 贷项抵用、退款。
   - 销售发货、销售退货。
@@ -79,7 +79,7 @@
 insert -> in_progress
 in_progress --2xx/3xx/4xx(非401/403/408/429)--> completed
 in_progress --5xx/401/403/408/429--> failed
-failed --same hash--> in_progress（允许重试）
+failed --any hash--> in_progress（允许修正后重试）
 completed --same hash--> replay
 completed --different hash--> 409 IDEMPOTENCY_CONFLICT
 in_progress --any hash--> 409 IDEMPOTENCY_IN_PROGRESS
@@ -97,7 +97,7 @@ expired --any hash--> in_progress（重新占用）
 - Key 格式：去空白后 8–128 字符，允许 `A-Z a-z 0-9 . _ : -`。
 - Header 缺失默认放行；强制模式返回 400。
 - 5xx/401/403/408/429 标记 `failed`，同一 key 可重试。
-- 幂等记录先于业务事务存在；业务失败回滚后记录标记 `failed`，不会留下半成品业务数据。
+- 幂等记录先于业务事务存在；业务 5xx/401/403/408/429 回滚后记录标记 `failed`，可用同一 key 修正后重试；其余 4xx（如 400/404/409 业务错误）标记 `completed` 并缓存错误响应。
 
 ## 4. 实现结构
 
@@ -111,7 +111,7 @@ expired --any hash--> in_progress（重新占用）
 - `internal/platform/httpx`：新增幂等错误码。
 - SDK：`RequestOptions`，`post` 支持 `Idempotency-Key`；财务/销售/采购方法可选 key。
 - OpenAPI 1.2.0：新增 `IdempotencyKey` header，9 个操作和 400/409 说明。
-- 前端：6 个视图 8 个 key，打开弹窗生成、成功清空、失败保留。
+- 前端：6 个视图 9 个 key，打开弹窗生成、成功清空；网络/5xx/401/403/408/429 及幂等冲突/进行中保留，其余 4xx 旋转。
 - 测试：`TestStage4A` 8 个顶层子测试；`scripts/test/stage4a-api.ps1`；CI 改为 `TestStage3|TestStage4`。
 
 ## 5. 测试结果
@@ -126,7 +126,7 @@ go test ./internal/platform/idempotency/... -count=1
 - 首次执行/完成、同 key 回放、不同 body 冲突。
 - in-progress、response unavailable。
 - 缺少 key 可选/强制、非法 key、非白名单路由。
-- 500 后重试、401/403/429 可重试。
+- 500 后同/不同 payload 可重试、401/403/408/429 可重试。
 - 响应截断、204 空响应、capture writer 状态/正文/Content-Type。
 - key 校验、请求哈希稳定性。
 
@@ -149,13 +149,13 @@ go test ./internal/platform/idempotency/... -count=1
 
 ### 5.3 干净库全链路
 
-数据库：`mlf_erp_stage4a_clean`；迁移、seed、demo、独立 API（端口 18091）。
+数据库：`mlf_erp_stage4a_clean2`；迁移、seed、demo、独立 API（端口 18092）；使用最终代码 `aa6e7d0`。
 
 ```bash
 go test -tags=integration ./tests/api -run 'TestStage3|TestStage4' -count=1 -v
 ```
 
-结果：Stage 3B、3C、3D、3E、3F、3G、3H、3I、3J、3K、4A 全部通过；Stage 4A 8 个子测试通过；总耗时约 36.8s。
+结果：Stage 3B、3C、3D、3E、3F、3G、3H、3I、3J、3K、4A 全部通过；Stage 4A 8 个子测试通过；总耗时约 40.1s。
 
 数据核对：
 
@@ -198,13 +198,39 @@ go test -tags=integration ./tests/api -run 'TestStage3|TestStage4' -count=1 -v
 
 - 4xx 不再清空 key，改为 `newIdempotencyKey()` 旋转新 key；增加 `crypto.randomUUID` 非安全上下文回退（`getRandomValues`）。
 - 保留策略：网络/5xx/401/403/408/429、`IDEMPOTENCY_CONFLICT`/`IN_PROGRESS`/`RESPONSE_UNAVAILABLE` 保留 key；其余 4xx 旋转。
-- 服务端 `Acquire`：`in_progress` + 不同 payload 统一返回 `StateInProgress`，不再返回 `StateConflict`；`CONFLICT` 仅用于已完成记录。
-- 新增单元测试 `TestMiddlewareInProgressDifferentPayload` 和 `TestMiddlewarePersistsAfterRequestCancellation`。
+- 服务端 `Acquire`：`in_progress` + 不同 payload 统一返回 `StateInProgress`，不再返回 `StateConflict`；`failed` 记录无论 hash 均重置并允许修正后重试；`CONFLICT` 仅用于已完成记录的不同 payload。
+- 新增单元测试 `TestMiddlewareInProgressDifferentPayload`、`TestMiddlewarePersistsAfterRequestCancellation` 和 `TestMiddlewareFailedDifferentPayloadRetries`；`TestMiddlewareRetryableStatuses` 增加 408。
+- CORS 允许 `Idempotency-Key` 请求头并暴露 `Idempotency-Replayed` 响应头。
 - 文档/报告订正；`check-frontend` 增加 `newIdempotencyKey`/`getRandomValues`/`IDEMPOTENCY_CONFLICT` 断言。
 
 ### 6.3 复审
 
-质量审核首轮结论 **CHANGES REQUIRED**；上述修复已提交 `aa6e7d0`。修复后质量复审和规格审核结论待回填。
+质量审核首轮结论 **CHANGES REQUIRED**；上述修复已提交 `aa6e7d0`。修复后质量复审结论 **APPROVED**：两个 Important 已修复，无新增 Critical/Important。
+
+剩余 Medium/Low（不阻塞 Stage 4A）：
+
+- 无前端纯函数行为单测（当前只有静态字符串断言）；后续引入前端测试框架时补 3 个策略用例。
+- 无 Postgres 仓储 expiry/reset/failed/truncated/cleanup 专项测试；当前由 HTTP 集成测试、单元 fake 和手工 smoke 覆盖。
+- panic/进程崩溃/`Complete` 失败仍保持 `in_progress` 直到 TTL；fail-closed，但关闭弹窗后新 key 可能绕过。
+- 保留 `IDEMPOTENCY_CONFLICT`/`RESPONSE_UNAVAILABLE` 时重试只会重复 409；后续可加“已处理，请刷新核对”的针对性提示。
+- OpenAPI 未声明 `Idempotency-Replayed`、413 和 key pattern；只回放 `Content-Type`；无速率限制；响应在 4 MB 判断前完整缓冲。
+- POST 成功后的列表刷新仍在提交 `try/catch` 内，刷新失败会显示成提交失败；后续拆分。
+
+### 6.4 规格审核
+
+规格审核首轮结论 **ISSUES**：
+
+- `failed` + 不同 payload 仍返回 `IDEMPOTENCY_CONFLICT`，前端保留 key 后修正重试形成死路。
+- 408、`newIdempotencyKey` 回退、CORS、报告“8 个提交动作”等文档/实现不一致。
+
+修复：
+
+- `failed` 记录无论 hash 均重置为 `in_progress`，允许修正后重试；新增 `TestMiddlewareFailedDifferentPayloadRetries`。
+- CORS 允许 `Idempotency-Key` 请求头、暴露 `Idempotency-Replayed` 响应头，并新增 `TestCORSAllowsIdempotencyHeaders`。
+- 408 加入服务端 retryable 和客户端保留策略；`TestMiddlewareRetryableStatuses` 增加 408。
+- 计划/报告/README 同步；提交动作数订正为 9；报告文件名与计划一致。
+
+修复后规格复审结论待回填。
 
 ## 7. 已知限制
 
@@ -213,7 +239,8 @@ go test -tags=integration ./tests/api -run 'TestStage3|TestStage4' -count=1 -v
 - 响应超过 4 MB 时无法回放，返回 409 `IDEMPOTENCY_RESPONSE_UNAVAILABLE`。
 - 清理任务运行在 API 进程内；后续可移到 Worker。
 - 只持久化 `Content-Type`，其他首次响应头不回放。
-- 业务 handler panic 时记录会保持 `in_progress` 直到过期，客户端无法立即重试；这是保守的 fail-closed 行为。
+- 业务 handler panic、进程崩溃或 `Complete` 持久化失败时，记录会保持 `in_progress` 直到过期；这是保守的 fail-closed 行为，但用户关闭弹窗后用新 key 重提可能绕过。
+- 保留 `IDEMPOTENCY_CONFLICT`/`IDEMPOTENCY_RESPONSE_UNAVAILABLE` 时，重试只会重复 409；用户需关闭弹窗或刷新核对。后续可加“已处理，请刷新核对”的针对性提示。
 - `Complete`/`Fail` 持久化失败时仍返回业务响应，记录可能保持 `in_progress`；不会重复执行，但客户端需等待过期或人工处理。
 - 不覆盖消息队列/Outbox 重试、GET 查询和客户端自动重试 UI。
 - 4xx 响应会被缓存；前端在其余 4xx 时旋转新 key；网络/5xx/401/403/408/429 和 `IDEMPOTENCY_CONFLICT`/`IN_PROGRESS`/`RESPONSE_UNAVAILABLE` 保留 key。
@@ -221,16 +248,16 @@ go test -tags=integration ./tests/api -run 'TestStage3|TestStage4' -count=1 -v
 ## 8. 验收清单
 
 - [x] 同一 tenant + user + key + method + path + 相同 payload：重复请求回放首次响应，只产生一次副作用。
-- [x] 已完成记录 + 同一 key 不同 payload：409 `IDEMPOTENCY_CONFLICT`；`in_progress` 时任何 payload 均 409 `IDEMPOTENCY_IN_PROGRESS`。
+- [x] 已完成记录 + 同一 key 不同 payload：409 `IDEMPOTENCY_CONFLICT`；`in_progress` 时任何 payload 均 409 `IDEMPOTENCY_IN_PROGRESS`；`failed` 时任意 payload 重置并允许重试。
 - [x] 并发同 key 同 payload：最多一个执行，其余回放或 409；无双退款/双核销/双反核销/双发货/双收货。
 - [x] 不同 tenant/user 可使用相同 key，互不影响（repository 唯一键 + 鉴权；无专项 API 测试）。
-- [x] 过期 key 可重新使用；清理任务删除过期记录（仓储 smoke/单元逻辑；无专项 API 测试）。
+- [x] 过期 key 可重新使用；清理任务删除过期记录（代码审查/手工 smoke；无专项自动化测试，后续补 Postgres 仓储测试）。
 - [x] 5xx/401/403/408/429 可用同一 key 重试。
-- [x] 前端 6 个视图提交时生成并传递 key；成功后清空；4xx 旋转、网络/5xx 等保留。
+- [x] 前端 6 个视图、9 个提交动作生成并传递 key；成功后清空；其余 4xx 旋转、网络/5xx 等保留。
 - [x] 9 个受保护端点全部有 OpenAPI header 和 409 说明。
 - [x] `TestStage4A` 通过；Stage 3B–3K 回归通过。
 - [x] 干净库版本 26，全链路通过。
-- [x] 模块文档/报告完整；审核结论待复审回填。
+- [x] 模块文档/报告完整；质量审核 APPROVED，规格复审待回填。
 - [ ] 用户审阅通过。
 
 ## 9. 后续

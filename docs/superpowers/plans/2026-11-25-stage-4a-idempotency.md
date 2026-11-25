@@ -45,15 +45,15 @@ POST /api/v1/purchase/receipts/:id/returns
 - 同一 key 且首次请求仍在执行：无论 payload 是否相同，409 `IDEMPOTENCY_IN_PROGRESS`。
 - 同一 key 不同 payload 且首次请求已完成：409 `IDEMPOTENCY_CONFLICT`。
 - 已完成且相同 payload：回放首次响应，加响应头 `Idempotency-Replayed: true`。
-- 5xx/401/403/429：标记 `failed`，允许用同一 key 重试。
+- 5xx/401/403/408/429：标记 `failed`，允许用同一 key 重试（可带修正后的 payload）。
 
 ### 0.3 状态机
 
 ```text
 insert -> in_progress
-in_progress --2xx/3xx/4xx(非401/403/429)--> completed
-in_progress --5xx/401/403/429--> failed
-failed --same hash--> in_progress（允许重试）
+in_progress --2xx/3xx/4xx(非401/403/408/429)--> completed
+in_progress --5xx/401/403/408/429--> failed
+failed --any hash--> in_progress（允许修正后重试）
 completed --same hash--> replay
 completed --different hash--> 409 IDEMPOTENCY_CONFLICT
 in_progress --any hash--> 409 IDEMPOTENCY_IN_PROGRESS
@@ -66,7 +66,7 @@ expired --any hash--> in_progress（重新占用）
 |---|---|---|
 | 400 | `IDEMPOTENCY_KEY_REQUIRED` | 强制模式下缺少 header |
 | 400 | `IDEMPOTENCY_KEY_INVALID` | key 格式不合法 |
-| 409 | `IDEMPOTENCY_CONFLICT` | 已完成记录 + 同 key 不同请求 |
+| 409 | `IDEMPOTENCY_CONFLICT` | 已完成/失败记录 + 同 key 不同请求 |
 | 409 | `IDEMPOTENCY_IN_PROGRESS` | 同 key 请求仍在执行（含不同 payload） |
 | 409 | `IDEMPOTENCY_RESPONSE_UNAVAILABLE` | 首次响应过大未保存，无法回放 |
 
@@ -85,9 +85,10 @@ expired --any hash--> in_progress（重新占用）
 - `internal/platform/idempotency/cleanup.go`
 - `internal/platform/idempotency/middleware_test.go`
 - `internal/platform/idempotency/model_test.go`
+- `apps/web/src/utils/idempotency.ts`
 - `tests/api/stage4a_test.go`
 - `scripts/test/stage4a-api.ps1`
-- `docs/reports/2026-11-26-stage-4a-idempotency.md`（执行后写）
+- `docs/reports/2026-11-25-stage-4a-idempotency.md`（执行后写）
 
 **Modify:**
 - `db/migrations/README.md`
@@ -346,7 +347,7 @@ func Middleware(repo Repository, log *slog.Logger, cfg Config) gin.HandlerFunc
    - `StateAcquired`：继续。
 7. 用 `captureWriter` 包装 `c.Writer`，`c.Next()`。
 8. 读取捕获的 status/body/content-type：
-   - `status >= 500 || status == 401 || status == 403 || status == 429` → `repo.Fail`。
+   - `status >= 500 || status == 401 || status == 403 || status == 408 || status == 429` → `repo.Fail`。
    - 否则 `repo.Complete`；body 超过 `MaxResponseBytes` 时传 `nil` + `truncated=true`。
 9. 恢复 `c.Writer`，写回捕获响应；204/304 不写 body。
 
@@ -359,7 +360,7 @@ func Middleware(repo Repository, log *slog.Logger, cfg Config) gin.HandlerFunc
 1. `INSERT ... ON CONFLICT ... DO NOTHING RETURNING id`；插入成功 → `StateAcquired`。
 2. 未插入 → `SELECT ... FOR UPDATE`。
 3. 若 `expires_at <= now`：`UPDATE` 重置为 `in_progress`、新 hash/expiry → `StateAcquired`。
-4. 若 `status = 'failed'` 且 hash 相同：重置 → `StateAcquired`；hash 不同 → `StateConflict`。
+4. 若 `status = 'failed'`：无论 hash 是否相同，重置 → `StateAcquired`（失败尝试无成功副作用，允许修正后重试）。
 5. 若 `status = 'completed'`：hash 不同 → `StateConflict`；hash 相同 → `StateReplay` / `StateResponseUnavailable`（`response_truncated`）。
 6. 若 `status = 'in_progress'`：hash 相同 → `StateInProgress`；不同 → `StateConflict`。
 7. 提交事务。
@@ -548,7 +549,7 @@ parameters:
 
 在 6 个视图的提交路径增加 key：
 
-- `PaymentListView.vue`：`createIdempotencyKey`、`allocateIdempotencyKey`、`reverseIdempotencyKey`；打开弹窗时 `crypto.randomUUID()`，提交时传给 SDK，成功后清空。
+- `PaymentListView.vue`：`createIdempotencyKey`、`allocateIdempotencyKey`、`reverseIdempotencyKey`；打开弹窗时 `newIdempotencyKey()`，提交时传给 SDK，成功后清空。
 - `CreditNoteListView.vue`：`applyIdempotencyKey`、`refundIdempotencyKey`。
 - `sales/OrderListView.vue`：`shipIdempotencyKey`。
 - `purchase/OrderListView.vue`：`receiveIdempotencyKey`。
@@ -558,18 +559,27 @@ parameters:
 模式：
 
 ```ts
+import { newIdempotencyKey, shouldRetainIdempotencyKey } from '../../utils/idempotency'
+
 const createIdempotencyKey = ref('')
 
 function openCreate() {
-  createIdempotencyKey.value = crypto.randomUUID()
+  createIdempotencyKey.value = newIdempotencyKey()
   // ...
 }
 
-await financeApi.createPayment({...}, createIdempotencyKey.value)
-createIdempotencyKey.value = ''
+try {
+  await financeApi.createPayment({...}, createIdempotencyKey.value)
+  createIdempotencyKey.value = ''
+} catch (error) {
+  if (!shouldRetainIdempotencyKey(error)) {
+    createIdempotencyKey.value = newIdempotencyKey()
+  }
+  // show error
+}
 ```
 
-失败时保留 key，允许同一 key 重试；关闭弹窗时清空/重新生成。
+`newIdempotencyKey()` 优先 `crypto.randomUUID()`，非 HTTPS 私有化部署回退 `crypto.getRandomValues()`，最后回退 `Math.random`。网络/5xx/401/403/408/429 及幂等冲突/进行中/不可回放保留 key；其余 4xx 旋转新 key。关闭弹窗时重新生成。
 
 - [ ] **Step 6: check-frontend**
 
@@ -580,7 +590,10 @@ createIdempotencyKey.value = ''
 'idempotencyKey'
 'createIdempotencyKey'
 'reverseIdempotencyKey'
-'crypto.randomUUID'
+'newIdempotencyKey'
+'shouldRetainIdempotencyKey'
+'getRandomValues'
+'IDEMPOTENCY_CONFLICT'
 ```
 
 - [ ] **Step 7: 验证**
@@ -712,7 +725,7 @@ git commit -m "test(stage-4a): add idempotency API tests"
 ## 7. Task 6：干净库回归、文档、报告
 
 **Files:**
-- Create: `docs/reports/2026-11-26-stage-4a-idempotency.md`
+- Create: `docs/reports/2026-11-25-stage-4a-idempotency.md`
 - Modify: `internal/modules/finance/README.md`
 - Modify: `internal/modules/purchase/README.md`
 - Modify: `internal/modules/sales/README.md`
@@ -765,7 +778,7 @@ git diff --check
 - [ ] **Step 5: 提交**
 
 ```bash
-git add docs/reports/2026-11-26-stage-4a-idempotency.md internal/modules/finance/README.md internal/modules/purchase/README.md internal/modules/sales/README.md docs/superpowers/plans/2026-11-25-audit-follow-up.md
+git add docs/reports/2026-11-25-stage-4a-idempotency.md internal/modules/finance/README.md internal/modules/purchase/README.md internal/modules/sales/README.md docs/superpowers/plans/2026-11-25-audit-follow-up.md
 git commit -m "docs(stage-4a): add idempotency docs and report"
 ```
 
@@ -774,12 +787,12 @@ git commit -m "docs(stage-4a): add idempotency docs and report"
 ## 8. 验收清单
 
 - [ ] 同一 tenant + user + key + method + path + 相同 payload：重复请求回放首次响应，只产生一次副作用。
-- [ ] 同一 key + 不同 payload：409 `IDEMPOTENCY_CONFLICT`。
+- [ ] 已完成记录 + 同一 key 不同 payload：409 `IDEMPOTENCY_CONFLICT`；`in_progress` 时任何 payload 均 409 `IDEMPOTENCY_IN_PROGRESS`；`failed` 时任意 payload 重置并允许重试。
 - [ ] 并发同 key 同 payload：最多一个执行，其余回放或 409；无双退款/双核销/双反核销/双发货/双收货。
 - [ ] 不同 tenant/user 可使用相同 key，互不影响。
 - [ ] 过期 key 可重新使用；清理任务不删除未过期记录。
-- [ ] 5xx/401/403/429 可用同一 key 重试。
-- [ ] 前端 6 个视图提交时生成并传递 key；重复点击被阻止。
+- [ ] 5xx/401/403/408/429 可用同一 key 重试。
+- [ ] 前端 6 个视图、9 个提交动作生成并传递 key；重复点击被阻止。
 - [ ] 9 个受保护端点全部有 OpenAPI header 和 409 说明。
 - [ ] `TestStage4A` 通过；Stage 3B–3K 回归通过。
 - [ ] 干净库版本 26，全链路通过。

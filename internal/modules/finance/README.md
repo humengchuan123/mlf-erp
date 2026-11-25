@@ -249,7 +249,7 @@ if amount == remaining_amount:
 - 同一 key + 不同请求体：409 `IDEMPOTENCY_CONFLICT`。
 - 并发同 key 同请求：409 `IDEMPOTENCY_IN_PROGRESS`；首次完成后可重试回放。
 - Header 默认可选；`IDEMPOTENCY_REQUIRED=true` 时缺失返回 400 `IDEMPOTENCY_KEY_REQUIRED`；非法 key 返回 400 `IDEMPOTENCY_KEY_INVALID`。
-- 默认 TTL 24 小时；5xx/401/403/429 标记失败，可用同一 key 重试。
+- 默认 TTL 24 小时；5xx/401/403/408/429 标记失败，可用同一 key 修正后重试；其余 4xx 标记 completed 并缓存错误。
 - 前端在打开退款/收付款/核销/反核销弹窗时生成 `newIdempotencyKey()`（优先 `crypto.randomUUID`，非 HTTPS 回退 `getRandomValues`），成功后清空；网络/5xx/401/403/408/429 及幂等冲突/进行中保留 key，其余 4xx 旋转新 key。
 - 已知限制：响应体明文存 PostgreSQL；超过 4 MB 无法回放（409 `IDEMPOTENCY_RESPONSE_UNAVAILABLE`）；清理任务运行在 API 进程内；不覆盖消息队列/Outbox 重试。
 
