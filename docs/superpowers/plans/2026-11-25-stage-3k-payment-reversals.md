@@ -618,6 +618,9 @@ git commit -m "feat(stage-3k): add payment reversal UI"
    - payment detail allocations/reversals, invoice detail reversals, list summary no arrays.
 10. `reversal date before payment/closed period`
     - 400/409 rollback.
+11. `rounding parity on multi-invoice reversal`
+    - USD payment rate `7.12345678`; allocate `1.0000` to two invoices in one call; reverse both (and separately one then the other).
+    - Assert payment `allocated_amount`/`base_allocated_amount` are zero, both invoices paid/base paid zero, statuses `unallocated`/`open`.
 
 - [ ] Script/package/README
 

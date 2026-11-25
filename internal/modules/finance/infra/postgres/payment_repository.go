@@ -301,10 +301,7 @@ func (r *PaymentRepository) Allocate(
 		invoice := locked[invoiceID]
 		newPaid := invoice.paid.Add(allocationAmount)
 		newBasePaid := invoice.basePaid.Add(allocationAmount.Mul(invoice.rate).Round(4))
-		newStatus := domain.InvoiceStatusPartiallyPaid
-		if newPaid.Add(invoice.credited).GreaterThanOrEqual(invoice.total) {
-			newStatus = domain.InvoiceStatusPaid
-		}
+		newStatus := domain.InvoiceStatusAfterSettlement(invoice.total, newPaid, invoice.credited)
 
 		tag, updateErr := tx.Exec(ctx, `
 			UPDATE erp.finance_invoices
@@ -322,10 +319,12 @@ func (r *PaymentRepository) Allocate(
 		}
 	}
 
+	basePaymentTotal := decimal.Zero
 	for _, invoiceID := range invoiceIDs {
 		allocationAmount := byInvoice[invoiceID]
 		invoice := locked[invoiceID]
 		basePayment := allocationAmount.Mul(paymentRate).Round(4)
+		basePaymentTotal = basePaymentTotal.Add(basePayment)
 		baseInvoice := allocationAmount.Mul(invoice.rate).Round(4)
 		fxDiff := basePayment.Sub(baseInvoice).Round(4)
 		allocationID := uuid.NewString()
@@ -388,7 +387,7 @@ func (r *PaymentRepository) Allocate(
 	}
 
 	newAllocated := allocated.Add(total)
-	newBaseAllocated := baseAllocated.Add(total.Mul(paymentRate).Round(4))
+	newBaseAllocated := baseAllocated.Add(basePaymentTotal)
 	newStatus := domain.PaymentStatusPartiallyAllocated
 	if newAllocated.Equal(amount) {
 		newStatus = domain.PaymentStatusAllocated
@@ -513,16 +512,16 @@ func (r *PaymentRepository) Unallocate(
 		invoiceWhere := "i.tenant_id = $1 AND i.id = $2"
 		appendScope(&invoiceWhere, &invoiceArgs, "i", filter)
 
-		var invoiceType, invoicePartnerID, invoiceCurrency, invoiceStatus string
+		var invoiceType, invoicePartnerID, invoiceCurrency string
 		var totalRaw, paidRaw, basePaidRaw, creditedRaw string
 		err = tx.QueryRow(ctx, `
-			SELECT i.invoice_type, i.partner_id::text, i.currency, i.status,
+			SELECT i.invoice_type, i.partner_id::text, i.currency,
 			       i.total_amount::text, i.paid_amount::text,
 			       i.base_paid_amount::text, i.credited_amount::text
 			FROM erp.finance_invoices i
 			WHERE `+invoiceWhere+`
 			FOR UPDATE OF i`, invoiceArgs...).Scan(
-			&invoiceType, &invoicePartnerID, &invoiceCurrency, &invoiceStatus,
+			&invoiceType, &invoicePartnerID, &invoiceCurrency,
 			&totalRaw, &paidRaw, &basePaidRaw, &creditedRaw,
 		)
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -535,11 +534,11 @@ func (r *PaymentRepository) Unallocate(
 		switch paymentType {
 		case domain.PaymentTypeReceipt:
 			if invoiceType != domain.InvoiceTypeReceivable {
-				return nil, domain.ErrInvoiceTypeMismatch
+				return nil, domain.ErrTypeMismatch
 			}
 		case domain.PaymentTypePayment:
 			if invoiceType != domain.InvoiceTypePayable {
-				return nil, domain.ErrInvoiceTypeMismatch
+				return nil, domain.ErrTypeMismatch
 			}
 		default:
 			return nil, domain.ErrInvalidInput
@@ -652,7 +651,8 @@ func (r *PaymentRepository) Unallocate(
 		SET allocated_amount = allocated_amount - $3,
 		    base_allocated_amount = base_allocated_amount - $4,
 		    status = $5
-		WHERE tenant_id = $1 AND id = $2 AND allocated_amount >= $3`,
+		WHERE tenant_id = $1 AND id = $2 AND allocated_amount >= $3
+		  AND base_allocated_amount >= $4`,
 		tenantID, paymentID, total.String(), totalBase.String(), newStatus,
 	)
 	if err != nil {
@@ -719,6 +719,23 @@ func (r *PaymentRepository) Unallocate(
 		settlementRows.Close()
 
 		for _, item := range settlements {
+			reversalID := reversalByInvoice[invoiceID]
+			if item.baseAdjustment.Round(4).IsZero() {
+				tag, err := tx.Exec(ctx, `
+					UPDATE erp.finance_fx_settlements
+					SET status = 'reversed', reversal_id = $3, reversal_voucher_id = NULL,
+					    reversed_at = now(), reversed_by = $4
+					WHERE tenant_id = $1 AND id = $2 AND status = 'posted'`,
+					tenantID, item.id, reversalID, userID,
+				)
+				if err != nil {
+					return nil, fmt.Errorf("mark FX settlement reversed: %w", mapDBError(err))
+				}
+				if tag.RowsAffected() != 1 {
+					return nil, fmt.Errorf("mark FX settlement reversed: expected 1 row, got %d", tag.RowsAffected())
+				}
+				continue
+			}
 			voucherCode, err := r.codes.Next(ctx, tenantID, "gl_voucher")
 			if err != nil {
 				return nil, err
@@ -742,10 +759,10 @@ func (r *PaymentRepository) Unallocate(
 				SET status = 'reversed', reversal_id = $3, reversal_voucher_id = v.id,
 				    reversed_at = now(), reversed_by = $4
 				FROM erp.gl_vouchers v
-				WHERE s.tenant_id = $1 AND s.id = $2
+				WHERE s.tenant_id = $1 AND s.id = $2 AND s.status = 'posted'
 				  AND v.tenant_id = s.tenant_id
 				  AND v.source_type = 'fx_settlement_reversal' AND v.source_id = s.id`,
-				tenantID, item.id, reversalByInvoice[invoiceID], userID,
+				tenantID, item.id, reversalID, userID,
 			)
 			if err != nil {
 				return nil, fmt.Errorf("mark FX settlement reversed: %w", mapDBError(err))
@@ -769,7 +786,7 @@ func (r *PaymentRepository) Unallocate(
 func (r *PaymentRepository) ListAllocations(ctx context.Context, filter scope.Filter, tenantID, paymentID string) ([]*domain.PaymentAllocation, error) {
 	args := []any{tenantID, paymentID}
 	where := "a.tenant_id = $1 AND a.payment_id = $2"
-	appendScope(&where, &args, "p", filter)
+	appendScope(&where, &args, "i", filter)
 
 	rows, err := r.db.Query(ctx, `
 		SELECT a.id::text, a.tenant_id::text, a.payment_id::text, a.invoice_id::text,

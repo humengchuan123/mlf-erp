@@ -46,20 +46,24 @@ func (s *InvoiceService) List(
 
 func (s *InvoiceService) Get(ctx context.Context, id string) (*InvoiceDetail, error) {
 	tenantID, _, _ := tenantActor(ctx)
+	invoiceID, err := canonicalUUID(id)
+	if err != nil {
+		return nil, domain.ErrInvalidInput
+	}
 	filter := scope.FromActor(ctx, tenantID)
-	invoice, err := s.invoices.Get(ctx, filter, tenantID, id)
+	invoice, err := s.invoices.Get(ctx, filter, tenantID, invoiceID)
 	if err != nil {
 		return nil, err
 	}
-	allocations, err := s.invoices.ListAllocations(ctx, filter, tenantID, id)
+	allocations, err := s.invoices.ListAllocations(ctx, filter, tenantID, invoiceID)
 	if err != nil {
 		return nil, err
 	}
-	creditNoteAllocations, err := s.invoices.ListCreditNoteAllocations(ctx, filter, tenantID, id)
+	creditNoteAllocations, err := s.invoices.ListCreditNoteAllocations(ctx, filter, tenantID, invoiceID)
 	if err != nil {
 		return nil, err
 	}
-	paymentAllocationReversals, err := s.invoices.ListPaymentAllocationReversals(ctx, filter, tenantID, id)
+	paymentAllocationReversals, err := s.invoices.ListPaymentAllocationReversals(ctx, filter, tenantID, invoiceID)
 	if err != nil {
 		return nil, err
 	}

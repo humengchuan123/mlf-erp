@@ -1,0 +1,3 @@
+-- No-op: this data repair makes payment base allocated amounts match the sum
+-- of active allocation base amounts. Previous mismatched values cannot be
+-- reconstructed safely, so the repair is not reversible.

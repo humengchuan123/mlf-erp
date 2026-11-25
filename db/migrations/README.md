@@ -24,6 +24,7 @@
 - `000022_credit_note_usage`：贷项已退金额、抵用明细、贷项退款单、退款凭证和贷项抵用/退款权限/编码规则。Down 在存在退款单、非初始抵用明细或已退余额时拒绝执行。
 - `000023_credit_note_status_repair`：把 `remaining_amount = 0` 但仍为 `open` 的贷项单修正为 `applied`。Down 为 no-op，只修复状态，无法可靠还原修复前的展示状态。
 - `000024_payment_reversals`：收付款反核销记录、汇兑结算反核销字段和 `finance.payment.reverse` 权限。Down 在有反核销数据或已反核销汇兑结算时拒绝执行；如被拒绝，需在核对 schema 后把迁移记录恢复为 version 24 / dirty=false，或走归档/已反核销数据恢复路径。
+- `000025_payment_base_allocation_repair`：把收付款已核销本位币金额回填为有效核销明细 `base_amount` 之和，修正历史按总额一次性四舍五入造成的差异。Down 为 no-op，数据修复不可安全回滚。
 - 迁移由 `cmd/migrate` 执行，使用 `golang-migrate`，SQL 文件通过 `embed` 打进二进制。
 - 所有业务表遵循 `tenant_id` 非空、唯一键带租户、外键尽量带租户的原则。
 
