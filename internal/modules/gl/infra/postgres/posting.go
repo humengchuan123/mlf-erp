@@ -114,14 +114,16 @@ type FXSettlementPosting struct {
 }
 
 type FXSettlementReversalPosting struct {
-	TenantID       string
-	OrgID          string
-	VoucherCode    string
-	SourceID       string
-	SourceCode     string
-	InvoiceType    string
-	PartnerID      string
-	VoucherDate    time.Time
+	TenantID    string
+	OrgID       string
+	VoucherCode string
+	SourceID    string
+	SourceCode  string
+	InvoiceType string
+	PartnerID   string
+	VoucherDate time.Time
+	// BaseAdjustment is the original FX settlement adjustment, not the negated
+	// reversal amount. PostFXSettlementReversal negates it internally.
 	BaseAdjustment decimal.Decimal
 	CreatedBy      string
 }
@@ -401,6 +403,7 @@ func creditNoteRefundPostingLines(input CreditNoteRefundPosting) ([]postingLine,
 	return lines, nil
 }
 
+// PostFXSettlement posts the voucher for an FX settlement adjustment.
 func PostFXSettlement(ctx context.Context, tx pgx.Tx, input FXSettlementPosting) error {
 	lines, err := fxSettlementPostingLines(input)
 	if err != nil {
@@ -424,6 +427,9 @@ func PostFXSettlement(ctx context.Context, tx pgx.Tx, input FXSettlementPosting)
 	})
 }
 
+// PostFXSettlementReversal posts the reversing voucher for an FX settlement.
+// BaseAdjustment must be the original settlement adjustment; this function
+// negates it internally exactly once to build the reversal lines.
 func PostFXSettlementReversal(ctx context.Context, tx pgx.Tx, input FXSettlementReversalPosting) error {
 	lines, err := fxSettlementReversalPostingLines(input)
 	if err != nil {
@@ -456,14 +462,15 @@ func fxSettlementReversalPostingLines(input FXSettlementReversalPosting) ([]post
 }
 
 func fxSettlementPostingLines(input FXSettlementPosting) ([]postingLine, error) {
-	adjustment := input.BaseAdjustment.Round(4)
-	if adjustment.IsZero() {
-		return nil, nil
-	}
 	switch input.InvoiceType {
 	case "receivable", "payable":
 	default:
 		return nil, domain.ErrInvalidInput
+	}
+
+	adjustment := input.BaseAdjustment.Round(4)
+	if adjustment.IsZero() {
+		return nil, nil
 	}
 
 	absolute := adjustment.Abs()
@@ -496,7 +503,9 @@ func fxSettlementPostingLines(input FXSettlementPosting) ([]postingLine, error) 
 	return lines, nil
 }
 
-// CheckPeriodOpen verifies that the accounting period containing date is open.
+// CheckPeriodOpen ensures the accounting period containing date exists and is
+// open. A zero date means the current time. It returns domain.ErrPeriodClosed
+// when the period is closed and propagates other errors.
 func CheckPeriodOpen(ctx context.Context, tx pgx.Tx, tenantID string, date time.Time) error {
 	if date.IsZero() {
 		date = time.Now()

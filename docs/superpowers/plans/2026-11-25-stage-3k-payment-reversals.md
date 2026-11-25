@@ -356,8 +356,8 @@ Add `CheckPeriodOpen(ctx, tx, tenantID, date)` helper in `posting.go` that calls
 - [ ] **Step 3: Tests**
 
 `fx_settlement_reversal_test.go`:
-- receivable positive adjustment reversal -> AR credit / FX gain debit opposite of original.
-- payable negative adjustment reversal -> AP debit / FX loss credit.
+- receivable positive adjustment reversal -> AR credit / FX loss debit opposite of original.
+- payable negative adjustment reversal -> FX loss debit / AP credit opposite of original.
 - zero adjustment -> no lines.
 - balanced all cases.
 - `CheckPeriodOpen` maybe tested via API; unit not possible without DB.
@@ -427,7 +427,7 @@ WHERE tenant_id=$1 AND id=$2 AND paid_amount >= $3
 ```
 10. Query `finance_fx_settlements` for payment+invoice with status posted `FOR UPDATE`. For each:
    - generate voucher code via `r.codes.Next(ctx, tenantID, "gl_voucher")`.
-   - `glpost.PostFXSettlementReversal` with `BaseAdjustment = -settlement.base_adjustment`.
+   - `glpost.PostFXSettlementReversal` with the **original** `settlement.base_adjustment`; the posting helper negates it internally, so callers must not double-negate.
    - update settlement status/reversal_id/reversal_voucher_id/reversed_at/reversed_by.
 11. Call `glpost.CheckPeriodOpen` once for reversal date (even if no settlements).
 12. Commit, return `GetWithDetails` / payment detail.
@@ -605,6 +605,7 @@ git commit -m "feat(stage-3k): add payment reversal UI"
    - Payment allocated to two invoices; reverse both; reverse one; reallocate after reversal.
 4. `fx settlement reversal`
    - USD payment rate vs invoice rate; reverse; original settlement status reversed; reversal voucher lines opposite and balanced; payment/invoice base restored.
+   - Assert reversal voucher `voucher_type` and `source_type` are `fx_settlement_reversal`, `source_id` equals the original settlement ID, `source_code` equals the payment code, and memo contains `汇兑结算反核销`.
 5. `credited invoice status after reversal`
    - Invoice with credit note; reverse payment; status/outstanding recalculated.
 6. `validation and permissions`

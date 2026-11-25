@@ -94,11 +94,47 @@ func TestFXSettlementPostingLines(t *testing.T) {
 		assertPostingLinesBalanced(t, lines)
 	})
 
+	t.Run("rounds positive adjustment to zero and returns no lines", func(t *testing.T) {
+		lines := mustFXSettlementPostingLines(t, FXSettlementPosting{
+			PartnerID:      "p1",
+			InvoiceType:    "receivable",
+			BaseAdjustment: decimal.RequireFromString("0.00004"),
+		})
+		if len(lines) != 0 {
+			t.Fatalf("line count = %d, want 0", len(lines))
+		}
+	})
+
+	t.Run("rounds negative adjustment to zero and returns no lines", func(t *testing.T) {
+		lines := mustFXSettlementPostingLines(t, FXSettlementPosting{
+			PartnerID:      "p1",
+			InvoiceType:    "receivable",
+			BaseAdjustment: decimal.RequireFromString("-0.00004"),
+		})
+		if len(lines) != 0 {
+			t.Fatalf("line count = %d, want 0", len(lines))
+		}
+	})
+
 	t.Run("invalid invoice type returns error", func(t *testing.T) {
 		lines, err := fxSettlementPostingLines(FXSettlementPosting{
 			PartnerID:      "p1",
 			InvoiceType:    "other",
 			BaseAdjustment: decimal.RequireFromString("100"),
+		})
+		if !errors.Is(err, gldomain.ErrInvalidInput) {
+			t.Fatalf("error = %v, want ErrInvalidInput", err)
+		}
+		if lines != nil {
+			t.Fatalf("lines = %v, want nil", lines)
+		}
+	})
+
+	t.Run("invalid invoice type wins over zero adjustment", func(t *testing.T) {
+		lines, err := fxSettlementPostingLines(FXSettlementPosting{
+			PartnerID:      "p1",
+			InvoiceType:    "other",
+			BaseAdjustment: decimal.Zero,
 		})
 		if !errors.Is(err, gldomain.ErrInvalidInput) {
 			t.Fatalf("error = %v, want ErrInvalidInput", err)
