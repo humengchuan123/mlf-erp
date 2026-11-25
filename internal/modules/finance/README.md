@@ -33,6 +33,7 @@
 | GET | `/api/v1/finance/payments/:id` | `finance.payment.read` |
 | POST | `/api/v1/finance/payments` | `finance.payment.write` |
 | POST | `/api/v1/finance/payments/:id/allocate` | `finance.payment.write` |
+| POST | `/api/v1/finance/payments/:id/unallocate` | `finance.payment.reverse` |
 
 贷项单列表支持 `credit_type`（`sales_return`/`purchase_return`）、`status`（`open`/`applied`）、`partner_id`、`keyword` 和分页。
 
@@ -203,16 +204,48 @@ if amount == remaining_amount:
 - 核销必须同往来单位、同币种。
 - 支持部分核销和多张发票一次核销。
 
+## 收付款反核销（Stage 3K）
+
+- 对已核销/部分核销的收付款按发票整行反核销；一次请求可选择一张或多张发票，每张发票撤销其全部有效核销行，不支持部分金额。
+- 反核销日期默认当天，不能早于收付款日期，且必须落在 open 期间；原因必填；请求内发票不能重复，UUID 先规范化再查重。
+- 事务内锁定收付款，按发票 ID 排序锁定发票，再锁定对应核销行；先写入反核销记录，再删除有效核销行，并回退：
+  - 收付款 `allocated_amount`、`base_allocated_amount`，状态按剩余已核销金额重算为 `unallocated` / `partially_allocated` / `allocated`。
+  - 发票 `paid_amount`、`base_paid_amount`、`outstanding_amount`，状态按 `paid_amount + credited_amount` 重算为 `open` / `partially_paid` / `paid`；结清时清空 `base_revalued_amount`。
+  - 收付款和发票更新均带 SQL 守卫，余额不足时整体回滚。
+- 反核销只减少已收/已付，不修改 `credited_amount`、贷项单、贷项抵用或退款记录；已由贷项冲减的发票可能从 `paid` 回到 `partially_paid`。
+- 已实现汇兑结算：对同一收付款+发票下每条 `posted` 结算逐笔生成反方向 `fx_settlement_reversal` 凭证，结算标记 `reversed` 并记录 `reversal_id`、`reversed_at`、`reversed_by`，非零调整额另记录 `reversal_voucher_id`；原结算和原 `fx_settlement` 凭证保留。调整额四舍五入为 0 的结算只标记 `reversed`，不生成凭证。
+- 无汇兑结算时反核销是纯子账操作，不生成总账凭证；收付款登记时的现金/银行凭证也不撤销。无论是否有汇兑结算，都校验反核销日期所在期间 open；关账返回 409 `PERIOD_CLOSED` 并整体回滚。
+- API：`POST /api/v1/finance/payments/:id/unallocate`，权限 `finance.payment.reverse`。请求：
+
+```json
+{
+  "invoice_ids": ["invoice-uuid-1", "invoice-uuid-2"],
+  "reversal_date": "2026-11-25",
+  "reason": "核销错误"
+}
+```
+
+- 响应为收付款详情，增加 `allocations` 和 `reversals`；反核销记录包含原核销行 ID、原币金额、付款本位币金额、发票本位币金额、日期、原因、创建人，以及 `fx_reversal_voucher_codes`（每个已反核销汇兑结算凭证一项）。发票详情增加 `payment_allocation_reversals`。列表仍只返回汇总字段，不返回明细数组。
+- 典型错误码：400 `BAD_REQUEST` / `REASON_REQUIRED` / `DUPLICATE_INVOICE` / `PAYMENT_TYPE_MISMATCH` / `PARTNER_MISMATCH` / `CURRENCY_MISMATCH`；404 `NOT_FOUND`；409 `PAYMENT_NOT_ALLOCATED` / `ALLOCATION_NOT_FOUND` / `PERIOD_CLOSED`；401/403。
+- 已知限制：
+  - 只支持整行反核销，不支持部分金额。
+  - 不包含反核销审批和幂等键；客户端重试可能重复提交（第二次通常因核销行已不存在返回 409），生产启用前应补服务端幂等和审批流程。
+  - 不撤销收付款本身的现金/银行凭证，也不包含贷项抵用/退款反冲、红字发票。
+  - 反核销日期必须在 open 期间。
+  - 已反核销不能恢复；需要重新核销时重新执行核销。
+  - 原核销行删除、历史只保留在反核销审计表，不在原核销行上保留版本。
+  - self scope 下“本人创建收付款、他人创建发票”和“本人创建发票、他人创建收付款”的正向跨创建人详情/反核销场景尚未纳入 API 回归：当前没有 self-scope 演示账号，用户 API 也不能设置 `data_scope`。测试以 admin 详情验证父单据范围数组，控制器范围由单元测试覆盖；该缺口见 `tests/api/stage3k_test.go` 注释和报告已知限制。
+
 ## 前端
 
 - `/finance/invoices`：应收/应付列表、筛选、到期/逾期提示、发票详情、核销记录、已冲贷项、未收金额、开票/作废。
 - `/finance/credit-notes`：贷项单列表和详情，销售/采购类型筛选与列、来源退货、原发票、已冲/已退/剩余、状态；open 贷项可打开抵用/退款弹窗，详情展示抵用历史、退款历史和退款凭证。
 - `/finance/invoices`：发票详情显示贷项抵用记录。
-- `/finance/payments`：收付款列表、新建、按往来单位加载未付清发票、批量核销。
+- `/finance/payments`：收付款列表、新建、按往来单位加载未付清发票、批量核销；已核销/部分核销行可按核销记录整行反核销，详情展示核销历史和反核销历史（含汇兑反核销凭证）。
 
 ## 后续
 
-- 反核销、贷项抵用/退款反冲、红字发票、完整红冲流程。
+- 反核销的反向恢复/审批/幂等、贷项抵用/退款反冲、红字发票、完整红冲流程。
 - 跨组织抵用配置、自动抵用、退款审批和幂等键。
 - 账龄分析、对账单、信用额度。
 - 总账凭证自动生成（贷项抵用仍保持子账口径）。
