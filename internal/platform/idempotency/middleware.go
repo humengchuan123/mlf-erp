@@ -2,6 +2,7 @@ package idempotency
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"io"
 	"log/slog"
@@ -136,12 +137,17 @@ func Middleware(repo Repository, log *slog.Logger, cfg Config) gin.HandlerFunc {
 		contentType := original.Header().Get("Content-Type")
 		c.Writer = original
 
+		// The client may have disconnected after the handler committed. Persist
+		// the outcome with a context independent of the request cancellation;
+		// otherwise the record would remain in_progress and block safe replays.
+		persistCtx, cancelPersist := context.WithTimeout(context.WithoutCancel(c.Request.Context()), 5*time.Second)
+
 		retryable := status >= http.StatusInternalServerError ||
 			status == http.StatusUnauthorized ||
 			status == http.StatusForbidden ||
 			status == http.StatusTooManyRequests
 		if retryable {
-			if err := repo.Fail(c.Request.Context(), result.Record.ID, status, storedBody(responseBody, cfg.MaxResponseBytes), contentType); err != nil {
+			if err := repo.Fail(persistCtx, result.Record.ID, status, storedBody(responseBody, cfg.MaxResponseBytes), contentType); err != nil {
 				log.Error("idempotency fail record update failed", "error", err, "id", result.Record.ID)
 			}
 		} else {
@@ -150,10 +156,11 @@ func Middleware(repo Repository, log *slog.Logger, cfg Config) gin.HandlerFunc {
 				body = nil
 				truncated = true
 			}
-			if err := repo.Complete(c.Request.Context(), result.Record.ID, status, body, contentType, truncated); err != nil {
+			if err := repo.Complete(persistCtx, result.Record.ID, status, body, contentType, truncated); err != nil {
 				log.Error("idempotency complete record update failed", "error", err, "id", result.Record.ID)
 			}
 		}
+		cancelPersist()
 
 		original.WriteHeader(status)
 		original.WriteHeaderNow()
