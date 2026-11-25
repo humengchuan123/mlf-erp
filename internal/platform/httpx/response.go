@@ -17,6 +17,12 @@ const (
 	CodeCapabilityRequired = "CAPABILITY_REQUIRED"
 	CodeLimitExceeded      = "LIMIT_EXCEEDED"
 	CodeLicenseExpired     = "LICENSE_EXPIRED"
+
+	CodeIdempotencyKeyRequired         = "IDEMPOTENCY_KEY_REQUIRED"
+	CodeIdempotencyKeyInvalid          = "IDEMPOTENCY_KEY_INVALID"
+	CodeIdempotencyConflict            = "IDEMPOTENCY_CONFLICT"
+	CodeIdempotencyInProgress          = "IDEMPOTENCY_IN_PROGRESS"
+	CodeIdempotencyResponseUnavailable = "IDEMPOTENCY_RESPONSE_UNAVAILABLE"
 )
 
 type Response struct {
