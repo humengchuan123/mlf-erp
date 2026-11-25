@@ -134,7 +134,7 @@ jobs:
       - run: go run ./cmd/seed
       - run: go run ./cmd/demo
       - run: go build -o dist/api ./cmd/api
-      - name: Run Stage 3B API integration tests
+      - name: Run Stage 3/4 API integration tests
         run: |
           set -euo pipefail
           ./dist/api > api-integration.log 2>&1 &
@@ -147,7 +147,7 @@ jobs:
             sleep 1
           done
           curl -fsS http://localhost:18080/readyz > /dev/null
-          TEST_API_BASE_URL=http://localhost:18080 go test -tags=integration ./tests/api -run 'TestStage3' -count=1 -v
+          TEST_API_BASE_URL=http://localhost:18080 go test -tags=integration ./tests/api -run 'TestStage3|TestStage4' -count=1 -v
       - name: Show API log on failure
         if: failure()
         run: cat api-integration.log || true

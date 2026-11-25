@@ -58,7 +58,7 @@ func (c *client) login(username, password string) *client {
 	return &client{t: c.t, baseURL: c.baseURL, token: token}
 }
 
-func (c *client) request(method, path string, body any, token string) (int, apiPayload) {
+func (c *client) request(method, path string, body any, token string, headerSets ...map[string]string) (int, apiPayload) {
 	c.t.Helper()
 	var reader io.Reader
 	if body != nil {
@@ -75,6 +75,11 @@ func (c *client) request(method, path string, body any, token string) (int, apiP
 	req.Header.Set("Content-Type", "application/json")
 	if token != "" {
 		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	for _, headers := range headerSets {
+		for key, value := range headers {
+			req.Header.Set(key, value)
+		}
 	}
 
 	httpClient := &http.Client{Timeout: 30 * time.Second}
@@ -100,6 +105,10 @@ func (c *client) get(path string) (int, apiPayload) {
 
 func (c *client) post(path string, body any) (int, apiPayload) {
 	return c.request(http.MethodPost, path, body, c.token)
+}
+
+func (c *client) postWithHeaders(path string, body any, headers map[string]string) (int, apiPayload) {
+	return c.request(http.MethodPost, path, body, c.token, headers)
 }
 
 func (c *client) put(path string, body any) (int, apiPayload) {

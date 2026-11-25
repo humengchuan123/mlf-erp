@@ -2,7 +2,7 @@
 
 企业级 ERP Monorepo 骨架，支持 **SaaS 订阅** 与 **私有化安装** 两种交付形态。
 
-> 当前状态：Stage 1 平台底座 + Stage 2 主数据/编码规则/数据权限 + Stage 3A 采购/库存 + Stage 3B 销售/应收应付 + Stage 3C 总账/自动凭证/基础报表 + Stage 3D 期末结转/辅助核算 + Stage 3E 税务/发票/价税分离 + Stage 3F 多币种/汇率/汇兑损益 + Stage 3G 现金流量表 + Stage 3H 销售退货/贷项单 + Stage 3I 采购退货/应付贷项单 + Stage 3J 贷项抵用/退款 + Stage 3K 收付款反核销。
+> 当前状态：Stage 1 平台底座 + Stage 2 主数据/编码规则/数据权限 + Stage 3A 采购/库存 + Stage 3B 销售/应收应付 + Stage 3C 总账/自动凭证/基础报表 + Stage 3D 期末结转/辅助核算 + Stage 3E 税务/发票/价税分离 + Stage 3F 多币种/汇率/汇兑损益 + Stage 3G 现金流量表 + Stage 3H 销售退货/贷项单 + Stage 3I 采购退货/应付贷项单 + Stage 3J 贷项抵用/退款 + Stage 3K 收付款反核销 + Stage 4A 资金操作幂等。
 > 设计参考：工作区根目录的《企业ERP应用开发指南》。
 
 ## 技术栈
@@ -295,6 +295,10 @@ pnpm test:api:stage3j
 # Writes to the local dev database and consumes two clean future years (closed-period rollback with and without FX settlements); use a clean database for full regression.
 pnpm test:api:stage3k
 
+# Stage 4A API integration test (idempotency keys for money/stock POST operations)
+# Writes to the local dev database; use a clean database for full regression.
+pnpm test:api:stage4a
+
 # Docker
 docker build -f deploy/docker/api.Dockerfile -t mlf-erp/api:dev .
 docker build -f deploy/docker/worker.Dockerfile -t mlf-erp/worker:dev .
@@ -451,12 +455,33 @@ docker build -f deploy/docker/web.Dockerfile -t mlf-erp/web:dev .
 - Stage 3K 真实 HTTP API 集成测试和前端完整度检查。
 - API 测试命令：`pnpm test:api:stage3k`（写入本地开发库并消耗两个干净未来年度：有/无汇兑结算的关账回滚，完整回归请使用干净数据库）。
 
+### Stage 4A 资金操作幂等
+
+- 对会产生资金/库存副作用的 POST 接口支持 `Idempotency-Key`：同一租户 + 用户 + key + method + path + 相同请求体只执行一次，重复请求回放首次响应并返回 `Idempotency-Replayed: true`。
+- 受保护的 9 个端点：
+  - `POST /api/v1/finance/credit-notes/:id/allocations`
+  - `POST /api/v1/finance/credit-notes/:id/refunds`
+  - `POST /api/v1/finance/payments`
+  - `POST /api/v1/finance/payments/:id/allocate`
+  - `POST /api/v1/finance/payments/:id/unallocate`
+  - `POST /api/v1/sales/orders/:id/ship`
+  - `POST /api/v1/purchase/orders/:id/receive`
+  - `POST /api/v1/sales/shipments/:id/returns`
+  - `POST /api/v1/purchase/receipts/:id/returns`
+- Key 去空白后 8–128 字符，允许 `A-Z a-z 0-9 . _ : -`；作用域含实际请求路径（资源 ID 不同即视为不同操作）。
+- 默认 TTL 24 小时，过期 key 可重新使用；API 进程每小时清理过期记录（`IDEMPOTENCY_CLEANUP_INTERVAL`）。
+- Header 默认可选（`IDEMPOTENCY_REQUIRED=false`），旧客户端不带 key 仍可提交；强制模式（`true`）下缺少 key 返回 400 `IDEMPOTENCY_KEY_REQUIRED`。
+- 错误码：400 `IDEMPOTENCY_KEY_REQUIRED` / `IDEMPOTENCY_KEY_INVALID`；409 `IDEMPOTENCY_CONFLICT`（同 key 不同请求）、`IDEMPOTENCY_IN_PROGRESS`（同 key 同请求仍在执行）、`IDEMPOTENCY_RESPONSE_UNAVAILABLE`（首次响应超过 4 MB 未保存）；5xx/401/403/429 标记失败，允许同 key 重试。
+- 前端 6 个视图（收付款、贷项单、销售订单、采购订单、发货、采购收货）打开提交弹窗时用 `crypto.randomUUID()` 生成 key，通过 SDK 传递；成功后清空，失败保留以便重试，关闭弹窗时重新生成。
+- API 测试命令：`pnpm test:api:stage4a`（写入本地开发库，完整回归请使用干净数据库）。
+- 已知限制：key 默认可选；幂等记录明文保存响应体并保留 24 小时；超过 4 MB 的响应无法回放；清理任务运行在 API 进程内；不覆盖消息队列/Outbox 重试、GET 查询和客户端自动重试 UI。
+
 ### 工程与交付
 
 - Monorepo 工作区与共享包。
 - PostgreSQL 迁移、seed、Docker Compose。
 - Dockerfile、GitHub Actions CI、SaaS/私有化发布模板。
-- CI 包含单元测试、构建、Stage 3B/3C/3D/3E/3F/3G/3H/3I/3J/3K 真实 PostgreSQL API 集成测试。
+- CI 包含单元测试、构建、Stage 3B/3C/3D/3E/3F/3G/3H/3I/3J/3K/4A 真实 PostgreSQL API 集成测试。
 - OpenAPI 契约与模块文档。
 
 ## 下一步
