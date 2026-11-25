@@ -2,7 +2,7 @@
 
 > 日期：2026-11-25
 > 分支：`stage-4a-idempotency`
-> 功能/测试 HEAD：`4a58d36`（报告与最终审核提交前）
+> 功能/测试 HEAD：`aa6e7d0`（报告与最终审核提交前）
 > 设计/计划：`docs/superpowers/plans/2026-11-25-stage-4a-idempotency.md`
 > 路线图：`docs/superpowers/plans/2026-11-25-audit-follow-up.md`
 > 状态：开发、接口测试、干净库 Stage 3B–4A 回归和静态检查完成；代码审核结论待回填
@@ -55,10 +55,11 @@
 | SDK、OpenAPI、前端 | `da5b11f` |
 | 接口测试、脚本、README、CI | `8554955` |
 | `cmd/api` 装配、状态刷新 | `b21f076` |
-| 前端 4xx key 重置 | `8b66168` |
+| 前端 4xx key 处理 | `8b66168` |
 | 断连后持久化幂等结果 | `4a58d36` |
 | 模块文档、报告草稿 | `ccb84ca` |
-| 审核修复、最终报告 | 本报告随最终文档提交 |
+| 审核修复：key 旋转、in-progress 冲突、断连测试 | `aa6e7d0` |
+| 最终报告 | 本报告随最终文档提交 |
 
 ## 2. 数据模型（迁移 26）
 
@@ -198,12 +199,12 @@ go test -tags=integration ./tests/api -run 'TestStage3|TestStage4' -count=1 -v
 - 4xx 不再清空 key，改为 `newIdempotencyKey()` 旋转新 key；增加 `crypto.randomUUID` 非安全上下文回退（`getRandomValues`）。
 - 保留策略：网络/5xx/401/403/408/429、`IDEMPOTENCY_CONFLICT`/`IN_PROGRESS`/`RESPONSE_UNAVAILABLE` 保留 key；其余 4xx 旋转。
 - 服务端 `Acquire`：`in_progress` + 不同 payload 统一返回 `StateInProgress`，不再返回 `StateConflict`；`CONFLICT` 仅用于已完成记录。
-- 新增单元测试 `TestMiddlewareInProgressDifferentPayload`。
+- 新增单元测试 `TestMiddlewareInProgressDifferentPayload` 和 `TestMiddlewarePersistsAfterRequestCancellation`。
 - 文档/报告订正；`check-frontend` 增加 `newIdempotencyKey`/`getRandomValues`/`IDEMPOTENCY_CONFLICT` 断言。
 
 ### 6.3 复审
 
-待规格审核和修复后质量复审结论回填。
+质量审核首轮结论 **CHANGES REQUIRED**；上述修复已提交 `aa6e7d0`。修复后质量复审和规格审核结论待回填。
 
 ## 7. 已知限制
 
@@ -229,7 +230,7 @@ go test -tags=integration ./tests/api -run 'TestStage3|TestStage4' -count=1 -v
 - [x] 9 个受保护端点全部有 OpenAPI header 和 409 说明。
 - [x] `TestStage4A` 通过；Stage 3B–3K 回归通过。
 - [x] 干净库版本 26，全链路通过。
-- [ ] 模块文档/报告/审核结论完整（本提交完成）。
+- [x] 模块文档/报告完整；审核结论待复审回填。
 - [ ] 用户审阅通过。
 
 ## 9. 后续
