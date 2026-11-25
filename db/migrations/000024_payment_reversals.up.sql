@@ -1,3 +1,5 @@
+-- Stage 3K: payment allocation reversals and FX settlement reversal fields.
+
 CREATE TABLE IF NOT EXISTS erp.finance_payment_allocation_reversals (
     id uuid PRIMARY KEY,
     tenant_id uuid NOT NULL,
@@ -13,6 +15,10 @@ CREATE TABLE IF NOT EXISTS erp.finance_payment_allocation_reversals (
     created_by uuid NOT NULL,
     created_at timestamptz NOT NULL DEFAULT now(),
     CONSTRAINT finance_payment_allocation_reversals_tenant_id_key UNIQUE (tenant_id, id),
+    CONSTRAINT finance_payment_allocation_reversals_allocation_key
+        UNIQUE (tenant_id, allocation_id),
+    CONSTRAINT finance_payment_allocation_reversals_reason_check
+        CHECK (btrim(reason) <> ''),
     CONSTRAINT finance_payment_allocation_reversals_payment_fk
         FOREIGN KEY (tenant_id, payment_id)
         REFERENCES erp.finance_payments (tenant_id, id),
@@ -34,6 +40,12 @@ ALTER TABLE erp.finance_fx_settlements
     ADD COLUMN IF NOT EXISTS reversed_by uuid;
 
 ALTER TABLE erp.finance_fx_settlements
+    DROP CONSTRAINT IF EXISTS finance_fx_settlements_status_check,
+    DROP CONSTRAINT IF EXISTS finance_fx_settlements_reversal_fk,
+    DROP CONSTRAINT IF EXISTS finance_fx_settlements_reversal_voucher_fk,
+    DROP CONSTRAINT IF EXISTS finance_fx_settlements_reversal_state_check;
+
+ALTER TABLE erp.finance_fx_settlements
     ADD CONSTRAINT finance_fx_settlements_status_check
         CHECK (status IN ('posted', 'reversed')),
     ADD CONSTRAINT finance_fx_settlements_reversal_fk
@@ -41,10 +53,20 @@ ALTER TABLE erp.finance_fx_settlements
         REFERENCES erp.finance_payment_allocation_reversals (tenant_id, id),
     ADD CONSTRAINT finance_fx_settlements_reversal_voucher_fk
         FOREIGN KEY (tenant_id, reversal_voucher_id)
-        REFERENCES erp.gl_vouchers (tenant_id, id);
+        REFERENCES erp.gl_vouchers (tenant_id, id),
+    ADD CONSTRAINT finance_fx_settlements_reversal_state_check CHECK (
+        (status = 'reversed') = (
+            reversal_id IS NOT NULL
+            AND reversed_at IS NOT NULL
+            AND reversed_by IS NOT NULL
+        )
+    );
 
-CREATE INDEX IF NOT EXISTS finance_fx_settlements_reversal_idx
+CREATE INDEX IF NOT EXISTS finance_fx_settlements_payment_invoice_status_idx
     ON erp.finance_fx_settlements (tenant_id, payment_id, invoice_id, status);
+CREATE INDEX IF NOT EXISTS finance_fx_settlements_reversal_id_idx
+    ON erp.finance_fx_settlements (tenant_id, reversal_id)
+    WHERE reversal_id IS NOT NULL;
 
 INSERT INTO erp.permissions (code, name, module, type)
 VALUES ('finance.payment.reverse', '收付款反核销', 'finance', 'api')
