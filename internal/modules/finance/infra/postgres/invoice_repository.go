@@ -251,7 +251,7 @@ func (r *InvoiceRepository) ListPaymentAllocationReversals(ctx context.Context, 
 
 	rows, err := r.db.Query(ctx, paymentAllocationReversalSelectSQL+`
 		WHERE `+where+`
-		ORDER BY r.reversal_date DESC, r.created_at DESC`, args...)
+		ORDER BY r.reversal_date DESC, r.created_at DESC, r.id DESC`, args...)
 	if err != nil {
 		return nil, fmt.Errorf("list invoice payment allocation reversals: %w", err)
 	}

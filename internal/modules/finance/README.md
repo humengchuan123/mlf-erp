@@ -234,7 +234,7 @@ if amount == remaining_amount:
   - 反核销日期必须在 open 期间。
   - 已反核销不能恢复；需要重新核销时重新执行核销。
   - 原核销行删除、历史只保留在反核销审计表，不在原核销行上保留版本。
-  - self scope 的负向隔离已纳入 API 回归：测试通过 `/system/roles`、`/system/users` 动态创建 self 用户（无 `org_memberships`，默认 `self`），验证其读取他人创建的收付款/发票详情返回 404。正向跨创建人可见性（本人收付款+他人发票、本人发票+他人收付款）仍未纳入 API 回归：用户 API 不能设置 `data_scope`，构造该场景还需要更宽的写入权限组合。父单据范围数组由 admin 详情验证，控制器范围由单元测试覆盖；该缺口见 `tests/api/stage3k_test.go` 注释和报告已知限制。
+  - self scope 的负向隔离已纳入 API 回归：测试通过 `/system/roles`、`/system/users` 动态创建 self 用户（无 `org_memberships`，默认 `self`），验证其读取他人创建的收付款/发票详情返回 404。正向跨创建人可见性（本人收付款+他人发票、本人发票+他人收付款）仍未纳入 API 回归：用户 API 不能设置 `data_scope`，构造该场景还需要更宽的写入权限组合。父单据范围数组由 admin 详情验证；范围 SQL 的专项回归仍未覆盖，仅由代码审查确认；该缺口见 `tests/api/stage3k_test.go` 注释和报告已知限制。
 
 ## 前端
 

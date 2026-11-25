@@ -2,10 +2,10 @@
 
 > 日期：2026-11-25
 > 分支：`stage-3k-payment-reversals`
-> 功能/测试 HEAD：`8533bd0`（最终覆盖补齐提交前）
+> 功能/测试 HEAD：`6378c6d`
 > 设计：`docs/superpowers/specs/2026-11-25-stage-3k-payment-reversals-design.md`
 > 计划：`docs/superpowers/plans/2026-11-25-stage-3k-payment-reversals.md`
-> 状态：开发、接口测试用例、覆盖补齐和静态检查完成；独立审核、干净库 Stage 3B–3K 回归与最终验收待控制端执行
+> 状态：开发、审核修复、接口测试、干净库 Stage 3B–3K 回归完成；独立复审通过（Ready to merge）
 
 ---
 
@@ -48,7 +48,7 @@
 | 前端 | `838960d`、`4ab6b01` |
 | 接口测试/脚本 | `7060259` |
 | 文档/报告 | `8533bd0` |
-| 最终覆盖补齐 | 本报告随 `test(stage-3k): close final reversal coverage gaps` 提交 |
+| 最终覆盖补齐 | `6378c6d` |
 
 ## 2. 数据模型
 
@@ -81,7 +81,13 @@
 
 新增 `db/migrations/000025_payment_base_allocation_repair`，把 `finance_payments.base_allocated_amount` 回填为有效核销明细 `base_amount` 之和。
 
-旧口径按付款总额一次性四舍五入，和逐条核销行本位币之和可能相差 0.0001；反核销必须按原核销行精确扣减，因此先修复历史余额，避免反核销后留下无法归零的本位币残差。当前迁移版本 25。迁移 25 在干净库/升级库上的验证记录由控制端单独执行并回填，本报告不重复声称。
+旧口径按付款总额一次性四舍五入，和逐条核销行本位币之和可能相差 0.0001；反核销必须按原核销行精确扣减，因此先修复历史余额，避免反核销后留下无法归零的本位币残差。当前迁移版本 25。
+
+验证记录：
+
+- 干净库 `mlf_erp_stage3k_clean2` 全新应用至版本 25，`dirty = false`。
+- 升级验证：在临时库把版本回退到 24，并将一笔付款的 `base_allocated_amount` 人为改为分配明细之和 + 1（300.0000 → 301.0000）；重跑 `migrate up` 后版本为 25，金额修复为 300.0000，与明细合计一致（`repaired = t`）；临时库已删除。
+- API 舍入一致性用例覆盖多发票逐行舍入：汇率 `7.12345678` 下两张 1.0000 发票的分配明细合计 14.2470，付款 `base_allocated_amount` 同为 14.2470，可全部反核销归零。
 
 ### 2.4 Down guard
 
@@ -254,7 +260,7 @@ paid              : total_amount == 0 或 settled >= total_amount（4 位小数�
 - self-scope 用户查看本人创建收付款、但发票由他人创建时，仍应看到该收付款的核销/反核销数组。
 - self-scope 用户查看本人创建发票、但收付款或贷项单由他人创建时，仍应看到付款核销/反核销数组。
 
-原因：用户 API 不能设置 `data_scope`，且构造正向跨创建人场景需要给 self 用户更宽的写入权限组合。测试改为由 admin 详情验证父单据范围下的数组返回，控制器范围逻辑由单元测试覆盖。该缺口已登记为已知限制，本报告不声称上述正向跨创建人场景已被 API 测试覆盖。
+原因：用户 API 不能设置 `data_scope`，且构造正向跨创建人场景需要给 self 用户更宽的写入权限组合。测试改为由 admin 详情验证父单据范围下的数组返回；范围 SQL 的专项回归仍未覆盖，仅由代码审查确认。该缺口已登记为已知限制，本报告不声称上述正向跨创建人场景已被 API 测试覆盖。
 
 ### 6.4 执行状态
 
@@ -266,7 +272,11 @@ Task 7 已提交 `tests/api/stage3k_test.go`、`scripts/test/stage3k-api.ps1` �
 
 `go vet -tags=integration ./tests/api` 已通过，确认集成测试包可编译。
 
-迁移 24/25 在干净库的全新应用/升级验证记录由控制端单独执行并回填；本报告不声称干净库 Stage 3B–3K 全链路已执行。
+干净库全链路（`mlf_erp_stage3k_clean2`）：
+
+1. 新建数据库，`cmd/migrate -direction up`、`cmd/seed`、`cmd/demo`，启动独立 API（端口 18090）。
+2. 执行 `go test -tags=integration ./tests/api -run 'TestStage3' -count=1 -v`，Stage 3B、3C、3D、3E、3F、3G、3H、3I、3J、3K 全部通过，Stage 3K 为 12 个顶层/20 个命名子测试。
+3. 数据核对：`schema_migrations` 版本 25、`dirty = false`；反核销记录 22 条；汇兑结算 11 条（4 posted / 7 reversed）；`fx_settlement_reversal` 凭证 7 张，借贷不平衡 0 张；付款 `base_allocated_amount` 与分配明细合计不一致 0 条；发票 `base_paid_amount` 与分配明细合计不一致 0 条；有效核销行 51 条。
 
 ### 6.5 静态检查与构建
 
@@ -287,28 +297,43 @@ Task 7 已提交 `tests/api/stage3k_test.go`、`scripts/test/stage3k-api.ps1` �
 | `pnpm test:frontend` | `Frontend completeness check passed.` |
 | `git diff --check` | 无空白错误；Git 仅提示 LF→CRLF 行尾转换 |
 
-## 7. 代码审核（pending Task 9）
+## 7. 代码审核
 
-**pending Task 9。** 截至本报告草稿，尚未执行独立代码审核，不给出审核通过结论。
+### 7.1 审核过程与修复
 
-Task 9 计划：
+| 轮次 | 范围 | 结论 | 处理 |
+|---|---|---|---|
+| Task 4 质量审核 | 反核销事务、详情、分配舍入 | Changes required | 发现 Critical：多发票分配按总额一次舍入，付款 `base_allocated_amount` 与逐行 `base_amount` 合计不一致；改为逐行累计，新增迁移 25，补 SQL 守卫 |
+| Task 4 规格/质量复审 | `1316230`、`b2a463b` | Approved | 付款详情按付款父单据、发票详情按发票父单据作用域对齐 |
+| Task 5 质量审核 | API/SDK/OpenAPI/完整性断言 | Changes required | 旧 `payment(id)` 返回类型、OpenAPI optional、断言误匹配；已收紧 |
+| Task 5 质量复审 | `f1436a1` | Approved | 无 Critical/Important |
+| Task 6 质量审核 | 反核销弹窗/详情/发票记录 | Changes required | 发现弹窗加载过期响应竞态；已加请求令牌、关闭失效和保存前复核 |
+| Task 6 质量复审 | `4ab6b01` | Approved | 无 Critical/Important |
+| 最终独立审核 | `60c3542..8533bd0` | With fixes | 无 Critical；3 个 Important：无汇兑关账回滚未覆盖、scope 覆盖声明不准确、迁移 25 未用构造数据验证 |
+| 最终复审 | `6378c6d` | **Ready to merge** | 3 个 Important 已修复/降级；无新增 Critical/Important |
 
-- 独立审核 `60c3542..HEAD`（Stage 3J 最终提交之后到 Stage 3K 当前 HEAD）。
-- 修复 Critical/Important，并重跑 Stage 3K API 测试和静态检查。
-- 在干净库 `mlf_erp_stage3k_clean` 应用 migration 24/25、seed、demo，执行 Stage 3B–3K 全链路。
-- 校验收付款/发票余额、反核销记录、汇兑结算状态、凭证借贷平衡和跨账一致性。
-- 回填本报告测试结果、遗留风险和最终提交信息，推送 `stage-3k-payment-reversals`。
+最终复审剩余 minor 已在本报告提交前清理：
 
-实现阶段已通过连续 hardening 提交处理以下风险：
+- `tests/api/stage3k_test.go` 的 scope 注释改为“范围 SQL 仅由代码审查确认”，不再声称有单测。
+- 发票反核销列表增加 `r.id DESC` 排序 tiebreaker，与收付款反核销列表一致。
+- README 把 Stage 3K 消耗的干净未来年度从 1 个订正为 2 个（有/无汇兑结算的关账回滚）。
 
-- 迁移：反核销审计唯一键、原因非空、汇兑结算状态/审计一致性检查、down guard。
-- 领域：收付款/发票状态统一口径，UUID 规范化后查重。
-- 事务：固定发票锁顺序、SQL 余额守卫、多发票失败整体回滚。
-- 金额：逐行核销本位币合计与付款已核销本位币对齐，迁移 25 修复历史舍入差异。
-- 汇兑：反方向凭证只取反一次，原结算/原凭证保留，零调整额不生成空凭证。
-- 数据范围：收付款/反核销数组按父收付款范围过滤，发票反核销数组按父发票范围过滤。
-- API 契约：列表/详情数组区分，错误码、SDK 和 OpenAPI 对齐。
-- 前端：反核销弹窗请求竞态保护、整行选择和权限控制。
+### 7.2 审核确认的关键点
+
+- 迁移：反核销审计唯一键、原因非空、汇兑结算状态/审计一致性检查、down guard（含 `reversal_voucher_id` 和实际索引名）通过审核。
+- 金额：付款 `base_allocated_amount` 等于有效分配明细 `base_amount` 之和；迁移 25 修复历史舍入差异；反核销 SQL 守卫要求原币和本位币余额均足够。
+- 事务：付款 → 排序发票 → 核销行/汇兑结算的锁顺序固定；任一步失败整体回滚；并发双反核销只成功一次。
+- 汇兑：原结算/原凭证保留，反方向凭证只取反一次；零调整额不生成空凭证；无汇兑时仍检查期间 open。
+- 数据范围：收付款详情数组按付款父单据过滤，发票详情数组按发票父单据过滤；self scope 负向 404 已由 API 回归覆盖，正向跨创建人可见性仍为已文档化限制。
+- API/前端：列表/详情分离，空数组为 `[]`，错误码、SDK、OpenAPI、权限和请求竞态保护通过审核。
+- 测试：Stage 3K 12 个顶层/20 个命名子测试通过；干净库 Stage 3B–3K 全链路通过；迁移 25 构造升级修复通过。
+
+### 7.3 遗留 minor（不阻塞验收）
+
+- `PaymentService.GetDetail` / `InvoiceService.Get` 仍为多次非事务读取，高并发下可能出现混合快照；当前用于详情展示，不影响反核销事务正确性。
+- 迁移 25 无自动化回归，当前由干净库 + 构造升级数据验证。
+- 反核销审计只记录 after 状态，未记录 before 快照；反核销审计行本身保留原因、操作人和金额。
+- 详情数组无分页；反核销不支持幂等键和审批流。
 
 ## 8. 已知限制
 
@@ -321,7 +346,7 @@ Task 9 计划：
 - 无汇兑结算的反核销不生成总账凭证；只有已实现汇兑结算会生成 `fx_settlement_reversal` 凭证。
 - 反核销采用“删除有效核销行 + 反核销审计表”模型，不在原核销行上保留版本历史。
 - `000025_payment_base_allocation_repair` 为数据修复迁移，down 为 no-op，不能自动还原修复前的历史本位币余额。
-- self scope 负向隔离已由 API 回归覆盖（动态创建 self 用户验证他人收付款/发票详情 404）；正向跨创建人可见性仍无 API 回归：用户 API 不能设置 `data_scope`，构造该场景需要更宽写入权限；父单据范围数组由 admin 详情断言，控制器范围由单元测试覆盖。
+- self scope 负向隔离已由 API 回归覆盖（动态创建 self 用户验证他人收付款/发票详情 404）；正向跨创建人可见性仍无 API 回归：用户 API 不能设置 `data_scope`，构造该场景需要更宽写入权限；父单据范围数组由 admin 详情断言；范围 SQL 的专项回归仍未覆盖，仅由代码审查确认。
 - 缺少浏览器 E2E 和故障注入测试。
 
 ## 9. 用户验收清单
@@ -337,7 +362,7 @@ Task 9 计划：
 - [ ] 无汇兑结算反核销不生成凭证；关账期间返回 409 `PERIOD_CLOSED` 并整体回滚。
 - [ ] 权限 401/403、错误码、数据范围、收付款/发票详情历史和列表汇总符合契约。
 - [ ] 前端反核销弹窗、整行多选、日期/原因校验、历史展示和权限控制可用。
-- [ ] `TestStage3K` 12 个顶层/20 个命名子测试通过（本次收口已实测，干净库由控制端复跑）。
-- [ ] 静态检查全部通过（本任务已实测）。
-- [ ] 干净库 Stage 3B–3K 全链路通过（Task 9）。
-- [ ] 独立审核无 Critical/Important 遗留（Task 9）。
+- [x] `TestStage3K` 12 个顶层/20 个命名子测试通过（本地开发库和干净库均通过）。
+- [x] 静态检查全部通过。
+- [x] 干净库 Stage 3B–3K 全链路通过（`mlf_erp_stage3k_clean2`）。
+- [x] 独立审核无 Critical/Important 遗留（最终复审 Ready to merge）。

@@ -292,7 +292,7 @@ pnpm test:api:stage3i
 pnpm test:api:stage3j
 
 # Stage 3K API integration test (payment allocation reversals)
-# Writes to the local dev database and consumes one clean future year (closed-period rollback); use a clean database for full regression.
+# Writes to the local dev database and consumes two clean future years (closed-period rollback with and without FX settlements); use a clean database for full regression.
 pnpm test:api:stage3k
 
 # Docker
@@ -449,7 +449,7 @@ docker build -f deploy/docker/web.Dockerfile -t mlf-erp/web:dev .
 - 反核销日期默认当天，不能早于收付款日期，且必须落在 open 期间；原因必填；请求内发票不能重复。关账期间返回 `PERIOD_CLOSED` 并整体回滚，收付款、发票、核销和凭证均不产生部分变更。
 - 新增权限 `finance.payment.reverse`；API、SDK、OpenAPI 和前端同步。并发反核销通过收付款行锁串行化，同一发票只会成功一次。
 - Stage 3K 真实 HTTP API 集成测试和前端完整度检查。
-- API 测试命令：`pnpm test:api:stage3k`（写入本地开发库并消耗一个干净未来年度：关账回滚，完整回归请使用干净数据库）。
+- API 测试命令：`pnpm test:api:stage3k`（写入本地开发库并消耗两个干净未来年度：有/无汇兑结算的关账回滚，完整回归请使用干净数据库）。
 
 ### 工程与交付
 

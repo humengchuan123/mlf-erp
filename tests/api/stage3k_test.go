@@ -1044,7 +1044,8 @@ func TestStage3K(t *testing.T) {
 		// invoice, and the reverse) remains an API regression gap: the user API
 		// cannot set data_scope, and constructing that graph needs broader write
 		// permissions. Admin detail above validates the parent-scoped arrays;
-		// controller scoping is covered by unit tests.
+		// controller scoping is verified by code review only (there are no
+		// finance scope unit tests).
 	})
 
 	t.Run("reversal date and failure rollback", func(t *testing.T) {
