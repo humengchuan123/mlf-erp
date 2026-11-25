@@ -71,6 +71,7 @@ export interface InvoiceCreditNoteAllocation {
 export interface InvoiceDetail extends Invoice {
   allocations: InvoiceAllocation[]
   credit_note_allocations: InvoiceCreditNoteAllocation[]
+  payment_allocation_reversals: PaymentAllocationReversal[]
 }
 
 export interface CreditNoteAllocation {
@@ -192,6 +193,47 @@ export interface PaymentInput {
   remark?: string
 }
 
+export interface PaymentAllocation {
+  id: string
+  payment_id: string
+  invoice_id: string
+  invoice_code: string
+  invoice_date: string
+  amount: string
+  base_amount: string
+  invoice_base_amount: string
+  created_at: string
+}
+
+export interface PaymentAllocationReversal {
+  id: string
+  payment_id: string
+  payment_code: string
+  payment_date: string
+  invoice_id: string
+  invoice_code: string
+  invoice_date: string
+  amount: string
+  base_amount: string
+  invoice_base_amount: string
+  reversal_date: string
+  reason: string
+  fx_reversal_voucher_codes: string[]
+  created_by: string
+  created_at: string
+}
+
+export interface UnallocatePaymentInput {
+  invoice_ids: string[]
+  reversal_date: string
+  reason: string
+}
+
+export interface PaymentDetail extends Payment {
+  allocations: PaymentAllocation[]
+  reversals: PaymentAllocationReversal[]
+}
+
 export interface ExchangeRate {
   id: string
   currency_code: string
@@ -228,6 +270,34 @@ function queryString(params: Record<string, string | number | undefined>): strin
   const query = search.toString()
   return query ? `?${query}` : ''
 }
+
+export interface PaymentListParams {
+  [key: string]: string | number | undefined
+  payment_type?: string
+  status?: string
+  partner_id?: string
+  keyword?: string
+  page?: number
+  page_size?: number
+}
+
+interface PaymentsApi {
+  (params?: PaymentListParams): Promise<Paged<Payment>>
+  get(id: string): Promise<PaymentDetail>
+  getDetail(id: string): Promise<PaymentDetail>
+  unallocate(id: string, input: UnallocatePaymentInput): Promise<PaymentDetail>
+}
+
+const paymentsApi = function payments(params: PaymentListParams = {}): Promise<Paged<Payment>> {
+  return api.get<Paged<Payment>>(`/finance/payments${queryString(params)}`)
+} as PaymentsApi
+
+paymentsApi.get = (id: string) => api.get<PaymentDetail>(`/finance/payments/${id}`)
+
+paymentsApi.getDetail = (id: string) => api.get<PaymentDetail>(`/finance/payments/${id}`)
+
+paymentsApi.unallocate = (id: string, input: UnallocatePaymentInput) =>
+  api.post<PaymentDetail>(`/finance/payments/${id}/unallocate`, input)
 
 export const financeApi = {
   invoices(params: {
@@ -267,16 +337,7 @@ export const financeApi = {
       return api.post<CreditNote>(`/finance/credit-notes/${id}/refunds`, input)
     }
   },
-  payments(params: {
-    payment_type?: string
-    status?: string
-    partner_id?: string
-    keyword?: string
-    page?: number
-    page_size?: number
-  } = {}): Promise<Paged<Payment>> {
-    return api.get<Paged<Payment>>(`/finance/payments${queryString(params)}`)
-  },
+  payments: paymentsApi,
   payment(id: string): Promise<Payment> {
     return api.get<Payment>(`/finance/payments/${id}`)
   },

@@ -333,7 +333,13 @@ assertFile('packages/sdk/src/finance.ts', [
   'payments(',
   'payment(',
   'createPayment(',
-  'allocate('
+  'allocate(',
+  'getDetail',
+  'unallocate',
+  'PaymentAllocationReversal',
+  'UnallocatePaymentInput',
+  'payment_allocation_reversals',
+  'fx_reversal_voucher_codes'
 ])
 
 assertFile('packages/sdk/src/purchase.ts', [
@@ -363,6 +369,7 @@ assertFile('api/openapi.yaml', [
   '/finance/credit-notes/{id}/allocations:',
   '/finance/credit-notes/{id}/allocation-candidates:',
   '/finance/credit-notes/{id}/refunds:',
+  '/finance/payments/{id}/unallocate:',
   'CreatePurchaseReturnInput',
   'PurchaseReturn',
   'CreateSalesReturnInput',
@@ -372,7 +379,12 @@ assertFile('api/openapi.yaml', [
   'CreditNoteRefund',
   'AllocateCreditNoteInput',
   'RefundCreditNoteInput',
-  'credit_note_allocations'
+  'credit_note_allocations',
+  'PaymentDetail',
+  'PaymentAllocationReversal',
+  'UnallocatePaymentInput',
+  'payment_allocation_reversals',
+  'fx_reversal_voucher_codes'
 ])
 
 assertFile('packages/sdk/src/gl.ts', [

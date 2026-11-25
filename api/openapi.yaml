@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: MLF ERP API
-  version: 1.1.0
+  version: 1.2.0
   description: |
     MLF ERP Stage 1 + Stage 2 + Stage 3A/3B/3C/3D/3E/3F/3G/3H/3I/3J API contract.
     Master data uses a generic CRUD surface under /masterdata/{entity}.
@@ -1308,14 +1308,14 @@ paths:
     parameters:
       - $ref: '#/components/parameters/ID'
     get:
-      summary: Get a receipt or payment
+      summary: Get a receipt or payment with allocations and reversals
       responses:
         '200':
           description: OK
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PaymentResponse'
+                $ref: '#/components/schemas/PaymentDetailResponse'
   /finance/payments/{id}/allocate:
     parameters:
       - $ref: '#/components/parameters/ID'
@@ -1342,6 +1342,42 @@ paths:
                 $ref: '#/components/schemas/PaymentResponse'
         '400':
           description: Over allocation or type/partner/currency mismatch
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+  /finance/payments/{id}/unallocate:
+    parameters:
+      - $ref: '#/components/parameters/ID'
+    post:
+      summary: Reverse receipt/payment allocations
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UnallocatePaymentInput'
+      responses:
+        '200':
+          description: Reversed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentDetailResponse'
+        '400':
+          description: Invalid input, duplicate invoice, or missing reason
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+        '404':
+          description: Payment or invoice not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+        '409':
+          description: Payment not allocated, allocation not found, or accounting period closed
           content:
             application/json:
               schema:
@@ -3188,6 +3224,10 @@ components:
               type: array
               items:
                 $ref: '#/components/schemas/InvoiceCreditNoteAllocation'
+            payment_allocation_reversals:
+              type: array
+              items:
+                $ref: '#/components/schemas/PaymentAllocationReversal'
     CreditNoteSummary:
       type: object
       properties:
@@ -3397,6 +3437,88 @@ components:
         created_at:
           type: string
           format: date-time
+    PaymentAllocation:
+      type: object
+      properties:
+        id:
+          type: string
+        payment_id:
+          type: string
+        invoice_id:
+          type: string
+        invoice_code:
+          type: string
+        invoice_date:
+          type: string
+          format: date
+        amount:
+          type: string
+        base_amount:
+          type: string
+        invoice_base_amount:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+    PaymentAllocationReversal:
+      type: object
+      properties:
+        id:
+          type: string
+        payment_id:
+          type: string
+        payment_code:
+          type: string
+        payment_date:
+          type: string
+          format: date
+        invoice_id:
+          type: string
+        invoice_code:
+          type: string
+        invoice_date:
+          type: string
+          format: date
+        amount:
+          type: string
+        base_amount:
+          type: string
+        invoice_base_amount:
+          type: string
+        reversal_date:
+          type: string
+          format: date
+        reason:
+          type: string
+        fx_reversal_voucher_codes:
+          type: array
+          items:
+            type: string
+        created_by:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+    PaymentDetail:
+      allOf:
+        - $ref: '#/components/schemas/Payment'
+        - type: object
+          properties:
+            allocations:
+              type: array
+              items:
+                $ref: '#/components/schemas/PaymentAllocation'
+            reversals:
+              type: array
+              items:
+                $ref: '#/components/schemas/PaymentAllocationReversal'
+    PaymentDetailResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiResponse'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/PaymentDetail'
     PaymentResponse:
       allOf:
         - $ref: '#/components/schemas/ApiResponse'
@@ -3437,6 +3559,21 @@ components:
         invoice_id:
           type: string
         amount:
+          type: string
+    UnallocatePaymentInput:
+      type: object
+      required: [invoice_ids, reason]
+      properties:
+        invoice_ids:
+          type: array
+          minItems: 1
+          items:
+            type: string
+            format: uuid
+        reversal_date:
+          type: string
+          format: date
+        reason:
           type: string
     GlAccount:
       type: object

@@ -60,6 +60,7 @@ func Register(
 	finance.GET("/payments/:id", authmw.RequirePermission("finance.payment.read"), handler.getPayment)
 	finance.POST("/payments", authmw.RequirePermission("finance.payment.write"), handler.createPayment)
 	finance.POST("/payments/:id/allocate", authmw.RequirePermission("finance.payment.write"), handler.allocatePayment)
+	finance.POST("/payments/:id/unallocate", authmw.RequirePermission("finance.payment.reverse"), handler.unallocatePayment)
 }
 
 type invoiceResponse struct {
@@ -123,8 +124,9 @@ type invoiceCreditNoteAllocationResponse struct {
 
 type invoiceDetailResponse struct {
 	invoiceResponse
-	Allocations           []allocationResponse                  `json:"allocations"`
-	CreditNoteAllocations []invoiceCreditNoteAllocationResponse `json:"credit_note_allocations"`
+	Allocations                []allocationResponse                  `json:"allocations"`
+	CreditNoteAllocations      []invoiceCreditNoteAllocationResponse `json:"credit_note_allocations"`
+	PaymentAllocationReversals []paymentAllocationReversalResponse   `json:"payment_allocation_reversals"`
 }
 
 type creditNoteAllocationResponse struct {
@@ -229,6 +231,42 @@ type paymentResponse struct {
 	CreatedAt           time.Time `json:"created_at"`
 }
 
+type paymentAllocationResponse struct {
+	ID                string    `json:"id"`
+	PaymentID         string    `json:"payment_id"`
+	InvoiceID         string    `json:"invoice_id"`
+	InvoiceCode       string    `json:"invoice_code"`
+	InvoiceDate       string    `json:"invoice_date"`
+	Amount            string    `json:"amount"`
+	BaseAmount        string    `json:"base_amount"`
+	InvoiceBaseAmount string    `json:"invoice_base_amount"`
+	CreatedAt         time.Time `json:"created_at"`
+}
+
+type paymentAllocationReversalResponse struct {
+	ID                     string    `json:"id"`
+	PaymentID              string    `json:"payment_id"`
+	PaymentCode            string    `json:"payment_code"`
+	PaymentDate            string    `json:"payment_date"`
+	InvoiceID              string    `json:"invoice_id"`
+	InvoiceCode            string    `json:"invoice_code"`
+	InvoiceDate            string    `json:"invoice_date"`
+	Amount                 string    `json:"amount"`
+	BaseAmount             string    `json:"base_amount"`
+	InvoiceBaseAmount      string    `json:"invoice_base_amount"`
+	ReversalDate           string    `json:"reversal_date"`
+	Reason                 string    `json:"reason"`
+	FXReversalVoucherCodes []string  `json:"fx_reversal_voucher_codes"`
+	CreatedBy              string    `json:"created_by"`
+	CreatedAt              time.Time `json:"created_at"`
+}
+
+type paymentDetailResponse struct {
+	paymentResponse
+	Allocations []paymentAllocationResponse         `json:"allocations"`
+	Reversals   []paymentAllocationReversalResponse `json:"reversals"`
+}
+
 type createPaymentRequest struct {
 	PaymentType  string `json:"payment_type"`
 	PartnerID    string `json:"partner_id"`
@@ -248,6 +286,12 @@ type allocationRequest struct {
 
 type allocatePaymentRequest struct {
 	Allocations []allocationRequest `json:"allocations"`
+}
+
+type unallocatePaymentRequest struct {
+	InvoiceIDs   []string `json:"invoice_ids"`
+	ReversalDate string   `json:"reversal_date"`
+	Reason       string   `json:"reason"`
 }
 
 type pagedResponse[T any] struct {
@@ -478,10 +522,15 @@ func (h *Handler) getInvoice(c *gin.Context) {
 			AllocationDate: item.AllocationDate.Format("2006-01-02"),
 		})
 	}
+	paymentAllocationReversals := make([]paymentAllocationReversalResponse, 0, len(detail.PaymentAllocationReversals))
+	for _, item := range detail.PaymentAllocationReversals {
+		paymentAllocationReversals = append(paymentAllocationReversals, toPaymentAllocationReversalResponse(item))
+	}
 	httpx.OK(c, invoiceDetailResponse{
-		invoiceResponse:       toInvoiceResponse(detail.Invoice),
-		Allocations:           allocations,
-		CreditNoteAllocations: creditNoteAllocations,
+		invoiceResponse:            toInvoiceResponse(detail.Invoice),
+		Allocations:                allocations,
+		CreditNoteAllocations:      creditNoteAllocations,
+		PaymentAllocationReversals: paymentAllocationReversals,
 	})
 }
 
@@ -643,12 +692,12 @@ func (h *Handler) listPayments(c *gin.Context) {
 }
 
 func (h *Handler) getPayment(c *gin.Context) {
-	payment, err := h.payments.Get(c.Request.Context(), c.Param("id"))
+	detail, err := h.payments.GetDetail(c.Request.Context(), c.Param("id"))
 	if err != nil {
 		h.handleError(c, err)
 		return
 	}
-	httpx.OK(c, toPaymentResponse(payment))
+	httpx.OK(c, toPaymentDetailResponse(detail))
 }
 
 func (h *Handler) createPayment(c *gin.Context) {
@@ -725,6 +774,47 @@ func (h *Handler) allocatePayment(c *gin.Context) {
 	httpx.OK(c, response)
 }
 
+func (h *Handler) unallocatePayment(c *gin.Context) {
+	var request unallocatePaymentRequest
+	if err := c.ShouldBindJSON(&request); err != nil {
+		httpx.Error(c, http.StatusBadRequest, httpx.CodeBadRequest, "invalid unallocation payload")
+		return
+	}
+	reversalDate, err := parseDate(request.ReversalDate)
+	if err != nil {
+		httpx.Error(c, http.StatusBadRequest, httpx.CodeBadRequest, "invalid reversal date")
+		return
+	}
+	invoiceIDs := make([]string, 0, len(request.InvoiceIDs))
+	for _, item := range request.InvoiceIDs {
+		if invoiceID := strings.TrimSpace(item); invoiceID != "" {
+			invoiceIDs = append(invoiceIDs, invoiceID)
+		}
+	}
+	if len(invoiceIDs) == 0 {
+		httpx.Error(c, http.StatusBadRequest, httpx.CodeBadRequest, "at least one invoice is required")
+		return
+	}
+	reason := strings.TrimSpace(request.Reason)
+	if reason == "" {
+		httpx.Error(c, http.StatusBadRequest, "REASON_REQUIRED", "reversal reason is required")
+		return
+	}
+
+	detail, err := h.payments.Unallocate(c.Request.Context(), c.Param("id"), domain.UnallocateInput{
+		InvoiceIDs:   invoiceIDs,
+		ReversalDate: reversalDate,
+		Reason:       reason,
+	})
+	if err != nil {
+		h.handleError(c, err)
+		return
+	}
+	response := toPaymentDetailResponse(detail)
+	h.recordAudit(c, "finance.payment.unallocate", "finance_payment", detail.Payment.ID, response)
+	httpx.OK(c, response)
+}
+
 func parseDate(value string) (time.Time, error) {
 	value = strings.TrimSpace(value)
 	if value == "" {
@@ -786,6 +876,14 @@ func (h *Handler) handleError(c *gin.Context, err error) {
 		httpx.Error(c, http.StatusBadRequest, "REFUND_AMOUNT_TOO_SMALL", "refund cash base amount rounds to zero")
 	case errors.Is(err, domain.ErrInvoicePaid):
 		httpx.Error(c, http.StatusConflict, "INVOICE_PAID", "invoice is already paid")
+	case errors.Is(err, domain.ErrPaymentNotAllocated):
+		httpx.Error(c, http.StatusConflict, "PAYMENT_NOT_ALLOCATED", "payment is not allocated")
+	case errors.Is(err, domain.ErrAllocationNotFound):
+		httpx.Error(c, http.StatusConflict, "ALLOCATION_NOT_FOUND", "payment allocation not found")
+	case errors.Is(err, domain.ErrReasonRequired):
+		httpx.Error(c, http.StatusBadRequest, "REASON_REQUIRED", "reversal reason is required")
+	case errors.Is(err, domain.ErrDuplicateInvoice):
+		httpx.Error(c, http.StatusBadRequest, "DUPLICATE_INVOICE", "duplicate invoice in reversal request")
 	case errors.Is(err, domain.ErrPaymentAllocated):
 		httpx.Error(c, http.StatusConflict, "PAYMENT_ALLOCATED", "payment is already fully allocated")
 	case errors.Is(err, domain.ErrInvoiceStatus):
@@ -908,6 +1006,46 @@ func toPaymentResponse(item *domain.Payment) paymentResponse {
 		UnallocatedAmount:   item.Unallocated().StringFixed(4), Status: item.Status,
 		Method: item.Method, Reference: item.Reference, Remark: item.Remark,
 		VoucherCode: item.VoucherCode, CreatedAt: item.CreatedAt,
+	}
+}
+
+func toPaymentDetailResponse(detail *app.PaymentDetail) paymentDetailResponse {
+	allocations := make([]paymentAllocationResponse, 0, len(detail.Allocations))
+	for _, item := range detail.Allocations {
+		allocations = append(allocations, paymentAllocationResponse{
+			ID: item.ID, PaymentID: item.PaymentID, InvoiceID: item.InvoiceID,
+			InvoiceCode: item.InvoiceCode, InvoiceDate: item.InvoiceDate.Format("2006-01-02"),
+			Amount: item.Amount.StringFixed(4), BaseAmount: item.BaseAmount.StringFixed(4),
+			InvoiceBaseAmount: item.InvoiceBaseAmount.StringFixed(4), CreatedAt: item.CreatedAt,
+		})
+	}
+	reversals := make([]paymentAllocationReversalResponse, 0, len(detail.Reversals))
+	for _, item := range detail.Reversals {
+		reversals = append(reversals, toPaymentAllocationReversalResponse(item))
+	}
+	return paymentDetailResponse{
+		paymentResponse: toPaymentResponse(detail.Payment),
+		Allocations:     allocations,
+		Reversals:       reversals,
+	}
+}
+
+func toPaymentAllocationReversalResponse(item *domain.PaymentAllocationReversal) paymentAllocationReversalResponse {
+	codes := item.FXReversalVoucherCodes
+	if codes == nil {
+		codes = []string{}
+	}
+	return paymentAllocationReversalResponse{
+		ID: item.ID, PaymentID: item.PaymentID, PaymentCode: item.PaymentCode,
+		PaymentDate: item.PaymentDate.Format("2006-01-02"),
+		InvoiceID:   item.InvoiceID, InvoiceCode: item.InvoiceCode,
+		InvoiceDate:       item.InvoiceDate.Format("2006-01-02"),
+		Amount:            item.Amount.StringFixed(4),
+		BaseAmount:        item.BaseAmount.StringFixed(4),
+		InvoiceBaseAmount: item.InvoiceBaseAmount.StringFixed(4),
+		ReversalDate:      item.ReversalDate.Format("2006-01-02"),
+		Reason:            item.Reason, FXReversalVoucherCodes: codes,
+		CreatedBy: item.CreatedBy, CreatedAt: item.CreatedAt,
 	}
 }
 
