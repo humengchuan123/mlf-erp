@@ -172,6 +172,7 @@ import {
   type PurchaseReceipt,
   type PurchaseReceiptLine
 } from '@mlf-erp/sdk'
+import { shouldRetainIdempotencyKey } from '../../utils/idempotency'
 import { useAuthStore } from '@/stores/auth'
 
 interface ReturnFormLine {
@@ -389,6 +390,9 @@ async function saveReturn() {
     returnVisible.value = false
     await load()
   } catch (error) {
+    if (!shouldRetainIdempotencyKey(error)) {
+      returnIdempotencyKey.value = ''
+    }
     ElMessage.error(error instanceof Error ? error.message : '创建采购退货失败')
   } finally {
     returning.value = false

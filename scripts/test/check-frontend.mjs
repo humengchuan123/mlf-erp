@@ -252,6 +252,7 @@ assertFile('apps/web/src/views/finance/PaymentListView.vue', [
   'createIdempotencyKey',
   'allocateIdempotencyKey',
   'reverseIdempotencyKey',
+  'shouldRetainIdempotencyKey',
   'crypto.randomUUID'
 ])
 
@@ -261,6 +262,12 @@ assertFile('packages/sdk/src/client.ts', [
   'RequestOptions',
   'idempotencyKey',
   'Idempotency-Key'
+])
+
+assertFile('apps/web/src/utils/idempotency.ts', [
+  'shouldRetainIdempotencyKey',
+  'IDEMPOTENCY_IN_PROGRESS',
+  'IDEMPOTENCY_RESPONSE_UNAVAILABLE'
 ])
 
 assertFile('apps/web/src/views/finance/AccountListView.vue', [

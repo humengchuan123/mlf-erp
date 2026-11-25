@@ -338,6 +338,7 @@ import {
   type PaymentAllocationReversal,
   type PaymentDetail
 } from '@mlf-erp/sdk'
+import { shouldRetainIdempotencyKey } from '../../utils/idempotency'
 import { useAuthStore } from '@/stores/auth'
 
 interface AllocateLine {
@@ -569,6 +570,9 @@ async function savePayment() {
     createVisible.value = false
     await load()
   } catch (error) {
+    if (!shouldRetainIdempotencyKey(error)) {
+      createIdempotencyKey.value = ''
+    }
     ElMessage.error(error instanceof Error ? error.message : '创建收付款失败')
   } finally {
     saving.value = false
@@ -694,6 +698,9 @@ async function saveReverse() {
     invalidateReverseRequest()
     await reloadAfterReversal()
   } catch (error) {
+    if (!shouldRetainIdempotencyKey(error)) {
+      reverseIdempotencyKey.value = ''
+    }
     ElMessage.error(error instanceof Error ? error.message : '反核销失败')
   } finally {
     saving.value = false
@@ -763,6 +770,9 @@ async function saveAllocate() {
     allocateVisible.value = false
     await load()
   } catch (error) {
+    if (!shouldRetainIdempotencyKey(error)) {
+      allocateIdempotencyKey.value = ''
+    }
     ElMessage.error(error instanceof Error ? error.message : '核销失败')
   } finally {
     saving.value = false

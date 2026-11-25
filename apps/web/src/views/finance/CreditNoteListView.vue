@@ -267,6 +267,7 @@ import {
   type CreditNoteSummary,
   type Invoice
 } from '@mlf-erp/sdk'
+import { shouldRetainIdempotencyKey } from '../../utils/idempotency'
 import { useAuthStore } from '@/stores/auth'
 
 interface AllocationLine {
@@ -657,6 +658,9 @@ async function saveAllocate() {
     applyVisible.value = false
     await reloadAfterChange()
   } catch (error) {
+    if (!shouldRetainIdempotencyKey(error)) {
+      applyIdempotencyKey.value = ''
+    }
     ElMessage.error(error instanceof Error ? error.message : '抵用失败')
   } finally {
     saving.value = false
@@ -733,6 +737,9 @@ async function saveRefund() {
     refundVisible.value = false
     await reloadAfterChange()
   } catch (error) {
+    if (!shouldRetainIdempotencyKey(error)) {
+      refundIdempotencyKey.value = ''
+    }
     ElMessage.error(error instanceof Error ? error.message : '退款失败')
   } finally {
     saving.value = false

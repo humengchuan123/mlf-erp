@@ -272,6 +272,7 @@ import {
   type TaxRate,
   type Warehouse
 } from '@mlf-erp/sdk'
+import { shouldRetainIdempotencyKey } from '../../utils/idempotency'
 import { useAuthStore } from '@/stores/auth'
 
 interface OrderFormLine {
@@ -680,6 +681,9 @@ async function saveReceive() {
       detailOrder.value = await purchaseApi.get(receiveOrder.value.id)
     }
   } catch (error) {
+    if (!shouldRetainIdempotencyKey(error)) {
+      receiveIdempotencyKey.value = ''
+    }
     ElMessage.error(error instanceof Error ? error.message : '收货失败')
   } finally {
     saving.value = false
