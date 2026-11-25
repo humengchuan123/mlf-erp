@@ -2,7 +2,7 @@
 
 企业级 ERP Monorepo 骨架，支持 **SaaS 订阅** 与 **私有化安装** 两种交付形态。
 
-> 当前状态：Stage 1 平台底座 + Stage 2 主数据/编码规则/数据权限 + Stage 3A 采购/库存 + Stage 3B 销售/应收应付 + Stage 3C 总账/自动凭证/基础报表 + Stage 3D 期末结转/辅助核算 + Stage 3E 税务/发票/价税分离 + Stage 3F 多币种/汇率/汇兑损益 + Stage 3G 现金流量表 + Stage 3H 销售退货/贷项单 + Stage 3I 采购退货/应付贷项单 + Stage 3J 贷项抵用/退款。
+> 当前状态：Stage 1 平台底座 + Stage 2 主数据/编码规则/数据权限 + Stage 3A 采购/库存 + Stage 3B 销售/应收应付 + Stage 3C 总账/自动凭证/基础报表 + Stage 3D 期末结转/辅助核算 + Stage 3E 税务/发票/价税分离 + Stage 3F 多币种/汇率/汇兑损益 + Stage 3G 现金流量表 + Stage 3H 销售退货/贷项单 + Stage 3I 采购退货/应付贷项单 + Stage 3J 贷项抵用/退款 + Stage 3K 收付款反核销。
 > 设计参考：工作区根目录的《企业ERP应用开发指南》。
 
 ## 技术栈
@@ -291,6 +291,10 @@ pnpm test:api:stage3i
 # Writes to the local dev database and consumes two clean future years (period-close rollback and FX revaluation); use a clean database for full regression.
 pnpm test:api:stage3j
 
+# Stage 3K API integration test (payment allocation reversals)
+# Writes to the local dev database and consumes one clean future year (closed-period rollback); use a clean database for full regression.
+pnpm test:api:stage3k
+
 # Docker
 docker build -f deploy/docker/api.Dockerfile -t mlf-erp/api:dev .
 docker build -f deploy/docker/worker.Dockerfile -t mlf-erp/worker:dev .
@@ -436,19 +440,30 @@ docker build -f deploy/docker/web.Dockerfile -t mlf-erp/web:dev .
 - Stage 3J 真实 HTTP API 集成测试和前端完整度检查。
 - API 测试命令：`pnpm test:api:stage3j`（写入本地开发库并消耗两个干净未来年度：关账回滚 + 汇兑重估，完整回归请使用干净数据库）。
 
+### Stage 3K 收付款反核销
+
+- 对已核销/部分核销的收付款按发票整行反核销，支持一次选择一张或多张发票；反核销后删除原核销行并恢复收付款已核销金额、状态和发票已收/已付金额、未结清金额、状态。
+- 反核销记录保留原核销行 ID、原币金额、收付款本位币金额、发票本位币金额、反核销日期、原因和创建人；收付款详情返回 `allocations` 与 `reversals`，发票详情返回 `payment_allocation_reversals`。
+- 发票状态按 `paid_amount + credited_amount` 重算：贷项已冲减的发票反核销后可能从 `paid` 回到 `partially_paid`；反核销不修改贷项单、贷项金额或贷项抵用记录。
+- 该核销行对应的已实现汇兑结算逐笔生成反方向 `fx_settlement_reversal` 凭证，原汇兑结算和原凭证保留；反核销记录返回 `fx_reversal_voucher_codes`，每个已反核销汇兑结算凭证一项。无汇兑结算时只做子账反核销，不生成凭证。
+- 反核销日期默认当天，不能早于收付款日期，且必须落在 open 期间；原因必填；请求内发票不能重复。关账期间返回 `PERIOD_CLOSED` 并整体回滚，收付款、发票、核销和凭证均不产生部分变更。
+- 新增权限 `finance.payment.reverse`；API、SDK、OpenAPI 和前端同步。并发反核销通过收付款行锁串行化，同一发票只会成功一次。
+- Stage 3K 真实 HTTP API 集成测试和前端完整度检查。
+- API 测试命令：`pnpm test:api:stage3k`（写入本地开发库并消耗一个干净未来年度：关账回滚，完整回归请使用干净数据库）。
+
 ### 工程与交付
 
 - Monorepo 工作区与共享包。
 - PostgreSQL 迁移、seed、Docker Compose。
 - Dockerfile、GitHub Actions CI、SaaS/私有化发布模板。
-- CI 包含单元测试、构建、Stage 3B/3C/3D/3E/3F/3G/3H/3I/3J 真实 PostgreSQL API 集成测试。
+- CI 包含单元测试、构建、Stage 3B/3C/3D/3E/3F/3G/3H/3I/3J/3K 真实 PostgreSQL API 集成测试。
 - OpenAPI 契约与模块文档。
 
 ## 下一步
 
 - 银行/现金外币重估、跨币种核销、多本位币/合并报表折算。
 - 价格协议、客户信用。
-- 收付款反核销、红字发票、账龄分析。
+- 反核销的反向恢复、红字发票、账龄分析。
 - 审批流引擎、导入导出、附件。
 - 数据范围管理 API/UI。
 - 登录限流、token version、httpOnly Cookie 评估。
