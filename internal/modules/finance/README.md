@@ -210,7 +210,7 @@ if amount == remaining_amount:
 - 反核销日期默认当天，不能早于收付款日期，且必须落在 open 期间；原因必填；请求内发票不能重复，UUID 先规范化再查重。
 - 事务内锁定收付款，按发票 ID 排序锁定发票，再锁定对应核销行；先写入反核销记录，再删除有效核销行，并回退：
   - 收付款 `allocated_amount`、`base_allocated_amount`，状态按剩余已核销金额重算为 `unallocated` / `partially_allocated` / `allocated`。
-  - 发票 `paid_amount`、`base_paid_amount`、`outstanding_amount`，状态按 `paid_amount + credited_amount` 重算为 `open` / `partially_paid` / `paid`；结清时清空 `base_revalued_amount`。
+  - 发票 `paid_amount`、`base_paid_amount`，状态按 `paid_amount + credited_amount` 重算为 `open` / `partially_paid` / `paid`；结清时清空 `base_revalued_amount`。`outstanding_amount` 不落库，由 API 按 `total_amount - paid_amount - credited_amount` 实时计算。
   - 收付款和发票更新均带 SQL 守卫，余额不足时整体回滚。
 - 反核销只减少已收/已付，不修改 `credited_amount`、贷项单、贷项抵用或退款记录；已由贷项冲减的发票可能从 `paid` 回到 `partially_paid`。
 - 已实现汇兑结算：对同一收付款+发票下每条 `posted` 结算逐笔生成反方向 `fx_settlement_reversal` 凭证，结算标记 `reversed` 并记录 `reversal_id`、`reversed_at`、`reversed_by`，非零调整额另记录 `reversal_voucher_id`；原结算和原 `fx_settlement` 凭证保留。调整额四舍五入为 0 的结算只标记 `reversed`，不生成凭证。
@@ -225,7 +225,7 @@ if amount == remaining_amount:
 }
 ```
 
-- 响应为收付款详情，增加 `allocations` 和 `reversals`；反核销记录包含原核销行 ID、原币金额、付款本位币金额、发票本位币金额、日期、原因、创建人，以及 `fx_reversal_voucher_codes`（每个已反核销汇兑结算凭证一项）。发票详情增加 `payment_allocation_reversals`。列表仍只返回汇总字段，不返回明细数组。
+- 响应为收付款详情，增加 `allocations` 和 `reversals`；反核销记录包含原币金额、付款本位币金额、发票本位币金额、日期、原因、创建人，以及 `fx_reversal_voucher_codes`（每个已反核销汇兑结算凭证一项）。原核销行 ID 仅保存在审计表 `finance_payment_allocation_reversals.allocation_id`，不在 API 响应中暴露。发票详情增加 `payment_allocation_reversals`。列表仍只返回汇总字段，不返回明细数组。
 - 典型错误码：400 `BAD_REQUEST` / `REASON_REQUIRED` / `DUPLICATE_INVOICE` / `PAYMENT_TYPE_MISMATCH` / `PARTNER_MISMATCH` / `CURRENCY_MISMATCH`；404 `NOT_FOUND`；409 `PAYMENT_NOT_ALLOCATED` / `ALLOCATION_NOT_FOUND` / `PERIOD_CLOSED`；401/403。
 - 已知限制：
   - 只支持整行反核销，不支持部分金额。
@@ -234,7 +234,7 @@ if amount == remaining_amount:
   - 反核销日期必须在 open 期间。
   - 已反核销不能恢复；需要重新核销时重新执行核销。
   - 原核销行删除、历史只保留在反核销审计表，不在原核销行上保留版本。
-  - self scope 下“本人创建收付款、他人创建发票”和“本人创建发票、他人创建收付款”的正向跨创建人详情/反核销场景尚未纳入 API 回归：当前没有 self-scope 演示账号，用户 API 也不能设置 `data_scope`。测试以 admin 详情验证父单据范围数组，控制器范围由单元测试覆盖；该缺口见 `tests/api/stage3k_test.go` 注释和报告已知限制。
+  - self scope 的负向隔离已纳入 API 回归：测试通过 `/system/roles`、`/system/users` 动态创建 self 用户（无 `org_memberships`，默认 `self`），验证其读取他人创建的收付款/发票详情返回 404。正向跨创建人可见性（本人收付款+他人发票、本人发票+他人收付款）仍未纳入 API 回归：用户 API 不能设置 `data_scope`，构造该场景还需要更宽的写入权限组合。父单据范围数组由 admin 详情验证，控制器范围由单元测试覆盖；该缺口见 `tests/api/stage3k_test.go` 注释和报告已知限制。
 
 ## 前端
 

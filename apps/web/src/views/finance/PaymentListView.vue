@@ -203,7 +203,6 @@
           </el-descriptions-item>
           <el-descriptions-item label="方式">{{ detail.method }}</el-descriptions-item>
           <el-descriptions-item label="参考号">{{ detail.reference || '-' }}</el-descriptions-item>
-          <el-descriptions-item label="凭证号">{{ detail.voucher_code || '-' }}</el-descriptions-item>
           <el-descriptions-item label="备注">{{ detail.remark || '-' }}</el-descriptions-item>
         </el-descriptions>
 

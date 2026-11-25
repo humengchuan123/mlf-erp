@@ -153,6 +153,50 @@ func TestStage3K(t *testing.T) {
 		stage3KExpect(t, invoiceA, "status", "paid")
 	})
 
+	t.Run("two payments one invoice reversal", func(t *testing.T) {
+		_, _, _, invoiceID := stage3JCreateShippedInvoice(
+			t, admin, customerID, warehouseID, materialID, vat0ID,
+			"1", "100.00", "CNY", "", today, "stage3k-two-payments-invoice",
+		)
+		payment1 := stage3KCreatePayment(t, admin, "receipt", customerID, "CNY", "", "40.00", today, "stage3k-two-payments-40")
+		payment1ID := text(payment1, "id")
+		payment2 := stage3KCreatePayment(t, admin, "receipt", customerID, "CNY", "", "60.00", today, "stage3k-two-payments-60")
+		payment2ID := text(payment2, "id")
+		stage3KAllocate(t, admin, payment1ID, stage3JAllocation{invoiceID, "40.00"})
+		stage3KAllocate(t, admin, payment2ID, stage3JAllocation{invoiceID, "60.00"})
+
+		invoice := admin.mustGet("/finance/invoices/"+invoiceID, http.StatusOK)
+		stage3KExpect(t, invoice, "paid_amount", "100.0000")
+		stage3KExpect(t, invoice, "status", "paid")
+
+		first := stage3KUnallocate(t, admin, payment1ID, today, "stage3k two payments first", invoiceID)
+		stage3KExpect(t, first, "allocated_amount", "0.0000")
+		stage3KExpect(t, first, "status", "unallocated")
+		invoice = admin.mustGet("/finance/invoices/"+invoiceID, http.StatusOK)
+		stage3KExpect(t, invoice, "paid_amount", "60.0000")
+		stage3KExpect(t, invoice, "base_paid_amount", "60.0000")
+		stage3KExpect(t, invoice, "outstanding_amount", "40.0000")
+		stage3KExpect(t, invoice, "status", "partially_paid")
+		payment2Detail := admin.mustGet("/finance/payments/"+payment2ID, http.StatusOK)
+		stage3KExpect(t, payment2Detail, "allocated_amount", "60.0000")
+		stage3KExpect(t, payment2Detail, "status", "allocated")
+		if got := len(stage3KObjects(t, payment2Detail, "allocations")); got != 1 {
+			t.Fatalf("second payment allocations after first reversal = %d, want 1", got)
+		}
+
+		second := stage3KUnallocate(t, admin, payment2ID, today, "stage3k two payments second", invoiceID)
+		stage3KExpect(t, second, "allocated_amount", "0.0000")
+		stage3KExpect(t, second, "status", "unallocated")
+		invoice = admin.mustGet("/finance/invoices/"+invoiceID, http.StatusOK)
+		stage3KExpect(t, invoice, "paid_amount", "0.0000")
+		stage3KExpect(t, invoice, "base_paid_amount", "0.0000")
+		stage3KExpect(t, invoice, "outstanding_amount", "100.0000")
+		stage3KExpect(t, invoice, "status", "open")
+		payment2Detail = admin.mustGet("/finance/payments/"+payment2ID, http.StatusOK)
+		stage3KExpect(t, payment2Detail, "allocated_amount", "0.0000")
+		stage3KExpect(t, payment2Detail, "status", "unallocated")
+	})
+
 	t.Run("rounding parity multi invoice", func(t *testing.T) {
 		const rate = "7.12345678"
 		t.Run("one allocation call", func(t *testing.T) {
@@ -546,6 +590,84 @@ func TestStage3K(t *testing.T) {
 		stage3KExpect(t, recoveredInvoice, "status", "open")
 	})
 
+	t.Run("closed period reversal without FX rolls back", func(t *testing.T) {
+		year := cleanRevaluationYear(t, admin)
+		ensureTestYear(t, admin, year)
+		marchStart := fmt.Sprintf("%04d-03-01", year)
+		marchEnd := fmt.Sprintf("%04d-03-31", year)
+		paymentDate := fmt.Sprintf("%04d-03-15", year)
+		reversalDate := fmt.Sprintf("%04d-03-16", year)
+
+		_, _, _, invoiceID := stage3JCreateShippedInvoice(
+			t, admin, customerID, warehouseID, materialID, vat0ID,
+			"1", "100.00", "CNY", "", paymentDate, fmt.Sprintf("stage3k-closed-cny-%d", year),
+		)
+		payment := stage3KCreatePayment(t, admin, "receipt", customerID, "CNY", "", "100.00", paymentDate, fmt.Sprintf("stage3k-closed-cny-payment-%d", year))
+		paymentID := text(payment, "id")
+		paymentCode := text(payment, "code")
+		stage3KAllocate(t, admin, paymentID, stage3JAllocation{invoiceID, "100.00"})
+
+		// A same-currency allocation at rate 1 has no FX settlement, so the
+		// rejected reversal below can only be stopped by CheckPeriodOpen.
+		if got := len(stage3KSourceVouchers(stage3KFindVouchers(admin, "fx_settlement", paymentCode, marchStart, marchEnd), paymentCode)); got != 0 {
+			t.Fatalf("CNY allocation FX settlement vouchers = %d, want 0", got)
+		}
+
+		beforePayment := admin.mustGet("/finance/payments/"+paymentID, http.StatusOK)
+		beforeInvoice := admin.mustGet("/finance/invoices/"+invoiceID, http.StatusOK)
+		stage3KExpect(t, beforePayment, "status", "allocated")
+		stage3KExpect(t, beforePayment, "allocated_amount", "100.0000")
+		stage3KExpect(t, beforeInvoice, "status", "paid")
+		stage3KExpect(t, beforeInvoice, "paid_amount", "100.0000")
+
+		var marchPeriod map[string]any
+		for _, period := range getArray(admin, periodsPath(year), http.StatusOK) {
+			if month, ok := period["month"].(float64); ok && int(month) == 3 {
+				marchPeriod = period
+				break
+			}
+		}
+		if marchPeriod == nil {
+			t.Fatalf("March %d period not found", year)
+		}
+		marchPeriodID := text(marchPeriod, "id")
+		if text(marchPeriod, "status") == "closed" {
+			admin.mustPost("/finance/periods/"+marchPeriodID+"/reopen", nil, http.StatusOK)
+		}
+		admin.mustPost("/finance/periods/"+marchPeriodID+"/close", nil, http.StatusOK)
+		vouchersBefore := admin.mustGet("/finance/vouchers?start_date="+marchStart+"&end_date="+marchEnd+"&page_size=200", http.StatusOK)
+		beforeTotal, _ := vouchersBefore["total"].(float64)
+
+		admin.expectError(http.MethodPost, "/finance/payments/"+paymentID+"/unallocate", stage3KUnallocateBody([]string{invoiceID}, reversalDate, "stage3k closed CNY reversal"), http.StatusConflict, "PERIOD_CLOSED")
+
+		vouchersAfter := admin.mustGet("/finance/vouchers?start_date="+marchStart+"&end_date="+marchEnd+"&page_size=200", http.StatusOK)
+		afterTotal, _ := vouchersAfter["total"].(float64)
+		if afterTotal != beforeTotal {
+			t.Fatalf("voucher total after closed period rejection = %v, before = %v, want unchanged", afterTotal, beforeTotal)
+		}
+		if got := len(stage3KSourceVouchers(stage3KFindVouchers(admin, "fx_settlement_reversal", paymentCode, marchStart, marchEnd), paymentCode)); got != 0 {
+			t.Fatalf("FX reversal vouchers after closed period rejection = %d, want 0", got)
+		}
+
+		afterPayment := admin.mustGet("/finance/payments/"+paymentID, http.StatusOK)
+		stage3KAssertSameFields(t, "payment after closed CNY rejection", beforePayment, afterPayment,
+			"allocated_amount", "base_allocated_amount", "status")
+		if got := len(stage3KObjects(t, afterPayment, "allocations")); got != 1 {
+			t.Fatalf("allocations after closed CNY rejection = %d, want 1", got)
+		}
+		if got := len(stage3KObjects(t, afterPayment, "reversals")); got != 0 {
+			t.Fatalf("reversals after closed CNY rejection = %d, want 0", got)
+		}
+		afterInvoice := admin.mustGet("/finance/invoices/"+invoiceID, http.StatusOK)
+		stage3KAssertSameFields(t, "invoice after closed CNY rejection", beforeInvoice, afterInvoice,
+			"paid_amount", "base_paid_amount", "outstanding_amount", "status")
+		if got := len(stage3KObjects(t, afterInvoice, "payment_allocation_reversals")); got != 0 {
+			t.Fatalf("invoice payment allocation reversals after closed CNY rejection = %d, want 0", got)
+		}
+
+		admin.mustPost("/finance/periods/"+marchPeriodID+"/reopen", nil, http.StatusOK)
+	})
+
 	t.Run("validation", func(t *testing.T) {
 		ensureStage3HStock(t, admin, supplierID, warehouseID, materialID, today)
 		_, _, _, invoiceAID, _ := createShippedOrder(
@@ -868,7 +990,7 @@ func TestStage3K(t *testing.T) {
 		stage3KExpect(t, invoiceReversals[0], "payment_code", paymentCode)
 		stage3KExpect(t, invoiceReversals[0], "invoice_code", invoiceCode)
 
-		rows := listItems(admin, "/finance/payments?page_size=200", http.StatusOK)
+		rows := listItems(admin, "/finance/payments?keyword="+url.QueryEscape("stage3k-detail-payment")+"&page_size=20", http.StatusOK)
 		row := findByID(rows, paymentID)
 		if row == nil {
 			t.Fatalf("payment %s not found in list", paymentID)
@@ -911,10 +1033,18 @@ func TestStage3K(t *testing.T) {
 			t.Fatalf("demo_dept payment list status = %d, want 200/403, payload = %v", status, payload)
 		}
 
-		// Payment-parent and invoice-parent self-scope coverage is not feasible
-		// through the public HTTP API: there is no self-scope demo account and
-		// the user API cannot set data_scope. Admin detail above validates the
-		// parent-scoped arrays; controller scoping is covered by unit tests.
+		t.Run("self scope hides cross-creator details", func(t *testing.T) {
+			self := stage3KSelfScopeClient(t, admin)
+			self.expectError(http.MethodGet, "/finance/payments/"+paymentID, nil, http.StatusNotFound, "NOT_FOUND")
+			self.expectError(http.MethodGet, "/finance/invoices/"+invoiceID, nil, http.StatusNotFound, "NOT_FOUND")
+		})
+
+		// The self-scope account above proves negative isolation. Positive
+		// cross-creator parent visibility (own payment + other creator's
+		// invoice, and the reverse) remains an API regression gap: the user API
+		// cannot set data_scope, and constructing that graph needs broader write
+		// permissions. Admin detail above validates the parent-scoped arrays;
+		// controller scoping is covered by unit tests.
 	})
 
 	t.Run("reversal date and failure rollback", func(t *testing.T) {
@@ -1060,6 +1190,71 @@ func stage3KCreatePayment(
 		body["exchange_rate"] = exchangeRate
 	}
 	return admin.mustPost("/finance/payments", body, http.StatusCreated)
+}
+
+func stage3KPut(t *testing.T, admin *client, path string, body any) map[string]any {
+	t.Helper()
+	status, payload := admin.put(path, body)
+	if status != http.StatusOK {
+		t.Fatalf("PUT %s status = %d, want %d, payload = %v", path, status, http.StatusOK, payload)
+	}
+	return payload.Data
+}
+
+// stage3KSelfScopeClient creates (idempotently) a role and user with only the
+// finance read/reverse permissions and no org_memberships row. The auth
+// middleware therefore falls back to data_scope=self for this user.
+func stage3KSelfScopeClient(t *testing.T, admin *client) *client {
+	t.Helper()
+
+	hq := findItem(getArray(admin, "/system/orgs", http.StatusOK), "code", "HQ")
+	if hq == nil {
+		t.Fatal("HQ organization not found")
+	}
+	hqID := text(hq, "id")
+
+	const roleCode = "stage3k_self_scope"
+	var roleID string
+	if role := findItem(getArray(admin, "/system/roles", http.StatusOK), "code", roleCode); role != nil {
+		roleID = text(role, "id")
+	} else {
+		roleID = text(admin.mustPost("/system/roles", map[string]any{
+			"code": roleCode,
+			"name": "Stage 3K self scope",
+		}, http.StatusCreated), "id")
+	}
+	stage3KPut(t, admin, "/system/roles/"+roleID+"/permissions", map[string]any{
+		"permission_codes": []string{
+			"finance.payment.read",
+			"finance.payment.reverse",
+			"finance.invoice.read",
+		},
+	})
+
+	const username = "stage3k_self_scope"
+	users := listItems(admin, "/system/users?keyword="+url.QueryEscape(username)+"&page_size=20", http.StatusOK)
+	if user := findItem(users, "username", username); user != nil {
+		userID := text(user, "id")
+		stage3KPut(t, admin, "/system/users/"+userID, map[string]any{
+			"display_name":   "Stage 3K self scope",
+			"org_id":         hqID,
+			"status":         "active",
+			"password":       "Demo@123456",
+			"is_super_admin": false,
+		})
+		admin.mustPost("/system/users/"+userID+"/roles", map[string]any{"role_ids": []string{roleID}}, http.StatusOK)
+	} else {
+		admin.mustPost("/system/users", map[string]any{
+			"username":       username,
+			"display_name":   "Stage 3K self scope",
+			"password":       "Demo@123456",
+			"org_id":         hqID,
+			"is_super_admin": false,
+			"role_ids":       []string{roleID},
+		}, http.StatusCreated)
+	}
+
+	return newClient(t).login(username, "Demo@123456")
 }
 
 func stage3KAllocate(t *testing.T, admin *client, paymentID string, entries ...stage3JAllocation) map[string]any {

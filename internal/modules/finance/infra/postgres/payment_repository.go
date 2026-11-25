@@ -834,7 +834,7 @@ func (r *PaymentRepository) ListReversals(ctx context.Context, filter scope.Filt
 
 	rows, err := r.db.Query(ctx, paymentAllocationReversalSelectSQL+`
 		WHERE `+where+`
-		ORDER BY r.reversal_date DESC, r.created_at DESC`, args...)
+		ORDER BY r.reversal_date DESC, r.created_at DESC, r.id DESC`, args...)
 	if err != nil {
 		return nil, fmt.Errorf("list payment allocation reversals: %w", err)
 	}

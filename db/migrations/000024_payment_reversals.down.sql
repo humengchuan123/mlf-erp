@@ -13,6 +13,7 @@ BEGIN
         SELECT 1 FROM erp.finance_fx_settlements
         WHERE status = 'reversed'
            OR reversal_id IS NOT NULL
+           OR reversal_voucher_id IS NOT NULL
            OR reversed_at IS NOT NULL
            OR reversed_by IS NOT NULL
     ) THEN

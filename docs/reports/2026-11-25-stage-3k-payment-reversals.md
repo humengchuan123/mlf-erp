@@ -2,10 +2,10 @@
 
 > 日期：2026-11-25
 > 分支：`stage-3k-payment-reversals`
-> 功能/测试 HEAD：`7060259`（Task 8 文档提交前）
+> 功能/测试 HEAD：`8533bd0`（最终覆盖补齐提交前）
 > 设计：`docs/superpowers/specs/2026-11-25-stage-3k-payment-reversals-design.md`
 > 计划：`docs/superpowers/plans/2026-11-25-stage-3k-payment-reversals.md`
-> 状态：开发、接口测试用例和静态检查完成；独立审核、干净库 Stage 3B–3K 回归与最终验收待 Task 9
+> 状态：开发、接口测试用例、覆盖补齐和静态检查完成；独立审核、干净库 Stage 3B–3K 回归与最终验收待控制端执行
 
 ---
 
@@ -15,7 +15,7 @@
 
 - 对已核销/部分核销的收付款，按发票选择一条或多条核销记录整行反核销；不支持部分金额。
 - 反核销删除有效核销行，写入独立反核销审计记录，并回退收付款已核销金额、本位币已核销金额和状态。
-- 同步回退发票已收/已付金额、本位币已收/已付金额、未收/未付金额和状态。
+- 同步回退发票 `paid_amount`、`base_paid_amount` 并重算状态；`outstanding_amount` 不落库，由 API 按 `total - paid - credited` 实时计算。
 - 发票状态按 `paid_amount + credited_amount` 重算，与现有核销、贷项抵用共用同一状态口径；反核销不修改贷项单、贷项抵用或退款记录。
 - 反核销日期默认当天，不能早于收付款日期，且必须落在 open 期间；原因必填；请求内发票不能重复。
 
@@ -47,7 +47,8 @@
 | API/SDK/OpenAPI | `d082c6a`、`f1436a1` |
 | 前端 | `838960d`、`4ab6b01` |
 | 接口测试/脚本 | `7060259` |
-| 文档/报告 | 本报告随 `docs(stage-3k): add payment reversal docs and report draft` 提交 |
+| 文档/报告 | `8533bd0` |
+| 最终覆盖补齐 | 本报告随 `test(stage-3k): close final reversal coverage gaps` 提交 |
 
 ## 2. 数据模型
 
@@ -61,7 +62,7 @@
 - `(tenant_id, id)` 唯一；`(tenant_id, allocation_id)` 唯一，保证同一原核销行只能反核销一次。
 - 复合外键引用 `finance_payments` 和 `finance_invoices`；索引 `(tenant_id, payment_id, reversal_date DESC)`、`(tenant_id, invoice_id)`。
 
-`allocation_id` 保留原核销行 ID 便于审计；原核销行在反核销事务中删除。
+`allocation_id` 保留原核销行 ID 便于数据库审计，不在 API 响应中暴露；原核销行在反核销事务中删除。
 
 ### 2.2 迁移 24：汇兑结算反核销字段
 
@@ -80,11 +81,11 @@
 
 新增 `db/migrations/000025_payment_base_allocation_repair`，把 `finance_payments.base_allocated_amount` 回填为有效核销明细 `base_amount` 之和。
 
-旧口径按付款总额一次性四舍五入，和逐条核销行本位币之和可能相差 0.0001；反核销必须按原核销行精确扣减，因此先修复历史余额，避免反核销后留下无法归零的本位币残差。当前迁移版本 25。
+旧口径按付款总额一次性四舍五入，和逐条核销行本位币之和可能相差 0.0001；反核销必须按原核销行精确扣减，因此先修复历史余额，避免反核销后留下无法归零的本位币残差。当前迁移版本 25。迁移 25 在干净库/升级库上的验证记录由控制端单独执行并回填，本报告不重复声称。
 
 ### 2.4 Down guard
 
-`000024` down 迁移在存在反核销记录，或存在 `status = 'reversed'` / `reversal_id` / `reversed_at` / `reversed_by` 的汇兑结算时拒绝执行，避免删除反核销子账和总账审计状态；锁表后检查，再删除权限、约束、索引、扩展列和新表。`000025` 为数据修复迁移，down 为 no-op。
+`000024` down 迁移在存在反核销记录，或存在 `status = 'reversed'` / `reversal_id` / `reversal_voucher_id` / `reversed_at` / `reversed_by` 的汇兑结算时拒绝执行，避免删除反核销子账和总账审计状态；锁表后检查，再删除权限、约束、索引（含旧名 `finance_fx_settlements_reversal_idx` 和实际 `finance_fx_settlements_reversal_id_idx`）、扩展列和新表。`000025` 为数据修复迁移，down 为 no-op。
 
 ## 3. 反核销规则与事务
 
@@ -182,7 +183,7 @@ paid              : total_amount == 0 或 settled >= total_amount（4 位小数�
 ```
 
 - `reversal_date` 可省略，省略时默认当天。
-- 响应为收付款详情，包含 `allocations` 和 `reversals`；反核销记录字段包括 `payment_code`、`payment_date`、`invoice_code`、`invoice_date`、`amount`、`base_amount`、`invoice_base_amount`、`reversal_date`、`reason`、`fx_reversal_voucher_codes`、`created_by`、`created_at`。
+- 响应为收付款详情，包含 `allocations` 和 `reversals`；反核销记录字段包括 `payment_code`、`payment_date`、`invoice_code`、`invoice_date`、`amount`、`base_amount`、`invoice_base_amount`、`reversal_date`、`reason`、`fx_reversal_voucher_codes`、`created_by`、`created_at`。原核销行 ID 仅保存在审计表 `allocation_id`，响应不暴露。
 - 发票详情 `payment_allocation_reversals` 使用同一反核销记录模型。
 - 收付款列表不返回 `allocations` / `reversals`，避免列表负载膨胀。
 - 错误码：
@@ -214,7 +215,7 @@ paid              : total_amount == 0 或 settled >= total_amount（4 位小数�
 
 ### 6.1 TestStage3K 用例数量
 
-`tests/api/stage3k_test.go` 共有 **10 个顶层子测试**，其中 7 个嵌套命名子测试（3 个并发、2 个 full reversal、2 个 rounding），合计 **17 个命名子测试**。
+`tests/api/stage3k_test.go` 共有 **12 个顶层子测试**，其中 8 个嵌套命名子测试（3 个并发、2 个 full reversal、2 个 rounding、1 个 self scope），合计 **20 个命名子测试**。
 
 ### 6.2 覆盖清单
 
@@ -224,49 +225,67 @@ paid              : total_amount == 0 或 settled >= total_amount（4 位小数�
 | `├ receivable` | CNY 应收 100 全额收款并反核销：收付款已核销/本位币归零、`unallocated`、未核销金额恢复；发票已收/本位币/未收/状态恢复；核销行删除、1 条反核销记录、无汇兑凭证；发票详情保留反核销记录 |
 | `└ payable` | 同上，应付方向 |
 | `multi invoice reversal and reallocation` | 一笔 200 收款核销两张 100 发票；反核销一张后状态 `partially_allocated`、核销/反核销数组正确；发票 B 恢复 open；重新核销 B；再次反核销后累计 2 条反核销记录；发票 A 保持 paid |
+| `two payments one invoice reversal` | 一张 100 发票由 40/60 两笔收款分别核销；反核销 40 后发票 paid 60、`partially_paid`，第二笔收款仍全额核销；再反核销 60 后发票 paid 0、`open`，覆盖“扣减而非重置”回归 |
 | `rounding parity multi invoice` | 父用例：USD 汇率 7.12345678 的多发票本位币舍入一致性 |
 | `├ one allocation call` | 一次核销两张 USD 1.0000 发票；付款 `base_amount=14.2469`、`base_allocated_amount=14.2470`（逐行 7.1235 合计）；反核销两行后收付款与两张发票本位币全额归零，状态恢复 |
 | `└ two allocation calls reversed one by one` | 同一付款分两次各核销 1.0000，逐张反核销：第一次后 `base_allocated_amount=7.1235`，第二次归零；覆盖逐行舍入和部分状态 |
 | `fx settlement reversal and multiple settlements` | USD 应付发票 100@7.2、付款 100@7.3；分 40+60 两次核销聚合为一条核销行；反核销后原 2 张 `fx_settlement` 凭证保留 posted，生成 2 张 `fx_settlement_reversal` 凭证；校验类型/来源、`source_id`/`source_code`、摘要、反方向分录和借贷平衡；另覆盖应收正/负调整方向 |
 | `credited invoice reversal status` | 发票 100 已收 40、贷项冲 60 后 paid；反核销后 paid 归零、credited 不变、outstanding 40、状态 `partially_paid`；贷项单金额/已冲/已退/剩余/状态和抵用历史不变；发票详情保留贷项抵用和付款反核销记录 |
 | `closed period reversal rolls back` | 3 月已核销 USD 收付款，3 月关账后反核销返回 409 `PERIOD_CLOSED`；凭证总数、收付款、发票、核销行均不变，无 `fx_settlement_reversal`；重开期间后反核销成功并生成 1 张反核销凭证 |
+| `closed period reversal without FX rolls back` | 干净年度 3 月 CNY 应收 100/收款 100/核销，无 `fx_settlement`；3 月关账后反核销返回 409 `PERIOD_CLOSED`，凭证总数、收付款/发票余额、核销行和反核销记录均不变；重开 3 月。该用例只走 `glpost.CheckPeriodOpen`，不进入汇兑凭证路径 |
 | `validation` | 空选择、空/空白原因、空白/非法/重复（大小写和花括号变体）发票 ID、未知收付款/发票、未核销发票、收付款类型不匹配、早于付款日期、非法日期、未核销收付款、已反核销；拒绝后收付款/发票/核销/反核销状态不变 |
 | `concurrency` | 父用例：并发反核销串行化 |
 | `├ concurrent double reversal succeeds once` | 同一发票 40+60 两笔核销，两个并发反核销仅 1 个成功，另一个返回 409 `PAYMENT_NOT_ALLOCATED`/`ALLOCATION_NOT_FOUND`；最终 1 条反核销记录、2 张汇兑反核销凭证 |
 | `├ concurrent different invoices both succeed` | 同一付款两张发票并发反核销均成功；最终核销行 0、反核销记录 2、两张发票 open |
 | `└ concurrent allocate and unallocate invariant` | 同一付款并发核销/反核销，按允许结果收敛；校验 payment allocated/base 等于核销行合计、状态与未核销金额、1 条反核销记录、invoice paid 等于核销行合计及发票状态 |
-| `detail and scope/permissions` | 空/已核销/反核销后的收付款与发票详情数组；列表不返回 `allocations`/`reversals`；匿名 401、demo_dept 反核销 403、详情 403/404、列表隔离 |
+| `detail and scope/permissions` | 空/已核销/反核销后的收付款与发票详情数组；按 reference 过滤列表确认不返回 `allocations`/`reversals`；匿名 401、demo_dept 反核销 403、详情 403/404、列表隔离；动态 self 用户读取他人创建的收付款/发票详情均 404 `NOT_FOUND` |
 | `reversal date and failure rollback` | 早于付款日期/非法日期拒绝且无副作用；省略日期默认当天；多发票请求含未知第二张发票返回 404 并整体回滚，收付款/两张发票/核销行不变 |
 
-### 6.3 self scope 覆盖限制
+### 6.3 self scope 覆盖
 
-`detail and scope/permissions` 覆盖了匿名 401、部门用户 403、详情 403/404 和列表隔离，但以下正向场景未纳入 API 回归：
+`detail and scope/permissions` 覆盖了匿名 401、部门用户 403、详情 403/404 和列表隔离；本次新增动态 self 用户，API 验证了 self scope 的负向隔离：
+
+- 通过 `/system/roles` 创建仅含 `finance.payment.read`、`finance.payment.reverse`、`finance.invoice.read` 的角色，并通过 `/system/roles/:id/permissions` 授权。
+- 通过 `/system/users` 创建 HQ 组织用户并赋角色，密码 `Demo@123456`；该用户没有 `org_memberships`，`DataScopeByUserID` 默认返回 `self`。
+- self 用户读取 admin 创建的收付款/发票详情均返回 404 `NOT_FOUND`，证明 self scope 已应用。
+
+仍存在的正向回归缺口：
 
 - self-scope 用户查看本人创建收付款、但发票由他人创建时，仍应看到该收付款的核销/反核销数组。
 - self-scope 用户查看本人创建发票、但收付款或贷项单由他人创建时，仍应看到付款核销/反核销数组。
 
-原因：当前没有 self-scope 演示账号，用户 API 也不能设置 `data_scope`。测试改为由 admin 详情验证父单据范围下的数组返回，控制器范围逻辑由单元测试覆盖。该缺口已登记为已知限制，本报告不声称上述正向跨创建人场景已被 API 测试覆盖。
+原因：用户 API 不能设置 `data_scope`，且构造正向跨创建人场景需要给 self 用户更宽的写入权限组合。测试改为由 admin 详情验证父单据范围下的数组返回，控制器范围逻辑由单元测试覆盖。该缺口已登记为已知限制，本报告不声称上述正向跨创建人场景已被 API 测试覆盖。
 
 ### 6.4 执行状态
 
-Task 7 已提交 `tests/api/stage3k_test.go`、`scripts/test/stage3k-api.ps1` 和 `pnpm test:api:stage3k`。该套件依赖 PowerShell、Docker 和可写的 Compose PostgreSQL `mlf_erp` 数据库，并会消耗测试期间/年度；Task 8 未在本机重跑，因此本报告不声称 `TestStage3K` 已通过。最终通过结果和干净库 Stage 3B–3K 回归由 Task 9 执行并回填。
+Task 7 已提交 `tests/api/stage3k_test.go`、`scripts/test/stage3k-api.ps1` 和 `pnpm test:api:stage3k`。本次收口在本地 Compose PostgreSQL（数据库已迁移至版本 25）上执行 `pnpm test:api:stage3k`，`TestStage3K` 的 **12 个顶层/20 个命名子测试全部通过**（`PASS`，约 8.6s），包括：
+
+- 新增 `two payments one invoice reversal`；
+- 新增 `closed period reversal without FX rolls back`；
+- 新增 `self scope hides cross-creator details`，动态创建 self 用户并验证他人单据详情返回 404。
 
 `go vet -tags=integration ./tests/api` 已通过，确认集成测试包可编译。
 
+迁移 24/25 在干净库的全新应用/升级验证记录由控制端单独执行并回填；本报告不声称干净库 Stage 3B–3K 全链路已执行。
+
 ### 6.5 静态检查与构建
 
-本次 Task 8 实际执行：
+本次收口实际执行：
 
 | 命令 | 结果 |
 |---|---|
+| `gofmt -w tests/api/stage3k_test.go internal/modules/finance/infra/postgres/payment_repository.go` | 无输出 |
 | `gofmt -l ./cmd ./internal ./db ./tests` | 无输出 |
-| `go test ./... -count=1` | 全部包通过，无失败包 |
+| `go build ./...` | 通过 |
+| `go test ./internal/modules/finance/... -count=1` | 全部包通过 |
+| `go test ./... -count=1` | 全部包通过 |
+| `go vet ./internal/modules/finance/...` | 通过，无输出 |
 | `go vet ./...` | 通过，无输出 |
-| `npx -y yaml@2 valid api/openapi.yaml` | 通过，无输出 |
+| `go vet -tags=integration ./tests/api` | 通过，无输出 |
+| `pnpm test:api:stage3k` | `TestStage3K` 12 个顶层/20 个命名子测试通过 |
 | `pnpm typecheck:web` | 通过，无类型错误 |
 | `pnpm test:frontend` | `Frontend completeness check passed.` |
-| `pnpm build:web` | 通过；Vite 仅提示 `index-*.js` 约 967.60 kB 超过 500 kB 的 chunk 体积告警，无构建错误 |
-| `git diff --check` | 无空白错误；Git 仅提示 finance/gl README 的 LF→CRLF 行尾转换 |
+| `git diff --check` | 无空白错误；Git 仅提示 LF→CRLF 行尾转换 |
 
 ## 7. 代码审核（pending Task 9）
 
@@ -302,7 +321,7 @@ Task 9 计划：
 - 无汇兑结算的反核销不生成总账凭证；只有已实现汇兑结算会生成 `fx_settlement_reversal` 凭证。
 - 反核销采用“删除有效核销行 + 反核销审计表”模型，不在原核销行上保留版本历史。
 - `000025_payment_base_allocation_repair` 为数据修复迁移，down 为 no-op，不能自动还原修复前的历史本位币余额。
-- self scope 正向跨创建人场景没有 API 回归：当前没有 self-scope 演示账号，用户 API 不能设置 `data_scope`；父单据范围数组由 admin 详情断言，控制器范围由单元测试覆盖。
+- self scope 负向隔离已由 API 回归覆盖（动态创建 self 用户验证他人收付款/发票详情 404）；正向跨创建人可见性仍无 API 回归：用户 API 不能设置 `data_scope`，构造该场景需要更宽写入权限；父单据范围数组由 admin 详情断言，控制器范围由单元测试覆盖。
 - 缺少浏览器 E2E 和故障注入测试。
 
 ## 9. 用户验收清单
@@ -318,7 +337,7 @@ Task 9 计划：
 - [ ] 无汇兑结算反核销不生成凭证；关账期间返回 409 `PERIOD_CLOSED` 并整体回滚。
 - [ ] 权限 401/403、错误码、数据范围、收付款/发票详情历史和列表汇总符合契约。
 - [ ] 前端反核销弹窗、整行多选、日期/原因校验、历史展示和权限控制可用。
-- [ ] `TestStage3K` 10 个顶层/17 个命名子测试通过（Task 9 回填）。
+- [ ] `TestStage3K` 12 个顶层/20 个命名子测试通过（本次收口已实测，干净库由控制端复跑）。
 - [ ] 静态检查全部通过（本任务已实测）。
 - [ ] 干净库 Stage 3B–3K 全链路通过（Task 9）。
 - [ ] 独立审核无 Critical/Important 遗留（Task 9）。
