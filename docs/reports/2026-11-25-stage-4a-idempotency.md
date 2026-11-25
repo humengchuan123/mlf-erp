@@ -2,7 +2,7 @@
 
 > 日期：2026-11-25
 > 分支：`stage-4a-idempotency`
-> 功能/测试 HEAD：`aa6e7d0`（报告与最终审核提交前）
+> 功能/测试 HEAD：`657f58e`（报告与最终审核提交前）
 > 设计/计划：`docs/superpowers/plans/2026-11-25-stage-4a-idempotency.md`
 > 路线图：`docs/superpowers/plans/2026-11-25-audit-follow-up.md`
 > 状态：开发、接口测试、干净库 Stage 3B–4A 回归和静态检查完成；代码审核结论待回填
@@ -59,6 +59,7 @@
 | 断连后持久化幂等结果 | `4a58d36` |
 | 模块文档、报告草稿 | `ccb84ca` |
 | 审核修复：key 旋转、in-progress 冲突、断连测试 | `aa6e7d0` |
+| 规格审核修复：failed 重试、CORS、408、文档同步 | `657f58e` |
 | 最终报告 | 本报告随最终文档提交 |
 
 ## 2. 数据模型（迁移 26）
