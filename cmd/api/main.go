@@ -37,6 +37,7 @@ import (
 	"github.com/mlf-erp/mlf-erp/internal/platform/config"
 	"github.com/mlf-erp/mlf-erp/internal/platform/database"
 	"github.com/mlf-erp/mlf-erp/internal/platform/httpserver"
+	"github.com/mlf-erp/mlf-erp/internal/platform/idempotency"
 	"github.com/mlf-erp/mlf-erp/internal/platform/logger"
 	"github.com/mlf-erp/mlf-erp/internal/platform/security"
 )
@@ -133,6 +134,19 @@ func main() {
 	authHandler.RegisterPublic(api)
 
 	protected := api.Group("", authmw.Auth(tokenService, userRepository, roleRepository, orgRepository))
+
+	idempotencyRepository := idempotency.NewPostgresRepository(db)
+	protected.Use(idempotency.Middleware(idempotencyRepository, log, idempotency.Config{
+		TTL:              cfg.Idempotency.TTL,
+		Required:         cfg.Idempotency.Required,
+		MaxBodyBytes:     cfg.Idempotency.MaxBodyBytes,
+		MaxResponseBytes: cfg.Idempotency.MaxResponseBytes,
+		ProtectedPaths:   idempotency.DefaultProtectedPaths,
+	}))
+	cleanupCtx, cancelCleanup := context.WithCancel(context.Background())
+	defer cancelCleanup()
+	go idempotency.RunCleanup(cleanupCtx, idempotencyRepository, log, cfg.Idempotency.CleanupInterval)
+
 	authHandler.RegisterProtected(protected)
 	userHandler.Register(protected)
 	roleHandler.Register(protected)

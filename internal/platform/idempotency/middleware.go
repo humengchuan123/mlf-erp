@@ -156,6 +156,7 @@ func Middleware(repo Repository, log *slog.Logger, cfg Config) gin.HandlerFunc {
 		}
 
 		original.WriteHeader(status)
+		original.WriteHeaderNow()
 		if status != http.StatusNoContent && status != http.StatusNotModified && len(responseBody) > 0 {
 			_, _ = original.Write(responseBody)
 		}
@@ -178,6 +179,7 @@ func writeReplay(c *gin.Context, record *Record) {
 		status = http.StatusOK
 	}
 	c.Writer.WriteHeader(status)
+	c.Writer.WriteHeaderNow()
 	if status != http.StatusNoContent && status != http.StatusNotModified && len(record.ResponseBody) > 0 {
 		_, _ = c.Writer.Write(record.ResponseBody)
 	}
