@@ -109,7 +109,7 @@
       />
     </el-card>
 
-    <el-drawer v-model="detailVisible" title="发票详情" size="700px">
+    <el-drawer v-model="detailVisible" title="发票详情" size="920px">
       <template v-if="detail">
         <el-descriptions :column="2" border>
           <el-descriptions-item label="发票号">{{ detail.code }}</el-descriptions-item>
@@ -151,6 +151,25 @@
           <el-table-column prop="amount" label="核销金额" width="130" align="right" />
         </el-table>
         <el-empty v-if="detail.allocations.length === 0" description="暂无核销记录" :image-size="80" />
+
+        <el-divider content-position="left">付款反核销记录</el-divider>
+        <el-table :data="detail.payment_allocation_reversals ?? []" border>
+          <el-table-column prop="payment_code" label="收付款单号" min-width="160" />
+          <el-table-column prop="payment_date" label="收付款日期" width="110" />
+          <el-table-column prop="amount" label="核销金额" width="120" align="right" />
+          <el-table-column prop="base_amount" label="付款本位币" width="130" align="right" />
+          <el-table-column prop="invoice_base_amount" label="发票本位币" width="130" align="right" />
+          <el-table-column prop="reversal_date" label="反核销日期" width="110" />
+          <el-table-column prop="reason" label="原因" min-width="150" />
+          <el-table-column label="汇兑反核销凭证" min-width="150">
+            <template #default="{ row }">{{ reversalVoucherCodes(row) }}</template>
+          </el-table-column>
+        </el-table>
+        <el-empty
+          v-if="(detail.payment_allocation_reversals ?? []).length === 0"
+          description="暂无付款反核销记录"
+          :image-size="80"
+        />
 
         <el-divider content-position="left">贷项抵用记录</el-divider>
         <el-table :data="detail.credit_note_allocations ?? []" border>
@@ -204,7 +223,7 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { PageHeader } from '@mlf-erp/ui'
-import { financeApi, type Invoice, type InvoiceDetail, type IssueInvoiceInput } from '@mlf-erp/sdk'
+import { financeApi, type Invoice, type InvoiceDetail, type IssueInvoiceInput, type PaymentAllocationReversal } from '@mlf-erp/sdk'
 import { useAuthStore } from '@/stores/auth'
 
 const authStore = useAuthStore()
@@ -320,6 +339,11 @@ function creditTypeLabel(value: string) {
   if (value === 'sales_return') return '销售退货'
   if (value === 'purchase_return') return '采购退货'
   return value || '-'
+}
+
+function reversalVoucherCodes(reversal: PaymentAllocationReversal) {
+  const codes = reversal.fx_reversal_voucher_codes ?? []
+  return codes.length > 0 ? codes.join('、') : '-'
 }
 
 function openIssue(invoice: Invoice) {

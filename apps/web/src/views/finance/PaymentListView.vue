@@ -49,8 +49,9 @@
           </template>
         </el-table-column>
         <el-table-column prop="method" label="方式" width="90" />
-        <el-table-column label="操作" width="130" fixed="right">
+        <el-table-column label="操作" width="230" fixed="right">
           <template #default="{ row }">
+            <el-button link type="primary" @click="openDetail(row)">详情</el-button>
             <el-button
               v-if="canWrite && row.status !== 'allocated'"
               link
@@ -59,7 +60,15 @@
             >
               核销
             </el-button>
-            <el-button v-else link type="primary" disabled>已核销</el-button>
+            <el-button v-else-if="canWrite" link type="primary" disabled>已核销</el-button>
+            <el-button
+              v-if="canReverse && canReversePayment(row)"
+              link
+              type="danger"
+              @click="openReversal(row)"
+            >
+              反核销
+            </el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -170,6 +179,137 @@
         </el-button>
       </template>
     </el-dialog>
+
+    <el-drawer v-model="detailVisible" title="收付款详情" size="900px">
+      <template v-if="detail">
+        <el-descriptions :column="2" border>
+          <el-descriptions-item label="单号">{{ detail.code }}</el-descriptions-item>
+          <el-descriptions-item label="类型">
+            {{ detail.payment_type === 'receipt' ? '收款' : '付款' }}
+          </el-descriptions-item>
+          <el-descriptions-item label="往来单位">{{ detail.partner_name }}</el-descriptions-item>
+          <el-descriptions-item label="日期">{{ detail.payment_date }}</el-descriptions-item>
+          <el-descriptions-item label="币种">{{ detail.currency }}</el-descriptions-item>
+          <el-descriptions-item label="汇率">{{ detail.exchange_rate }}</el-descriptions-item>
+          <el-descriptions-item label="原币金额">{{ detail.amount }}</el-descriptions-item>
+          <el-descriptions-item label="本位币金额">{{ detail.base_amount }}</el-descriptions-item>
+          <el-descriptions-item label="已核销">{{ detail.allocated_amount }}</el-descriptions-item>
+          <el-descriptions-item label="本位币已核销">{{ detail.base_allocated_amount }}</el-descriptions-item>
+          <el-descriptions-item label="未核销">{{ detail.unallocated_amount }}</el-descriptions-item>
+          <el-descriptions-item label="状态">
+            <el-tag :type="paymentStatusType(detail.status)" size="small">
+              {{ paymentStatusLabel(detail.status) }}
+            </el-tag>
+          </el-descriptions-item>
+          <el-descriptions-item label="方式">{{ detail.method }}</el-descriptions-item>
+          <el-descriptions-item label="参考号">{{ detail.reference || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="凭证号">{{ detail.voucher_code || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="备注">{{ detail.remark || '-' }}</el-descriptions-item>
+        </el-descriptions>
+
+        <el-divider content-position="left">核销历史</el-divider>
+        <el-table :data="detail.allocations ?? []" border>
+          <el-table-column prop="invoice_code" label="发票号" min-width="150" />
+          <el-table-column prop="invoice_date" label="发票日期" width="110" />
+          <el-table-column prop="amount" label="核销金额" width="120" align="right" />
+          <el-table-column prop="base_amount" label="付款本位币" width="130" align="right" />
+          <el-table-column prop="invoice_base_amount" label="发票本位币" width="130" align="right" />
+        </el-table>
+        <el-empty
+          v-if="(detail.allocations ?? []).length === 0"
+          description="暂无核销记录"
+          :image-size="80"
+        />
+
+        <el-divider content-position="left">反核销历史</el-divider>
+        <el-table :data="detail.reversals ?? []" border>
+          <el-table-column prop="invoice_code" label="发票号" min-width="150" />
+          <el-table-column prop="reversal_date" label="反核销日期" width="110" />
+          <el-table-column prop="amount" label="反核销金额" width="120" align="right" />
+          <el-table-column prop="base_amount" label="付款本位币" width="130" align="right" />
+          <el-table-column prop="invoice_base_amount" label="发票本位币" width="130" align="right" />
+          <el-table-column prop="reason" label="原因" min-width="150" />
+          <el-table-column label="汇兑反核销凭证" min-width="150">
+            <template #default="{ row }">{{ reversalVoucherCodes(row) }}</template>
+          </el-table-column>
+          <el-table-column prop="created_at" label="创建时间" width="170" />
+        </el-table>
+        <el-empty
+          v-if="(detail.reversals ?? []).length === 0"
+          description="暂无反核销记录"
+          :image-size="80"
+        />
+      </template>
+    </el-drawer>
+
+    <el-dialog v-model="reverseVisible" title="收付款反核销" width="900px">
+      <template v-if="reverseTarget">
+        <p class="allocate-hint">
+          {{ reverseTarget.code }} · {{ reverseTarget.payment_type === 'receipt' ? '收款' : '付款' }} ·
+          {{ reverseTarget.partner_name }} · 已核销 {{ reverseTarget.allocated_amount }}
+        </p>
+        <el-alert
+          type="info"
+          :closable="false"
+          show-icon
+          class="reverse-alert"
+          title="仅支持整行反核销：勾选整条核销记录撤销，不支持部分金额；反核销后不可恢复。"
+        />
+        <el-form :model="reverseForm" label-width="100px">
+          <el-form-item label="反核销日期" required>
+            <el-date-picker
+              v-model="reverseForm.reversal_date"
+              type="date"
+              value-format="YYYY-MM-DD"
+              style="width: 220px"
+            />
+          </el-form-item>
+          <el-form-item label="反核销原因" required>
+            <el-input
+              v-model="reverseForm.reason"
+              type="textarea"
+              :rows="2"
+              maxlength="200"
+              show-word-limit
+              placeholder="填写反核销原因"
+            />
+          </el-form-item>
+        </el-form>
+        <el-table v-loading="reverseLoading" :data="reverseLines" border>
+          <el-table-column label="选择" width="60">
+            <template #default="{ row }">
+              <el-checkbox v-model="row.selected" />
+            </template>
+          </el-table-column>
+          <el-table-column prop="invoice_code" label="发票号" min-width="150" />
+          <el-table-column prop="invoice_date" label="发票日期" width="110" />
+          <el-table-column prop="amount" label="核销金额" width="120" align="right" />
+          <el-table-column prop="base_amount" label="付款本位币" width="130" align="right" />
+          <el-table-column prop="invoice_base_amount" label="发票本位币" width="130" align="right" />
+        </el-table>
+        <div class="reverse-toolbar">
+          <el-button link type="primary" @click="setAllReversalSelected(true)">全选</el-button>
+          <el-button link @click="setAllReversalSelected(false)">清空</el-button>
+          <span class="reverse-selected">已选 {{ reverseSelected.length }} / {{ reverseLines.length }} 条</span>
+        </div>
+        <el-empty
+          v-if="!reverseLoading && reverseLines.length === 0"
+          description="没有可反核销的核销记录"
+          :image-size="80"
+        />
+      </template>
+      <template #footer>
+        <el-button @click="reverseVisible = false">取消</el-button>
+        <el-button
+          type="danger"
+          :loading="saving"
+          :disabled="reverseLoading || reverseLines.length === 0"
+          @click="saveReverse"
+        >
+          确认反核销
+        </el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -182,7 +322,10 @@ import {
   masterDataApi,
   type Invoice,
   type Partner,
-  type Payment
+  type Payment,
+  type PaymentAllocation,
+  type PaymentAllocationReversal,
+  type PaymentDetail
 } from '@mlf-erp/sdk'
 import { useAuthStore } from '@/stores/auth'
 
@@ -195,8 +338,18 @@ interface AllocateLine {
   amount: string
 }
 
+interface ReversalLine extends PaymentAllocation {
+  selected: boolean
+}
+
+interface ReversalForm {
+  reversal_date: string | null
+  reason: string
+}
+
 const authStore = useAuthStore()
 const canWrite = computed(() => authStore.hasPermission('finance.payment.write'))
+const canReverse = computed(() => authStore.hasPermission('finance.payment.reverse'))
 
 const payments = ref<Payment[]>([])
 const partners = ref<Partner[]>([])
@@ -226,6 +379,20 @@ const form = reactive({
 const allocateVisible = ref(false)
 const allocateTarget = ref<Payment | null>(null)
 const allocateLines = ref<AllocateLine[]>([])
+
+const detailVisible = ref(false)
+const detail = ref<PaymentDetail | null>(null)
+
+const reverseVisible = ref(false)
+const reverseLoading = ref(false)
+const reverseTarget = ref<PaymentDetail | null>(null)
+const reverseLines = ref<ReversalLine[]>([])
+const reverseForm = reactive<ReversalForm>({
+  reversal_date: today(),
+  reason: ''
+})
+
+const reverseSelected = computed(() => reverseLines.value.filter((line) => line.selected))
 
 const selectablePartners = computed(() => {
   const type = form.payment_type === 'receipt' ? 'customer' : 'supplier'
@@ -362,6 +529,106 @@ async function savePayment() {
   }
 }
 
+function canReversePayment(payment: Payment) {
+  return payment.status === 'allocated' || payment.status === 'partially_allocated'
+}
+
+function reversalVoucherCodes(reversal: PaymentAllocationReversal) {
+  const codes = reversal.fx_reversal_voucher_codes ?? []
+  return codes.length > 0 ? codes.join('、') : '-'
+}
+
+async function openDetail(payment: Payment) {
+  try {
+    detail.value = await financeApi.payments.get(payment.id)
+    detailVisible.value = true
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : '加载收付款详情失败')
+  }
+}
+
+async function refreshDetail() {
+  if (!detailVisible.value || !detail.value) return
+  try {
+    detail.value = await financeApi.payments.get(detail.value.id)
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : '加载收付款详情失败')
+  }
+}
+
+async function reloadAfterReversal() {
+  await load()
+  await refreshDetail()
+}
+
+function setAllReversalSelected(selected: boolean) {
+  for (const line of reverseLines.value) {
+    line.selected = selected
+  }
+}
+
+async function openReversal(payment: Payment) {
+  reverseVisible.value = true
+  reverseLoading.value = true
+  reverseTarget.value = null
+  reverseLines.value = []
+  reverseForm.reversal_date = today()
+  reverseForm.reason = ''
+  try {
+    const result = await financeApi.payments.get(payment.id)
+    reverseTarget.value = result
+    reverseLines.value = (result.allocations ?? []).map((allocation) => ({
+      ...allocation,
+      selected: false
+    }))
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : '加载核销记录失败')
+    reverseVisible.value = false
+  } finally {
+    reverseLoading.value = false
+  }
+}
+
+async function saveReverse() {
+  const target = reverseTarget.value
+  if (!target) return
+  if (!reverseForm.reversal_date) {
+    ElMessage.warning('请选择反核销日期')
+    return
+  }
+  const reversalDate = reverseForm.reversal_date
+  if (reversalDate < target.payment_date) {
+    ElMessage.warning('反核销日期不能早于收付款日期')
+    return
+  }
+  const selected = reverseSelected.value
+  if (selected.length === 0) {
+    ElMessage.warning('请至少勾选一条核销记录')
+    return
+  }
+  const reason = reverseForm.reason.trim()
+  if (!reason) {
+    ElMessage.warning('请填写反核销原因')
+    return
+  }
+
+  saving.value = true
+  try {
+    await financeApi.payments.unallocate(target.id, {
+      invoice_ids: selected.map((allocation) => allocation.invoice_id),
+      reversal_date: reversalDate,
+      reason
+    })
+    ElMessage.success('反核销成功')
+    reverseVisible.value = false
+    await reloadAfterReversal()
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : '反核销失败')
+  } finally {
+    saving.value = false
+  }
+}
+
 async function openAllocate(payment: Payment) {
   try {
     const invoiceType = payment.payment_type === 'receipt' ? 'receivable' : 'payable'
@@ -461,5 +728,21 @@ onMounted(async () => {
   text-align: right;
   color: #1e293b;
   font-weight: 600;
+}
+
+.reverse-alert {
+  margin-bottom: 12px;
+}
+
+.reverse-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.reverse-selected {
+  margin-left: auto;
+  color: #475569;
 }
 </style>

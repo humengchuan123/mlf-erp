@@ -213,7 +213,9 @@ assertFile('apps/web/src/views/finance/InvoiceListView.vue', [
   'detail.allocations',
   'detail.credit_note_allocations',
   'credit_note_code',
-  '贷项抵用'
+  '贷项抵用',
+  'payment_allocation_reversals',
+  '付款反核销'
 ])
 
 assertFile('apps/web/src/views/finance/PaymentListView.vue', [
@@ -223,7 +225,14 @@ assertFile('apps/web/src/views/finance/PaymentListView.vue', [
   'financeApi.payments',
   'financeApi.createPayment',
   'financeApi.allocate',
-  'unallocated_amount'
+  'unallocated_amount',
+  'payments.unallocate',
+  'finance.payment.reverse',
+  'PaymentAllocationReversal',
+  'reversals',
+  'fx_reversal_voucher_codes',
+  '反核销',
+  'reversal_date'
 ])
 
 assertFile('packages/sdk/src/index.ts', ["./sales", "./finance", "./gl"])
