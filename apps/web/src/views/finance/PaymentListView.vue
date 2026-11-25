@@ -152,7 +152,7 @@
       </template>
     </el-dialog>
 
-    <el-dialog v-model="allocateVisible" title="收付款核销" width="820px">
+    <el-dialog v-model="allocateVisible" title="收付款核销" width="820px" @closed="invalidateAllocateRequest">
       <template v-if="allocateTarget">
         <p class="allocate-hint">
           {{ allocateTarget.code }} · {{ allocateTarget.payment_type === 'receipt' ? '收款' : '付款' }} ·
@@ -180,7 +180,7 @@
       </template>
     </el-dialog>
 
-    <el-drawer v-model="detailVisible" title="收付款详情" size="900px">
+    <el-drawer v-model="detailVisible" title="收付款详情" size="900px" @closed="invalidateDetailRequest">
       <template v-if="detail">
         <el-descriptions :column="2" border>
           <el-descriptions-item label="单号">{{ detail.code }}</el-descriptions-item>
@@ -232,7 +232,9 @@
           <el-table-column label="汇兑反核销凭证" min-width="150">
             <template #default="{ row }">{{ reversalVoucherCodes(row) }}</template>
           </el-table-column>
-          <el-table-column prop="created_at" label="创建时间" width="170" />
+          <el-table-column label="创建时间" width="170">
+            <template #default="{ row }">{{ formatDateTime(row.created_at) }}</template>
+          </el-table-column>
         </el-table>
         <el-empty
           v-if="(detail.reversals ?? []).length === 0"
@@ -242,68 +244,78 @@
       </template>
     </el-drawer>
 
-    <el-dialog v-model="reverseVisible" title="收付款反核销" width="900px">
-      <template v-if="reverseTarget">
-        <p class="allocate-hint">
-          {{ reverseTarget.code }} · {{ reverseTarget.payment_type === 'receipt' ? '收款' : '付款' }} ·
-          {{ reverseTarget.partner_name }} · 已核销 {{ reverseTarget.allocated_amount }}
-        </p>
-        <el-alert
-          type="info"
-          :closable="false"
-          show-icon
-          class="reverse-alert"
-          title="仅支持整行反核销：勾选整条核销记录撤销，不支持部分金额；反核销后不可恢复。"
-        />
-        <el-form :model="reverseForm" label-width="100px">
-          <el-form-item label="反核销日期" required>
-            <el-date-picker
-              v-model="reverseForm.reversal_date"
-              type="date"
-              value-format="YYYY-MM-DD"
-              style="width: 220px"
-            />
-          </el-form-item>
-          <el-form-item label="反核销原因" required>
-            <el-input
-              v-model="reverseForm.reason"
-              type="textarea"
-              :rows="2"
-              maxlength="200"
-              show-word-limit
-              placeholder="填写反核销原因"
-            />
-          </el-form-item>
-        </el-form>
-        <el-table v-loading="reverseLoading" :data="reverseLines" border>
-          <el-table-column label="选择" width="60">
-            <template #default="{ row }">
-              <el-checkbox v-model="row.selected" />
-            </template>
-          </el-table-column>
-          <el-table-column prop="invoice_code" label="发票号" min-width="150" />
-          <el-table-column prop="invoice_date" label="发票日期" width="110" />
-          <el-table-column prop="amount" label="核销金额" width="120" align="right" />
-          <el-table-column prop="base_amount" label="付款本位币" width="130" align="right" />
-          <el-table-column prop="invoice_base_amount" label="发票本位币" width="130" align="right" />
-        </el-table>
-        <div class="reverse-toolbar">
-          <el-button link type="primary" @click="setAllReversalSelected(true)">全选</el-button>
-          <el-button link @click="setAllReversalSelected(false)">清空</el-button>
-          <span class="reverse-selected">已选 {{ reverseSelected.length }} / {{ reverseLines.length }} 条</span>
-        </div>
-        <el-empty
-          v-if="!reverseLoading && reverseLines.length === 0"
-          description="没有可反核销的核销记录"
-          :image-size="80"
-        />
-      </template>
+    <el-dialog
+      v-model="reverseVisible"
+      title="收付款反核销"
+      width="900px"
+      :show-close="!saving"
+      :close-on-press-escape="!saving"
+      :before-close="handleReverseClose"
+      @closed="invalidateReverseRequest"
+    >
+      <div v-loading="reverseLoading" class="reverse-body">
+        <template v-if="reverseTarget">
+          <p class="allocate-hint">
+            {{ reverseTarget.code }} · {{ reverseTarget.payment_type === 'receipt' ? '收款' : '付款' }} ·
+            {{ reverseTarget.partner_name }} · 已核销 {{ reverseTarget.allocated_amount }}
+          </p>
+          <el-alert
+            type="info"
+            :closable="false"
+            show-icon
+            class="reverse-alert"
+            title="仅支持整行反核销：勾选整条核销记录撤销，不支持部分金额；反核销后不可恢复。"
+          />
+          <el-form :model="reverseForm" label-width="100px">
+            <el-form-item label="反核销日期" required>
+              <el-date-picker
+                v-model="reverseForm.reversal_date"
+                type="date"
+                value-format="YYYY-MM-DD"
+                style="width: 220px"
+              />
+            </el-form-item>
+            <el-form-item label="反核销原因" required>
+              <el-input
+                v-model="reverseForm.reason"
+                type="textarea"
+                :rows="2"
+                maxlength="200"
+                show-word-limit
+                placeholder="填写反核销原因"
+              />
+            </el-form-item>
+          </el-form>
+          <el-table :data="reverseLines" border>
+            <el-table-column label="选择" width="60">
+              <template #default="{ row }">
+                <el-checkbox v-model="row.selected" />
+              </template>
+            </el-table-column>
+            <el-table-column prop="invoice_code" label="发票号" min-width="150" />
+            <el-table-column prop="invoice_date" label="发票日期" width="110" />
+            <el-table-column prop="amount" label="核销金额" width="120" align="right" />
+            <el-table-column prop="base_amount" label="付款本位币" width="130" align="right" />
+            <el-table-column prop="invoice_base_amount" label="发票本位币" width="130" align="right" />
+          </el-table>
+          <div class="reverse-toolbar">
+            <el-button link type="primary" @click="setAllReversalSelected(true)">全选</el-button>
+            <el-button link @click="setAllReversalSelected(false)">清空</el-button>
+            <span class="reverse-selected">已选 {{ reverseSelected.length }} / {{ reverseLines.length }} 条</span>
+          </div>
+          <el-empty
+            v-if="!reverseLoading && reverseLines.length === 0"
+            description="没有可反核销的核销记录"
+            :image-size="80"
+          />
+        </template>
+      </div>
       <template #footer>
-        <el-button @click="reverseVisible = false">取消</el-button>
+        <el-button :disabled="saving" @click="closeReversal">取消</el-button>
         <el-button
           type="danger"
           :loading="saving"
-          :disabled="reverseLoading || reverseLines.length === 0"
+          :disabled="reverseLoading || reverseSelected.length === 0 || saving"
           @click="saveReverse"
         >
           确认反核销
@@ -393,6 +405,35 @@ const reverseForm = reactive<ReversalForm>({
 })
 
 const reverseSelected = computed(() => reverseLines.value.filter((line) => line.selected))
+
+let detailRequest = 0
+let reverseRequest = 0
+let allocateRequest = 0
+
+function invalidateDetailRequest() {
+  detailRequest += 1
+}
+
+function invalidateReverseRequest() {
+  reverseRequest += 1
+  reverseLoading.value = false
+}
+
+function invalidateAllocateRequest() {
+  allocateRequest += 1
+}
+
+function closeReversal() {
+  if (saving.value) return
+  invalidateReverseRequest()
+  reverseVisible.value = false
+}
+
+function handleReverseClose(done: () => void) {
+  if (saving.value) return
+  invalidateReverseRequest()
+  done()
+}
 
 const selectablePartners = computed(() => {
   const type = form.payment_type === 'receipt' ? 'customer' : 'supplier'
@@ -538,20 +579,33 @@ function reversalVoucherCodes(reversal: PaymentAllocationReversal) {
   return codes.length > 0 ? codes.join('、') : '-'
 }
 
+function formatDateTime(value: string) {
+  return value ? new Date(value).toLocaleString() : '-'
+}
+
 async function openDetail(payment: Payment) {
+  const request = ++detailRequest
   try {
-    detail.value = await financeApi.payments.get(payment.id)
+    const result = await financeApi.payments.get(payment.id)
+    if (request !== detailRequest) return
+    detail.value = result
     detailVisible.value = true
   } catch (error) {
+    if (request !== detailRequest) return
     ElMessage.error(error instanceof Error ? error.message : '加载收付款详情失败')
   }
 }
 
 async function refreshDetail() {
   if (!detailVisible.value || !detail.value) return
+  const paymentID = detail.value.id
+  const request = ++detailRequest
   try {
-    detail.value = await financeApi.payments.get(detail.value.id)
+    const result = await financeApi.payments.get(paymentID)
+    if (request !== detailRequest || !detailVisible.value) return
+    detail.value = result
   } catch (error) {
+    if (request !== detailRequest || !detailVisible.value) return
     ElMessage.error(error instanceof Error ? error.message : '加载收付款详情失败')
   }
 }
@@ -568,6 +622,7 @@ function setAllReversalSelected(selected: boolean) {
 }
 
 async function openReversal(payment: Payment) {
+  const request = ++reverseRequest
   reverseVisible.value = true
   reverseLoading.value = true
   reverseTarget.value = null
@@ -576,22 +631,26 @@ async function openReversal(payment: Payment) {
   reverseForm.reason = ''
   try {
     const result = await financeApi.payments.get(payment.id)
+    if (request !== reverseRequest || !reverseVisible.value) return
     reverseTarget.value = result
     reverseLines.value = (result.allocations ?? []).map((allocation) => ({
       ...allocation,
       selected: false
     }))
   } catch (error) {
+    if (request !== reverseRequest) return
     ElMessage.error(error instanceof Error ? error.message : '加载核销记录失败')
     reverseVisible.value = false
   } finally {
-    reverseLoading.value = false
+    if (request === reverseRequest) {
+      reverseLoading.value = false
+    }
   }
 }
 
 async function saveReverse() {
   const target = reverseTarget.value
-  if (!target) return
+  if (!target || reverseTarget.value?.id !== target.id) return
   if (!reverseForm.reversal_date) {
     ElMessage.warning('请选择反核销日期')
     return
@@ -619,8 +678,13 @@ async function saveReverse() {
       reversal_date: reversalDate,
       reason
     })
+    if (reverseTarget.value?.id !== target.id) {
+      await load()
+      return
+    }
     ElMessage.success('反核销成功')
     reverseVisible.value = false
+    invalidateReverseRequest()
     await reloadAfterReversal()
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : '反核销失败')
@@ -630,6 +694,7 @@ async function saveReverse() {
 }
 
 async function openAllocate(payment: Payment) {
+  const request = ++allocateRequest
   try {
     const invoiceType = payment.payment_type === 'receipt' ? 'receivable' : 'payable'
     const result = await financeApi.invoices({
@@ -637,6 +702,7 @@ async function openAllocate(payment: Payment) {
       partner_id: payment.partner_id,
       page_size: 200
     })
+    if (request !== allocateRequest) return
     const outstandingInvoices = result.items.filter(
       (invoice) =>
         invoice.currency === payment.currency &&
@@ -660,6 +726,7 @@ async function openAllocate(payment: Payment) {
     allocateTarget.value = payment
     allocateVisible.value = true
   } catch (error) {
+    if (request !== allocateRequest) return
     ElMessage.error(error instanceof Error ? error.message : '加载可核销发票失败')
   }
 }
@@ -732,6 +799,10 @@ onMounted(async () => {
 
 .reverse-alert {
   margin-bottom: 12px;
+}
+
+.reverse-body {
+  min-height: 140px;
 }
 
 .reverse-toolbar {

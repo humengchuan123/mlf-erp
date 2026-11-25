@@ -215,7 +215,9 @@ assertFile('apps/web/src/views/finance/InvoiceListView.vue', [
   'credit_note_code',
   '贷项抵用',
   'payment_allocation_reversals',
-  '付款反核销'
+  '付款反核销',
+  'fx_reversal_voucher_codes',
+  '收付款反核销记录'
 ])
 
 assertFile('apps/web/src/views/finance/PaymentListView.vue', [
@@ -232,7 +234,10 @@ assertFile('apps/web/src/views/finance/PaymentListView.vue', [
   'reversals',
   'fx_reversal_voucher_codes',
   '反核销',
-  'reversal_date'
+  'reversal_date',
+  '@click="openReversal(row)"',
+  'reverseSelected',
+  'invoice_ids'
 ])
 
 assertFile('packages/sdk/src/index.ts', ["./sales", "./finance", "./gl"])

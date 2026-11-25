@@ -152,11 +152,11 @@
         </el-table>
         <el-empty v-if="detail.allocations.length === 0" description="暂无核销记录" :image-size="80" />
 
-        <el-divider content-position="left">付款反核销记录</el-divider>
+        <el-divider content-position="left">收付款反核销记录</el-divider>
         <el-table :data="detail.payment_allocation_reversals ?? []" border>
           <el-table-column prop="payment_code" label="收付款单号" min-width="160" />
           <el-table-column prop="payment_date" label="收付款日期" width="110" />
-          <el-table-column prop="amount" label="核销金额" width="120" align="right" />
+          <el-table-column prop="amount" label="反核销金额" width="120" align="right" />
           <el-table-column prop="base_amount" label="付款本位币" width="130" align="right" />
           <el-table-column prop="invoice_base_amount" label="发票本位币" width="130" align="right" />
           <el-table-column prop="reversal_date" label="反核销日期" width="110" />
