@@ -105,6 +105,14 @@ tax      = gross - net
 - 零金额退货跳过贷项单，库存出库仍执行；采购退货成本取自原收货净额，金额为零时成本也为零，因此不生成凭证。
 - 错误码：`OVER_RETURN`/`INSUFFICIENT_STOCK`/`PERIOD_CLOSED` 409，收货行不存在 404，非法 UUID/数量/日期 400。
 
+## 资金/库存操作幂等（Stage 4A）
+
+- `POST /purchase/orders/:id/receive` 和 `POST /purchase/receipts/:id/returns` 支持 `Idempotency-Key`。
+- 同一 key + 相同请求体只生成一次收货/退货；重复请求回放首次响应并返回 `Idempotency-Replayed: true`。
+- 同一 key + 不同请求体返回 409 `IDEMPOTENCY_CONFLICT`；并发同 key 返回 409 `IDEMPOTENCY_IN_PROGRESS`。
+- 前端在收货/退货弹窗打开时生成 `crypto.randomUUID()`，成功后清空；网络/5xx 保留以便重试，4xx 重置以便修正后重新提交。
+- Header 默认可选；生产强制前需客户端全部接入。实现细节见 finance 模块“资金操作幂等”。
+
 ## 状态机
 
 ```text
@@ -119,4 +127,3 @@ draft → submitted → approved → partially_received → received
 - 价格协议、供应商绩效。
 - 销售出库、调拨、盘点。
 - 采购订单/收货/退货事件接入 Outbox。
-- 退货接口幂等键。

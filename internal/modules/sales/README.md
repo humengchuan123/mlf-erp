@@ -82,6 +82,14 @@ draft → submitted → approved → partially_shipped → shipped
 6. 生成应收发票。
 7. 重算订单状态并提交。
 
+## 资金/库存操作幂等（Stage 4A）
+
+- `POST /sales/orders/:id/ship` 和 `POST /sales/shipments/:id/returns` 支持 `Idempotency-Key`。
+- 同一 key + 相同请求体只生成一次发货/退货；重复请求回放首次响应并返回 `Idempotency-Replayed: true`。
+- 同一 key + 不同请求体返回 409 `IDEMPOTENCY_CONFLICT`；并发同 key 返回 409 `IDEMPOTENCY_IN_PROGRESS`。
+- 前端在发货/退货弹窗打开时生成 `crypto.randomUUID()`，成功后清空；网络/5xx 保留以便重试，4xx 重置以便修正后重新提交。
+- Header 默认可选；生产强制前需客户端全部接入。实现细节见 finance 模块“资金操作幂等”。
+
 ## 前端
 
 - `/sales/orders`：销售订单列表、新建/编辑、详情、提交、审批、取消、发货。
@@ -136,4 +144,4 @@ draft → submitted → approved → partially_shipped → shipped
 
 - 报价、价格协议、折扣、客户信用。
 - 批次/序列号、预留库存、调拨。
-- 发货幂等键、事件 Outbox。
+- 事件 Outbox。

@@ -180,7 +180,7 @@ if amount == remaining_amount:
 - 抵用为子账操作，不生成凭证，也不校验期间关闭。
 - 退款只支持银行/现金，不涉及 VAT 红字发票或税控红冲。
 - 退款只能退给贷项单往来单位，不支持退给其他往来单位。
-- 退款接口无审批流、无幂等键，且会真实出账。Stage 3J 暂缓实现幂等键，但生产启用前必须引入服务端幂等键（如 `Idempotency-Key`）和去重；在此之前，退款端点客户端**不得自动重试**，超时或断连只能人工核对退款单后再决定是否重发。
+- 退款接口无审批流，且会真实出账。Stage 4A 已支持可选 `Idempotency-Key`：同一 key 重试不会重复退款；生产强制前客户端必须传 key，超时/断连应使用同一 key 重试，不要人工重复提交。
 - 所有跨汇率抵用（部分和全额）均被拒绝（409 `CROSS_RATE_ALLOCATION`）：贷项汇率必须与每张目标发票汇率一致。抵用为子账重分类且不生成汇兑凭证，跨汇率抵用无法在抵用时结清贷项消耗本位币与发票冲减本位币之间的差额，会留下 AR/AP 本位币残差；全额抵清的本位币相等守卫（4 位小数容差）仅作为历史数据/舍入偏差的第二道防线。尚无自动换汇或差额单独过账。
 - 原币归零的贷项单一律 `applied`，退货创建时也按原币归零判定；正数本位币残值只用于展示/汇兑，不能抵用或退款。
 - 抵用不计汇兑；退款按退款日汇率确认汇兑损益；未使用贷项不参与外币重估。
@@ -229,12 +229,29 @@ if amount == remaining_amount:
 - 典型错误码：400 `BAD_REQUEST` / `REASON_REQUIRED` / `DUPLICATE_INVOICE` / `PAYMENT_TYPE_MISMATCH` / `PARTNER_MISMATCH` / `CURRENCY_MISMATCH`；404 `NOT_FOUND`；409 `PAYMENT_NOT_ALLOCATED` / `ALLOCATION_NOT_FOUND` / `PERIOD_CLOSED`；401/403。
 - 已知限制：
   - 只支持整行反核销，不支持部分金额。
-  - 不包含反核销审批和幂等键；客户端重试可能重复提交（第二次通常因核销行已不存在返回 409），生产启用前应补服务端幂等和审批流程。
+  - 不包含反核销审批；Stage 4A 已支持可选 `Idempotency-Key`，同一 key 重试不会重复反核销；生产强制前客户端必须传 key。
   - 不撤销收付款本身的现金/银行凭证，也不包含贷项抵用/退款反冲、红字发票。
   - 反核销日期必须在 open 期间。
   - 已反核销不能恢复；需要重新核销时重新执行核销。
   - 原核销行删除、历史只保留在反核销审计表，不在原核销行上保留版本。
   - self scope 的负向隔离已纳入 API 回归：测试通过 `/system/roles`、`/system/users` 动态创建 self 用户（无 `org_memberships`，默认 `self`），验证其读取他人创建的收付款/发票详情返回 404。正向跨创建人可见性（本人收付款+他人发票、本人发票+他人收付款）仍未纳入 API 回归：用户 API 不能设置 `data_scope`，构造该场景还需要更宽的写入权限组合。父单据范围数组由 admin 详情验证；范围 SQL 的专项回归仍未覆盖，仅由代码审查确认；该缺口见 `tests/api/stage3k_test.go` 注释和报告已知限制。
+
+## 资金操作幂等（Stage 4A）
+
+- 受保护端点：
+  - `POST /api/v1/finance/credit-notes/:id/allocations`
+  - `POST /api/v1/finance/credit-notes/:id/refunds`
+  - `POST /api/v1/finance/payments`
+  - `POST /api/v1/finance/payments/:id/allocate`
+  - `POST /api/v1/finance/payments/:id/unallocate`
+- 请求头 `Idempotency-Key`：8–128 字符，允许 `A-Z a-z 0-9 . _ : -`；作用域为租户+用户+方法+路径。
+- 同一 key + 相同请求体：回放首次响应，响应头 `Idempotency-Replayed: true`，不重复产生退款/收付款/核销/反核销。
+- 同一 key + 不同请求体：409 `IDEMPOTENCY_CONFLICT`。
+- 并发同 key 同请求：409 `IDEMPOTENCY_IN_PROGRESS`；首次完成后可重试回放。
+- Header 默认可选；`IDEMPOTENCY_REQUIRED=true` 时缺失返回 400 `IDEMPOTENCY_KEY_REQUIRED`；非法 key 返回 400 `IDEMPOTENCY_KEY_INVALID`。
+- 默认 TTL 24 小时；5xx/401/403/429 标记失败，可用同一 key 重试。
+- 前端在打开退款/收付款/核销/反核销弹窗时生成 `crypto.randomUUID()`，成功后清空；网络/5xx 保留以便重试，4xx 重置以便修正后重新提交。
+- 已知限制：响应体明文存 PostgreSQL；超过 4 MB 无法回放（409 `IDEMPOTENCY_RESPONSE_UNAVAILABLE`）；清理任务运行在 API 进程内；不覆盖消息队列/Outbox 重试。
 
 ## 前端
 
@@ -245,7 +262,7 @@ if amount == remaining_amount:
 
 ## 后续
 
-- 反核销的反向恢复/审批/幂等、贷项抵用/退款反冲、红字发票、完整红冲流程。
+- 反核销的反向恢复/审批、贷项抵用/退款反冲、红字发票、完整红冲流程。
 - 跨组织抵用配置、自动抵用、退款审批和幂等键。
 - 账龄分析、对账单、信用额度。
 - 总账凭证自动生成（贷项抵用仍保持子账口径）。
