@@ -257,9 +257,9 @@ type PaymentAllocationReversal struct {
 	BaseAmount        decimal.Decimal
 	InvoiceBaseAmount decimal.Decimal
 	ReversalDate      time.Time
-	Reason            string
-	FXReversalVoucher string
-	CreatedBy         string
+	Reason                 string
+	FXReversalVoucherCodes []string
+	CreatedBy              string
 	CreatedAt         time.Time
 }
 
@@ -280,14 +280,12 @@ func PaymentStatusAfterReversal(amount, allocated decimal.Decimal) string {
 }
 
 func InvoiceStatusAfterSettlement(total, paid, credited decimal.Decimal) string {
-	settled := paid.Add(credited)
-	if settled.IsZero() {
-		return InvoiceStatusOpen
+	invoice := Invoice{
+		TotalAmount:    total,
+		PaidAmount:     paid,
+		CreditedAmount: credited,
 	}
-	if settled.GreaterThanOrEqual(total) {
-		return InvoiceStatusPaid
-	}
-	return InvoiceStatusPartiallyPaid
+	return invoice.StatusAfterSettlement()
 }
 ```
 
@@ -300,22 +298,12 @@ ErrReasonRequired      = errors.New("reversal reason is required")
 ErrDuplicateInvoice    = errors.New("duplicate invoice in reversal request")
 ```
 
-`repository.go`:
-
-```go
-PaymentRepository:
-    Unallocate(ctx, filter, tenantID, paymentID, userID string, input UnallocateInput) (*Payment, error)
-    ListAllocations(ctx, filter, tenantID, paymentID string) ([]*PaymentAllocation, error)
-    ListReversals(ctx, filter, tenantID, paymentID string) ([]*PaymentAllocationReversal, error)
-
-InvoiceRepository:
-    ListPaymentAllocationReversals(ctx, filter, tenantID, invoiceID string) ([]*PaymentAllocationReversal, error)
-```
+`repository.go` 接口方法在 Task 4 与仓储实现一起添加，避免 Task 2 出现接口未实现的中间态编译失败。Task 4 将添加 `Unallocate`、`ListAllocations`、`ListReversals` 和 `ListPaymentAllocationReversals`。
 
 - [ ] **Step 3: Verify/commit**
 
 ```bash
-gofmt -w internal/modules/finance/domain/payment.go internal/modules/finance/domain/errors.go internal/modules/finance/domain/repository.go internal/modules/finance/domain/payment_reversal.go internal/modules/finance/domain/payment_reversal_test.go
+gofmt -w internal/modules/finance/domain/payment.go internal/modules/finance/domain/errors.go internal/modules/finance/domain/payment_reversal.go internal/modules/finance/domain/payment_reversal_test.go
 go test ./internal/modules/finance/domain -count=1
 go build ./...
 git add internal/modules/finance/domain

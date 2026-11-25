@@ -170,10 +170,12 @@ allocated         : allocated == amount
 
 ```text
 settled = paid_amount + credited_amount
-open              : settled == 0
+open              : total_amount > 0 且 settled == 0
 partially_paid    : 0 < settled < total_amount
-paid              : settled >= total_amount
+paid              : total_amount == 0 或 settled >= total_amount（按 4 位小数舍入）
 ```
+
+实现统一调用 `Invoice.StatusAfterSettlement`，避免与现有发票状态口径分叉。
 
 ### 4.4 与贷项的关系
 
