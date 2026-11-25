@@ -98,7 +98,7 @@ expired --any hash--> in_progress（重新占用）
 - Key 格式：去空白后 8–128 字符，允许 `A-Z a-z 0-9 . _ : -`。
 - Header 缺失默认放行；强制模式返回 400。
 - 5xx/401/403/408/429 标记 `failed`，同一 key 可重试。
-- 幂等记录先于业务事务存在；业务 5xx/401/403/408/429 回滚后记录标记 `failed`，可用同一 key 修正后重试；其余 4xx（如 400/404/409 业务错误）标记 `completed` 并缓存错误响应。
+- 幂等记录先于业务事务存在；业务 5xx/401/403/408/429 标记 `failed`，可用同一 key 修正后重试；其余 4xx（如 400/404/409 业务错误）标记 `completed` 并缓存错误响应。若 5xx 发生在业务提交之后（如提交后读失败），重试存在固有歧义，需业务层状态/唯一约束防重。
 
 ## 4. 实现结构
 
@@ -150,13 +150,13 @@ go test ./internal/platform/idempotency/... -count=1
 
 ### 5.3 干净库全链路
 
-数据库：`mlf_erp_stage4a_clean2`；迁移、seed、demo、独立 API（端口 18092）；使用最终代码 `aa6e7d0`。
+数据库：`mlf_erp_stage4a_clean3`；迁移、seed、demo、独立 API（端口 18093）；使用最终代码 `657f58e`。
 
 ```bash
 go test -tags=integration ./tests/api -run 'TestStage3|TestStage4' -count=1 -v
 ```
 
-结果：Stage 3B、3C、3D、3E、3F、3G、3H、3I、3J、3K、4A 全部通过；Stage 4A 8 个子测试通过；总耗时约 40.1s。
+结果：Stage 3B、3C、3D、3E、3F、3G、3H、3I、3J、3K、4A 全部通过；Stage 4A 8 个子测试通过；总耗时约 42.4s。
 
 数据核对：
 
@@ -241,6 +241,7 @@ go test -tags=integration ./tests/api -run 'TestStage3|TestStage4' -count=1 -v
 - 清理任务运行在 API 进程内；后续可移到 Worker。
 - 只持久化 `Content-Type`，其他首次响应头不回放。
 - 业务 handler panic、进程崩溃或 `Complete` 持久化失败时，记录会保持 `in_progress` 直到过期；这是保守的 fail-closed 行为，但用户关闭弹窗后用新 key 重提可能绕过。
+- 5xx 若发生在业务事务提交之后（提交后读/响应失败），属于固有歧义；幂等层标记 `failed` 并允许重试，业务层必须用状态机/唯一约束/幂等业务键防重。
 - 保留 `IDEMPOTENCY_CONFLICT`/`IDEMPOTENCY_RESPONSE_UNAVAILABLE` 时，重试只会重复 409；用户需关闭弹窗或刷新核对。后续可加“已处理，请刷新核对”的针对性提示。
 - `Complete`/`Fail` 持久化失败时仍返回业务响应，记录可能保持 `in_progress`；不会重复执行，但客户端需等待过期或人工处理。
 - 不覆盖消息队列/Outbox 重试、GET 查询和客户端自动重试 UI。
