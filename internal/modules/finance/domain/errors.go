@@ -15,6 +15,11 @@ var (
 	ErrInvoiceStatus       = errors.New("invoice status does not allow this operation")
 	ErrVatInvoiceDuplicate = errors.New("VAT invoice number is already used")
 
+	ErrPaymentNotAllocated = errors.New("payment is not allocated")
+	ErrAllocationNotFound  = errors.New("payment allocation not found")
+	ErrReasonRequired      = errors.New("reversal reason is required")
+	ErrDuplicateInvoice    = errors.New("duplicate invoice in reversal request")
+
 	ErrCreditNoteClosed        = errors.New("credit note is not open")
 	ErrOverApply               = errors.New("credit note allocation exceeds remaining amount")
 	ErrCreditNoteOverInvoice   = errors.New("credit note allocation exceeds invoice outstanding")
