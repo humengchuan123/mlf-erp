@@ -390,12 +390,15 @@ git commit -m "feat(stage-3k): add fx settlement reversal posting"
 ## Task 4: 反核销事务和详情
 
 **Files:**
+- Modify: `internal/modules/finance/domain/repository.go`
 - Modify: `internal/modules/finance/infra/postgres/payment_repository.go`
 - Modify: `internal/modules/finance/app/payment_service.go`
 - Modify: `internal/modules/finance/app/invoice_service.go`
 - Modify: `internal/modules/finance/infra/postgres/invoice_repository.go`
 
 - [ ] **Step 1: Repository Unallocate**
+
+Add `Unallocate`, `ListAllocations` and `ListReversals` to `domain.PaymentRepository`, and `ListPaymentAllocationReversals` to `domain.InvoiceRepository`, in `internal/modules/finance/domain/repository.go`, then implement `Unallocate` in `PaymentRepository`:
 
 Signature:
 
@@ -443,7 +446,8 @@ WHERE tenant_id=$1 AND id=$2 AND paid_amount >= $3
 
 - [ ] **Step 2: Detail loading**
 
-Add:
+Implement the `ListAllocations` and `ListReversals` methods declared on `domain.PaymentRepository`:
+
 ```go
 func (r *PaymentRepository) ListAllocations(ctx, filter, tenantID, paymentID string) ([]*domain.PaymentAllocation, error)
 func (r *PaymentRepository) ListReversals(ctx, filter, tenantID, paymentID string) ([]*domain.PaymentAllocationReversal, error)
@@ -459,7 +463,7 @@ type PaymentDetail struct { Payment *domain.Payment; Allocations []*domain.Payme
 
 - [ ] **Step 3: Invoice detail reversals**
 
-`InvoiceRepository.ListPaymentAllocationReversals` join payments, order date.
+Implement `InvoiceRepository.ListPaymentAllocationReversals` (declared on `domain.InvoiceRepository`) to join payments, order by date.
 `InvoiceDetail` add `PaymentAllocationReversals`.
 `InvoiceService.Get` populate.
 
@@ -474,11 +478,11 @@ type PaymentDetail struct { Payment *domain.Payment; Allocations []*domain.Payme
 - [ ] **Step 5: Verify/commit**
 
 ```bash
-gofmt -w internal/modules/finance/infra/postgres/payment_repository.go internal/modules/finance/app/payment_service.go internal/modules/finance/app/invoice_service.go internal/modules/finance/infra/postgres/invoice_repository.go
+gofmt -w internal/modules/finance/domain/repository.go internal/modules/finance/infra/postgres/payment_repository.go internal/modules/finance/app/payment_service.go internal/modules/finance/app/invoice_service.go internal/modules/finance/infra/postgres/invoice_repository.go
 go build ./...
 go test ./internal/modules/finance/... ./internal/modules/gl/... -count=1
 go vet ./internal/modules/finance/... ./internal/modules/gl/...
-git add internal/modules/finance/infra/postgres/payment_repository.go internal/modules/finance/app/payment_service.go internal/modules/finance/app/invoice_service.go internal/modules/finance/infra/postgres/invoice_repository.go
+git add internal/modules/finance/domain/repository.go internal/modules/finance/infra/postgres/payment_repository.go internal/modules/finance/app/payment_service.go internal/modules/finance/app/invoice_service.go internal/modules/finance/infra/postgres/invoice_repository.go
 git commit -m "feat(stage-3k): unallocate payments transactionally"
 ```
 
@@ -513,7 +517,7 @@ type unallocatePaymentRequest struct {
 
 Payment response:
 - add `allocations`, `reversals` to detail response only (list summary unchanged).
-- allocation fields; reversal fields incl. `fx_reversal_voucher`.
+- allocation fields; reversal fields incl. `fx_reversal_voucher_codes`.
 
 Invoice detail:
 - add `payment_allocation_reversals`.
@@ -522,7 +526,7 @@ Invoice detail:
 
 ```ts
 export interface PaymentAllocation { id, payment_id, invoice_id, invoice_code, invoice_date, amount, base_amount, invoice_base_amount, created_at }
-export interface PaymentAllocationReversal { id, payment_id, payment_code, payment_date, invoice_id, invoice_code, invoice_date, amount, base_amount, invoice_base_amount, reversal_date, reason, fx_reversal_voucher, created_at }
+export interface PaymentAllocationReversal { id, payment_id, payment_code, payment_date, invoice_id, invoice_code, invoice_date, amount, base_amount, invoice_base_amount, reversal_date, reason, fx_reversal_voucher_codes: string[], created_at }
 export interface UnallocatePaymentInput { invoice_ids: string[]; reversal_date: string; reason: string }
 export interface PaymentDetail { payment: Payment; allocations: PaymentAllocation[]; reversals: PaymentAllocationReversal[] }
 ```

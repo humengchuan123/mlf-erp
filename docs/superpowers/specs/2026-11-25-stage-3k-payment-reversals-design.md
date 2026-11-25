@@ -213,7 +213,7 @@ paid              : settled >= total_amount
 
 - 收付款详情增加 `allocations` 和 `reversals`。
 - 发票详情增加 `payment_allocation_reversals`。
-- 反核销记录包含发票号、原币金额、付款本位币、发票本位币、日期、原因、创建人、汇兑反核销凭证号。
+- 反核销记录包含发票号、原币金额、付款本位币、发票本位币、日期、原因、创建人、汇兑反核销凭证号列表（`fx_reversal_voucher_codes`，每个已反核销汇兑结算凭证一项）。
 
 错误码：
 
@@ -227,6 +227,7 @@ paid              : settled >= total_amount
 ### SDK/OpenAPI
 
 - `PaymentAllocationReversal`、`PaymentAllocation`、`UnallocatePaymentInput`。
+- `PaymentAllocationReversal.fx_reversal_voucher_codes` 为汇兑反核销凭证号数组，每个已反核销汇兑结算凭证一项。
 - `financeApi.payments.unallocate(id, input)`。
 - `Payment` 详情增加 `allocations`/`reversals`。
 - `InvoiceDetail` 增加 `payment_allocation_reversals`。
@@ -237,7 +238,7 @@ paid              : settled >= total_amount
 - 收付款页：
   - 已核销/部分核销行显示“反核销”。
   - 反核销弹窗加载当前核销行，支持多选发票、反核销日期、原因。
-  - 详情展示核销历史和反核销历史（含汇兑反核销凭证）。
+  - 详情展示核销历史和反核销历史（含汇兑反核销凭证号）。
 - 发票详情增加付款核销/反核销记录。
 - 权限控制 `finance.payment.reverse`。
 - 前端完整度断言。
