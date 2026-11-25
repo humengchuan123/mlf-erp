@@ -113,7 +113,7 @@ assertFile('apps/web/src/views/sales/OrderListView.vue', [
   'exchange_rate',
   'base_total_amount',
   'shipIdempotencyKey',
-  'crypto.randomUUID',
+  'newIdempotencyKey',
   '发货'
 ])
 
@@ -129,7 +129,7 @@ assertFile('apps/web/src/views/purchase/OrderListView.vue', [
   'exchange_rate',
   'base_total_amount',
   'receiveIdempotencyKey',
-  'crypto.randomUUID'
+  'newIdempotencyKey'
 ])
 
 assertFile('apps/web/src/views/purchase/PurchaseReceiptListView.vue', [
@@ -141,7 +141,7 @@ assertFile('apps/web/src/views/purchase/PurchaseReceiptListView.vue', [
   'returnable_qty',
   'return_qty',
   'returnIdempotencyKey',
-  'crypto.randomUUID'
+  'newIdempotencyKey'
 ])
 
 assertFile('apps/web/src/views/purchase/PurchaseReturnListView.vue', [
@@ -164,7 +164,7 @@ assertFile('apps/web/src/views/sales/ShipmentListView.vue', [
   'tax_amount',
   'total_cost',
   'returnIdempotencyKey',
-  'crypto.randomUUID'
+  'newIdempotencyKey'
 ])
 
 assertFile('apps/web/src/views/sales/SalesReturnListView.vue', [
@@ -201,7 +201,7 @@ assertFile('apps/web/src/views/finance/CreditNoteListView.vue', [
   'finance.credit_note.refund',
   'applyIdempotencyKey',
   'refundIdempotencyKey',
-  'crypto.randomUUID'
+  'newIdempotencyKey'
 ])
 
 assertFile('apps/web/src/views/finance/InvoiceListView.vue', [
@@ -253,7 +253,7 @@ assertFile('apps/web/src/views/finance/PaymentListView.vue', [
   'allocateIdempotencyKey',
   'reverseIdempotencyKey',
   'shouldRetainIdempotencyKey',
-  'crypto.randomUUID'
+  'newIdempotencyKey'
 ])
 
 assertFile('packages/sdk/src/index.ts', ["./sales", "./finance", "./gl"])
@@ -266,6 +266,10 @@ assertFile('packages/sdk/src/client.ts', [
 
 assertFile('apps/web/src/utils/idempotency.ts', [
   'shouldRetainIdempotencyKey',
+  'newIdempotencyKey',
+  'randomUUID',
+  'getRandomValues',
+  'IDEMPOTENCY_CONFLICT',
   'IDEMPOTENCY_IN_PROGRESS',
   'IDEMPOTENCY_RESPONSE_UNAVAILABLE'
 ])

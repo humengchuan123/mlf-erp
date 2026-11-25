@@ -272,7 +272,7 @@ import {
   type TaxRate,
   type Warehouse
 } from '@mlf-erp/sdk'
-import { shouldRetainIdempotencyKey } from '../../utils/idempotency'
+import { newIdempotencyKey, shouldRetainIdempotencyKey } from '../../utils/idempotency'
 import { useAuthStore } from '@/stores/auth'
 
 interface OrderFormLine {
@@ -624,7 +624,7 @@ async function runAction(order: PurchaseOrder, label: string, action: () => Prom
 }
 
 async function openReceive(order: PurchaseOrder) {
-  receiveIdempotencyKey.value = crypto.randomUUID()
+  receiveIdempotencyKey.value = newIdempotencyKey()
   try {
     const detail = await purchaseApi.get(order.id)
     receiveOrder.value = detail
@@ -682,7 +682,7 @@ async function saveReceive() {
     }
   } catch (error) {
     if (!shouldRetainIdempotencyKey(error)) {
-      receiveIdempotencyKey.value = ''
+      receiveIdempotencyKey.value = newIdempotencyKey()
     }
     ElMessage.error(error instanceof Error ? error.message : '收货失败')
   } finally {

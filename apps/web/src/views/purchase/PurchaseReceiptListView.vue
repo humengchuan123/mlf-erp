@@ -172,7 +172,7 @@ import {
   type PurchaseReceipt,
   type PurchaseReceiptLine
 } from '@mlf-erp/sdk'
-import { shouldRetainIdempotencyKey } from '../../utils/idempotency'
+import { newIdempotencyKey, shouldRetainIdempotencyKey } from '../../utils/idempotency'
 import { useAuthStore } from '@/stores/auth'
 
 interface ReturnFormLine {
@@ -266,7 +266,7 @@ function hasReturnable(row: PurchaseReceipt) {
 }
 
 function openReturn(row: PurchaseReceipt) {
-  returnIdempotencyKey.value = crypto.randomUUID()
+  returnIdempotencyKey.value = newIdempotencyKey()
   returnTarget.value = row
   returnForm.return_date = today()
   returnForm.reason = ''
@@ -391,7 +391,7 @@ async function saveReturn() {
     await load()
   } catch (error) {
     if (!shouldRetainIdempotencyKey(error)) {
-      returnIdempotencyKey.value = ''
+      returnIdempotencyKey.value = newIdempotencyKey()
     }
     ElMessage.error(error instanceof Error ? error.message : '创建采购退货失败')
   } finally {

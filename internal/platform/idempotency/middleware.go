@@ -143,6 +143,7 @@ func Middleware(repo Repository, log *slog.Logger, cfg Config) gin.HandlerFunc {
 		persistCtx, cancelPersist := context.WithTimeout(context.WithoutCancel(c.Request.Context()), 5*time.Second)
 
 		retryable := status >= http.StatusInternalServerError ||
+			status == http.StatusRequestTimeout ||
 			status == http.StatusUnauthorized ||
 			status == http.StatusForbidden ||
 			status == http.StatusTooManyRequests

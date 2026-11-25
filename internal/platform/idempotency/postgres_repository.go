@@ -113,11 +113,10 @@ func (r *PostgresRepository) Acquire(ctx context.Context, in AcquireInput) (Acqu
 			result.State = StateReplay
 		}
 	case record.Status == statusInProgress:
-		if record.RequestHash == in.RequestHash {
-			result.State = StateInProgress
-		} else {
-			result.State = StateConflict
-		}
+		// The original request may still be committing. Even with a different
+		// payload, do not invite the client to rotate the key and double-execute;
+		// keep it on IDEMPOTENCY_IN_PROGRESS until the first request finishes.
+		result.State = StateInProgress
 	default:
 		return AcquireResult{}, fmt.Errorf("idempotency record %s has unknown status %q", record.ID, record.Status)
 	}

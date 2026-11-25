@@ -267,7 +267,7 @@ import {
   type CreditNoteSummary,
   type Invoice
 } from '@mlf-erp/sdk'
-import { shouldRetainIdempotencyKey } from '../../utils/idempotency'
+import { newIdempotencyKey, shouldRetainIdempotencyKey } from '../../utils/idempotency'
 import { useAuthStore } from '@/stores/auth'
 
 interface AllocationLine {
@@ -532,7 +532,7 @@ async function openAllocate(note: CreditNoteSummary) {
     return
   }
   const requestToken = ++candidatesRequestToken
-  applyIdempotencyKey.value = crypto.randomUUID()
+  applyIdempotencyKey.value = newIdempotencyKey()
   applyTarget.value = note
   allocationDate.value = today()
   allocationLines.value = []
@@ -659,7 +659,7 @@ async function saveAllocate() {
     await reloadAfterChange()
   } catch (error) {
     if (!shouldRetainIdempotencyKey(error)) {
-      applyIdempotencyKey.value = ''
+      applyIdempotencyKey.value = newIdempotencyKey()
     }
     ElMessage.error(error instanceof Error ? error.message : '抵用失败')
   } finally {
@@ -668,7 +668,7 @@ async function saveAllocate() {
 }
 
 function openRefund(note: CreditNoteSummary) {
-  refundIdempotencyKey.value = crypto.randomUUID()
+  refundIdempotencyKey.value = newIdempotencyKey()
   refundTarget.value = note
   Object.assign(refundForm, {
     refund_date: today(),
@@ -738,7 +738,7 @@ async function saveRefund() {
     await reloadAfterChange()
   } catch (error) {
     if (!shouldRetainIdempotencyKey(error)) {
-      refundIdempotencyKey.value = ''
+      refundIdempotencyKey.value = newIdempotencyKey()
     }
     ElMessage.error(error instanceof Error ? error.message : '退款失败')
   } finally {

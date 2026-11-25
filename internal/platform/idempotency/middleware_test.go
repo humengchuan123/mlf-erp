@@ -60,6 +60,33 @@ func TestMiddlewareExecutesThenReplays(t *testing.T) {
 	}
 }
 
+func TestMiddlewarePersistsAfterRequestCancellation(t *testing.T) {
+	repo := newFakeRepository()
+	var cancelRequest context.CancelFunc
+	router := newTestEngine(repo, testConfig("/test"), func(c *gin.Context) {
+		cancelRequest()
+		c.JSON(http.StatusOK, gin.H{"ok": true})
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancelRequest = cancel
+	request := httptest.NewRequest(http.MethodPost, "/test", strings.NewReader(`{"amount":"10"}`))
+	request = request.WithContext(ctx)
+	request.Header.Set(HeaderIdempotencyKey, "key-12345678")
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", response.Code, response.Body.String())
+	}
+	if repo.completeCalls != 1 {
+		t.Fatalf("complete calls = %d, want 1", repo.completeCalls)
+	}
+	if repo.lastCompleteCtxErr != nil {
+		t.Fatalf("complete context error = %v, want nil", repo.lastCompleteCtxErr)
+	}
+}
+
 func TestMiddlewareRejectsDifferentBody(t *testing.T) {
 	repo := newFakeRepository()
 	handlerCalls := 0
@@ -101,6 +128,34 @@ func TestMiddlewareInProgress(t *testing.T) {
 	})
 
 	response := performRequest(t, router, http.MethodPost, "/test", in.Key, body)
+	requireErrorCode(t, response, http.StatusConflict, "IDEMPOTENCY_IN_PROGRESS")
+	if handlerCalls != 0 {
+		t.Fatalf("handler calls = %d, want 0", handlerCalls)
+	}
+}
+
+func TestMiddlewareInProgressDifferentPayload(t *testing.T) {
+	repo := newFakeRepository()
+	const seededBody = `{"amount":"10"}`
+	const requestBody = `{"amount":"11"}`
+	in := AcquireInput{
+		TenantID: "tenant-1",
+		UserID:   "user-1",
+		Key:      "key-12345678",
+		Method:   http.MethodPost,
+		Path:     "/test",
+		Now:      time.Now(),
+	}
+	in.RequestHash = RequestHash(in.Method, in.Path, []byte(seededBody))
+	repo.seed(in, statusInProgress, Record{RequestHash: in.RequestHash, ExpiresAt: time.Now().Add(time.Hour)})
+
+	handlerCalls := 0
+	router := newTestEngine(repo, testConfig("/test"), func(c *gin.Context) {
+		handlerCalls++
+		c.JSON(http.StatusOK, gin.H{"ok": true})
+	})
+
+	response := performRequest(t, router, http.MethodPost, "/test", in.Key, requestBody)
 	requireErrorCode(t, response, http.StatusConflict, "IDEMPOTENCY_IN_PROGRESS")
 	if handlerCalls != 0 {
 		t.Fatalf("handler calls = %d, want 0", handlerCalls)
@@ -481,6 +536,7 @@ type fakeRepository struct {
 	lastCompletedBody      []byte
 	lastCompletedType      string
 	lastCompletedTruncated bool
+	lastCompleteCtxErr     error
 }
 
 func newFakeRepository() *fakeRepository {
@@ -528,17 +584,16 @@ func (r *fakeRepository) Acquire(_ context.Context, in AcquireInput) (AcquireRes
 			return AcquireResult{State: StateReplay, Record: recordOf(entry)}, nil
 		}
 	case statusInProgress:
-		if entry.requestHash == in.RequestHash {
-			return AcquireResult{State: StateInProgress, Record: recordOf(entry)}, nil
-		}
-		return AcquireResult{State: StateConflict, Record: recordOf(entry)}, nil
+		// Match the Postgres repository: an in-flight request keeps the key
+		// reserved even if the retry payload differs.
+		return AcquireResult{State: StateInProgress, Record: recordOf(entry)}, nil
 	default:
 		return AcquireResult{}, fmt.Errorf("unexpected fake status %q", entry.status)
 	}
 }
 
 func (r *fakeRepository) Complete(
-	_ context.Context,
+	ctx context.Context,
 	id string,
 	code int,
 	body []byte,
@@ -549,6 +604,7 @@ func (r *fakeRepository) Complete(
 	defer r.mu.Unlock()
 
 	r.completeCalls++
+	r.lastCompleteCtxErr = ctx.Err()
 	entry := r.entryByID(id)
 	if entry == nil {
 		return fmt.Errorf("fake record %s not found", id)

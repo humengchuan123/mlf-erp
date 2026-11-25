@@ -42,8 +42,8 @@ POST /api/v1/purchase/receipts/:id/returns
 - 请求哈希：`sha256(method + "\n" + path + "\n" + body)` 的十六进制。
 - `Idempotency-Key` 缺失时：默认放行并记录 debug 日志；`IDEMPOTENCY_REQUIRED=true` 时返回 400 `IDEMPOTENCY_KEY_REQUIRED`。
 - 默认 TTL 24h；过期 key 可重新使用。
-- 同一 key 不同 payload：409 `IDEMPOTENCY_CONFLICT`。
-- 同一 key 相同 payload 且首次请求仍在执行：409 `IDEMPOTENCY_IN_PROGRESS`。
+- 同一 key 且首次请求仍在执行：无论 payload 是否相同，409 `IDEMPOTENCY_IN_PROGRESS`。
+- 同一 key 不同 payload 且首次请求已完成：409 `IDEMPOTENCY_CONFLICT`。
 - 已完成且相同 payload：回放首次响应，加响应头 `Idempotency-Replayed: true`。
 - 5xx/401/403/429：标记 `failed`，允许用同一 key 重试。
 
@@ -55,7 +55,8 @@ in_progress --2xx/3xx/4xx(非401/403/429)--> completed
 in_progress --5xx/401/403/429--> failed
 failed --same hash--> in_progress（允许重试）
 completed --same hash--> replay
-completed/in_progress --different hash--> 409 conflict
+completed --different hash--> 409 IDEMPOTENCY_CONFLICT
+in_progress --any hash--> 409 IDEMPOTENCY_IN_PROGRESS
 expired --any hash--> in_progress（重新占用）
 ```
 
@@ -65,8 +66,8 @@ expired --any hash--> in_progress（重新占用）
 |---|---|---|
 | 400 | `IDEMPOTENCY_KEY_REQUIRED` | 强制模式下缺少 header |
 | 400 | `IDEMPOTENCY_KEY_INVALID` | key 格式不合法 |
-| 409 | `IDEMPOTENCY_CONFLICT` | 同 key 不同请求 |
-| 409 | `IDEMPOTENCY_IN_PROGRESS` | 同 key 同请求仍在执行 |
+| 409 | `IDEMPOTENCY_CONFLICT` | 已完成记录 + 同 key 不同请求 |
+| 409 | `IDEMPOTENCY_IN_PROGRESS` | 同 key 请求仍在执行（含不同 payload） |
 | 409 | `IDEMPOTENCY_RESPONSE_UNAVAILABLE` | 首次响应过大未保存，无法回放 |
 
 ---

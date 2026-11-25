@@ -37,12 +37,12 @@
 
 ### 1.3 前端
 
-- 6 个页面、8 个提交动作在打开弹窗时生成 `crypto.randomUUID()`：
+- 6 个页面、8 个提交动作在打开弹窗时生成 `newIdempotencyKey()`（优先 `crypto.randomUUID`，非 HTTPS 回退 `getRandomValues`）：
   - 收付款创建、核销、反核销。
   - 贷项抵用、退款。
   - 销售发货、销售退货。
   - 采购收货、采购退货。
-- 成功提交后清空 key；网络/5xx 保留 key 以便用同一 key 重试；4xx 重置 key，修正请求体后用新 key 重新提交。
+- 成功提交后清空 key；网络/5xx/401/403/408/429 及 `IDEMPOTENCY_CONFLICT`/`IN_PROGRESS`/`RESPONSE_UNAVAILABLE` 保留 key；其余 4xx 旋转新 key 后重新提交。
 - Header 默认可选；`IDEMPOTENCY_REQUIRED=true` 时强制。
 
 ### 1.4 提交范围
@@ -76,11 +76,12 @@
 
 ```text
 insert -> in_progress
-in_progress --2xx/3xx/4xx(非401/403/429)--> completed
-in_progress --5xx/401/403/429--> failed
+in_progress --2xx/3xx/4xx(非401/403/408/429)--> completed
+in_progress --5xx/401/403/408/429--> failed
 failed --same hash--> in_progress（允许重试）
 completed --same hash--> replay
-completed/in_progress --different hash--> 409 conflict
+completed --different hash--> 409 IDEMPOTENCY_CONFLICT
+in_progress --any hash--> 409 IDEMPOTENCY_IN_PROGRESS
 expired --any hash--> in_progress（重新占用）
 ```
 
@@ -88,13 +89,13 @@ expired --any hash--> in_progress（重新占用）
 |---|---|---|
 | 400 | `IDEMPOTENCY_KEY_REQUIRED` | 强制模式下缺少 header |
 | 400 | `IDEMPOTENCY_KEY_INVALID` | key 格式不合法 |
-| 409 | `IDEMPOTENCY_CONFLICT` | 同 key 不同请求 |
-| 409 | `IDEMPOTENCY_IN_PROGRESS` | 同 key 同请求仍在执行 |
+| 409 | `IDEMPOTENCY_CONFLICT` | 已完成记录 + 同 key 不同请求 |
+| 409 | `IDEMPOTENCY_IN_PROGRESS` | 同 key 请求仍在执行（含不同 payload） |
 | 409 | `IDEMPOTENCY_RESPONSE_UNAVAILABLE` | 首次响应过大未保存，无法回放 |
 
 - Key 格式：去空白后 8–128 字符，允许 `A-Z a-z 0-9 . _ : -`。
 - Header 缺失默认放行；强制模式返回 400。
-- 5xx/401/403/429 标记 `failed`，同一 key 可重试。
+- 5xx/401/403/408/429 标记 `failed`，同一 key 可重试。
 - 幂等记录先于业务事务存在；业务失败回滚后记录标记 `failed`，不会留下半成品业务数据。
 
 ## 4. 实现结构
@@ -185,7 +186,24 @@ go test -tags=integration ./tests/api -run 'TestStage3|TestStage4' -count=1 -v
 
 ## 6. 代码审核
 
-**pending。** 待规格审核和质量审核结论回填；Critical/Important 修复后重跑 Stage 4A 和干净库相关用例。
+### 6.1 质量审核（首轮）
+
+结论：**CHANGES REQUIRED**。无 Critical；2 个 Important：
+
+1. 4xx 时把 key 清空成 `''`，下一次提交失去幂等保护；`IDEMPOTENCY_REQUIRED=true` 时永久 400。
+2. `IDEMPOTENCY_CONFLICT` 被当作确定性 4xx 重置，但服务端在 `in_progress + 不同 payload` 时也返回 conflict，重置后将允许双执行。
+
+### 6.2 修复
+
+- 4xx 不再清空 key，改为 `newIdempotencyKey()` 旋转新 key；增加 `crypto.randomUUID` 非安全上下文回退（`getRandomValues`）。
+- 保留策略：网络/5xx/401/403/408/429、`IDEMPOTENCY_CONFLICT`/`IN_PROGRESS`/`RESPONSE_UNAVAILABLE` 保留 key；其余 4xx 旋转。
+- 服务端 `Acquire`：`in_progress` + 不同 payload 统一返回 `StateInProgress`，不再返回 `StateConflict`；`CONFLICT` 仅用于已完成记录。
+- 新增单元测试 `TestMiddlewareInProgressDifferentPayload`。
+- 文档/报告订正；`check-frontend` 增加 `newIdempotencyKey`/`getRandomValues`/`IDEMPOTENCY_CONFLICT` 断言。
+
+### 6.3 复审
+
+待规格审核和修复后质量复审结论回填。
 
 ## 7. 已知限制
 
@@ -197,17 +215,17 @@ go test -tags=integration ./tests/api -run 'TestStage3|TestStage4' -count=1 -v
 - 业务 handler panic 时记录会保持 `in_progress` 直到过期，客户端无法立即重试；这是保守的 fail-closed 行为。
 - `Complete`/`Fail` 持久化失败时仍返回业务响应，记录可能保持 `in_progress`；不会重复执行，但客户端需等待过期或人工处理。
 - 不覆盖消息队列/Outbox 重试、GET 查询和客户端自动重试 UI。
-- 4xx 响应会被缓存；前端在 4xx 时重置 key，修正后使用新 key；网络/5xx 和 `IDEMPOTENCY_IN_PROGRESS`/`IDEMPOTENCY_RESPONSE_UNAVAILABLE` 保留 key。
+- 4xx 响应会被缓存；前端在其余 4xx 时旋转新 key；网络/5xx/401/403/408/429 和 `IDEMPOTENCY_CONFLICT`/`IN_PROGRESS`/`RESPONSE_UNAVAILABLE` 保留 key。
 
 ## 8. 验收清单
 
 - [x] 同一 tenant + user + key + method + path + 相同 payload：重复请求回放首次响应，只产生一次副作用。
-- [x] 同一 key + 不同 payload：409 `IDEMPOTENCY_CONFLICT`。
+- [x] 已完成记录 + 同一 key 不同 payload：409 `IDEMPOTENCY_CONFLICT`；`in_progress` 时任何 payload 均 409 `IDEMPOTENCY_IN_PROGRESS`。
 - [x] 并发同 key 同 payload：最多一个执行，其余回放或 409；无双退款/双核销/双反核销/双发货/双收货。
-- [x] 不同 tenant/user 可使用相同 key，互不影响（repository 作用域 + 鉴权）。
-- [x] 过期 key 可重新使用；清理任务删除过期记录。
-- [x] 5xx/401/403/429 可用同一 key 重试。
-- [x] 前端 6 个视图提交时生成并传递 key；成功后清空。
+- [x] 不同 tenant/user 可使用相同 key，互不影响（repository 唯一键 + 鉴权；无专项 API 测试）。
+- [x] 过期 key 可重新使用；清理任务删除过期记录（仓储 smoke/单元逻辑；无专项 API 测试）。
+- [x] 5xx/401/403/408/429 可用同一 key 重试。
+- [x] 前端 6 个视图提交时生成并传递 key；成功后清空；4xx 旋转、网络/5xx 等保留。
 - [x] 9 个受保护端点全部有 OpenAPI header 和 409 说明。
 - [x] `TestStage4A` 通过；Stage 3B–3K 回归通过。
 - [x] 干净库版本 26，全链路通过。

@@ -338,7 +338,7 @@ import {
   type PaymentAllocationReversal,
   type PaymentDetail
 } from '@mlf-erp/sdk'
-import { shouldRetainIdempotencyKey } from '../../utils/idempotency'
+import { newIdempotencyKey, shouldRetainIdempotencyKey } from '../../utils/idempotency'
 import { useAuthStore } from '@/stores/auth'
 
 interface AllocateLine {
@@ -526,7 +526,7 @@ function handleSizeChange() {
 }
 
 function openCreate() {
-  createIdempotencyKey.value = crypto.randomUUID()
+  createIdempotencyKey.value = newIdempotencyKey()
   Object.assign(form, {
     payment_type: 'receipt',
     partner_id: '',
@@ -571,7 +571,7 @@ async function savePayment() {
     await load()
   } catch (error) {
     if (!shouldRetainIdempotencyKey(error)) {
-      createIdempotencyKey.value = ''
+      createIdempotencyKey.value = newIdempotencyKey()
     }
     ElMessage.error(error instanceof Error ? error.message : '创建收付款失败')
   } finally {
@@ -632,7 +632,7 @@ function setAllReversalSelected(selected: boolean) {
 
 async function openReversal(payment: Payment) {
   const request = ++reverseRequest
-  reverseIdempotencyKey.value = crypto.randomUUID()
+  reverseIdempotencyKey.value = newIdempotencyKey()
   reverseVisible.value = true
   reverseLoading.value = true
   reverseTarget.value = null
@@ -699,7 +699,7 @@ async function saveReverse() {
     await reloadAfterReversal()
   } catch (error) {
     if (!shouldRetainIdempotencyKey(error)) {
-      reverseIdempotencyKey.value = ''
+      reverseIdempotencyKey.value = newIdempotencyKey()
     }
     ElMessage.error(error instanceof Error ? error.message : '反核销失败')
   } finally {
@@ -709,7 +709,7 @@ async function saveReverse() {
 
 async function openAllocate(payment: Payment) {
   const request = ++allocateRequest
-  allocateIdempotencyKey.value = crypto.randomUUID()
+  allocateIdempotencyKey.value = newIdempotencyKey()
   try {
     const invoiceType = payment.payment_type === 'receipt' ? 'receivable' : 'payable'
     const result = await financeApi.invoices({
@@ -771,7 +771,7 @@ async function saveAllocate() {
     await load()
   } catch (error) {
     if (!shouldRetainIdempotencyKey(error)) {
-      allocateIdempotencyKey.value = ''
+      allocateIdempotencyKey.value = newIdempotencyKey()
     }
     ElMessage.error(error instanceof Error ? error.message : '核销失败')
   } finally {
