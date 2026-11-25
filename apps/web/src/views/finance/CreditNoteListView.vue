@@ -311,6 +311,8 @@ const detailVisible = ref(false)
 const detail = ref<CreditNote | null>(null)
 
 const applyVisible = ref(false)
+const applyIdempotencyKey = ref('')
+const refundIdempotencyKey = ref('')
 const applyTarget = ref<CreditNoteSummary | null>(null)
 const candidatesLoading = ref(false)
 const allocationDate = ref<string | null>(today())
@@ -529,6 +531,7 @@ async function openAllocate(note: CreditNoteSummary) {
     return
   }
   const requestToken = ++candidatesRequestToken
+  applyIdempotencyKey.value = crypto.randomUUID()
   applyTarget.value = note
   allocationDate.value = today()
   allocationLines.value = []
@@ -648,7 +651,8 @@ async function saveAllocate() {
     await financeApi.creditNotes.allocate(applyTarget.value.id, {
       allocation_date: allocationDateValue,
       allocations
-    })
+    }, applyIdempotencyKey.value)
+    applyIdempotencyKey.value = ''
     ElMessage.success('抵用成功')
     applyVisible.value = false
     await reloadAfterChange()
@@ -660,6 +664,7 @@ async function saveAllocate() {
 }
 
 function openRefund(note: CreditNoteSummary) {
+  refundIdempotencyKey.value = crypto.randomUUID()
   refundTarget.value = note
   Object.assign(refundForm, {
     refund_date: today(),
@@ -722,7 +727,8 @@ async function saveRefund() {
       method: refundForm.method,
       reference: refundForm.reference,
       remark: refundForm.remark
-    })
+    }, refundIdempotencyKey.value)
+    refundIdempotencyKey.value = ''
     ElMessage.success('退款成功')
     refundVisible.value = false
     await reloadAfterChange()

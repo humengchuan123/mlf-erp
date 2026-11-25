@@ -387,6 +387,10 @@ const form = reactive({
   remark: ''
 })
 
+const createIdempotencyKey = ref('')
+const allocateIdempotencyKey = ref('')
+const reverseIdempotencyKey = ref('')
+
 const allocateVisible = ref(false)
 const allocateTarget = ref<Payment | null>(null)
 const allocateLines = ref<AllocateLine[]>([])
@@ -521,6 +525,7 @@ function handleSizeChange() {
 }
 
 function openCreate() {
+  createIdempotencyKey.value = crypto.randomUUID()
   Object.assign(form, {
     payment_type: 'receipt',
     partner_id: '',
@@ -558,7 +563,8 @@ async function savePayment() {
       method: form.method,
       reference: form.reference,
       remark: form.remark
-    })
+    }, createIdempotencyKey.value)
+    createIdempotencyKey.value = ''
     ElMessage.success('收付款已创建')
     createVisible.value = false
     await load()
@@ -622,6 +628,7 @@ function setAllReversalSelected(selected: boolean) {
 
 async function openReversal(payment: Payment) {
   const request = ++reverseRequest
+  reverseIdempotencyKey.value = crypto.randomUUID()
   reverseVisible.value = true
   reverseLoading.value = true
   reverseTarget.value = null
@@ -676,7 +683,8 @@ async function saveReverse() {
       invoice_ids: selected.map((allocation) => allocation.invoice_id),
       reversal_date: reversalDate,
       reason
-    })
+    }, reverseIdempotencyKey.value)
+    reverseIdempotencyKey.value = ''
     if (reverseTarget.value?.id !== target.id) {
       await load()
       return
@@ -694,6 +702,7 @@ async function saveReverse() {
 
 async function openAllocate(payment: Payment) {
   const request = ++allocateRequest
+  allocateIdempotencyKey.value = crypto.randomUUID()
   try {
     const invoiceType = payment.payment_type === 'receipt' ? 'receivable' : 'payable'
     const result = await financeApi.invoices({
@@ -748,7 +757,8 @@ async function saveAllocate() {
 
   saving.value = true
   try {
-    await financeApi.allocate(allocateTarget.value.id, allocations)
+    await financeApi.allocate(allocateTarget.value.id, allocations, allocateIdempotencyKey.value)
+    allocateIdempotencyKey.value = ''
     ElMessage.success('核销成功')
     allocateVisible.value = false
     await load()

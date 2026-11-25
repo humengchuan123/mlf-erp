@@ -350,6 +350,8 @@ paths:
       - $ref: '#/components/parameters/ID'
     post:
       summary: Receive goods and create a payable invoice
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
       requestBody:
         required: true
         content:
@@ -363,6 +365,18 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/PurchaseReceiptResponse'
+        '400':
+          description: 'Idempotency key validation failed: IDEMPOTENCY_KEY_REQUIRED when enforcement is enabled and the header is missing, IDEMPOTENCY_KEY_INVALID when the key format is invalid.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+        '409':
+          description: 'Idempotency key reuse conflict: IDEMPOTENCY_CONFLICT when the same key was used with a different payload, IDEMPOTENCY_IN_PROGRESS while the original request is still running, or IDEMPOTENCY_RESPONSE_UNAVAILABLE when the stored response is too large to replay.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
   /purchase/receipts:
     get:
       summary: List purchase receipts
@@ -398,6 +412,8 @@ paths:
       - $ref: '#/components/parameters/ID'
     post:
       summary: Create a purchase return, credit note and inventory issue
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
       requestBody:
         required: true
         content:
@@ -412,7 +428,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/PurchaseReturnResponse'
         '400':
-          description: Invalid return payload
+          description: Invalid return payload; also IDEMPOTENCY_KEY_REQUIRED or IDEMPOTENCY_KEY_INVALID for idempotency key validation failures
           content:
             application/json:
               schema:
@@ -424,7 +440,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ApiResponse'
         '409':
-          description: Over return, insufficient stock, invalid status or closed accounting period
+          description: Over return, insufficient stock, invalid status or closed accounting period; also IDEMPOTENCY_CONFLICT, IDEMPOTENCY_IN_PROGRESS or IDEMPOTENCY_RESPONSE_UNAVAILABLE for idempotency key reuse
           content:
             application/json:
               schema:
@@ -612,6 +628,8 @@ paths:
       - $ref: '#/components/parameters/ID'
     post:
       summary: Ship goods, deduct inventory and create a receivable invoice
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
       requestBody:
         required: true
         content:
@@ -625,8 +643,14 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ShipmentResponse'
+        '400':
+          description: 'Idempotency key validation failed: IDEMPOTENCY_KEY_REQUIRED when enforcement is enabled and the header is missing, IDEMPOTENCY_KEY_INVALID when the key format is invalid.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
         '409':
-          description: Over shipment or insufficient stock
+          description: Over shipment or insufficient stock; also IDEMPOTENCY_CONFLICT, IDEMPOTENCY_IN_PROGRESS or IDEMPOTENCY_RESPONSE_UNAVAILABLE for idempotency key reuse
           content:
             application/json:
               schema:
@@ -666,6 +690,8 @@ paths:
       - $ref: '#/components/parameters/ID'
     post:
       summary: Create a sales return, credit note and inventory receipt
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
       requestBody:
         required: true
         content:
@@ -680,7 +706,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/SalesReturnResponse'
         '400':
-          description: Invalid return payload
+          description: Invalid return payload; also IDEMPOTENCY_KEY_REQUIRED or IDEMPOTENCY_KEY_INVALID for idempotency key validation failures
           content:
             application/json:
               schema:
@@ -692,7 +718,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ApiResponse'
         '409':
-          description: Over return, invalid status or closed accounting period
+          description: Over return, invalid status or closed accounting period; also IDEMPOTENCY_CONFLICT, IDEMPOTENCY_IN_PROGRESS or IDEMPOTENCY_RESPONSE_UNAVAILABLE for idempotency key reuse
           content:
             application/json:
               schema:
@@ -1140,6 +1166,7 @@ paths:
       summary: Apply a credit note to one or more invoices
       parameters:
         - $ref: '#/components/parameters/ID'
+        - $ref: '#/components/parameters/IdempotencyKey'
       requestBody:
         required: true
         content:
@@ -1159,7 +1186,7 @@ paths:
                       data:
                         $ref: '#/components/schemas/CreditNote'
         '400':
-          description: Invalid input, type mismatch, organization/partner/currency mismatch
+          description: Invalid input, type mismatch, organization/partner/currency mismatch; also IDEMPOTENCY_KEY_REQUIRED or IDEMPOTENCY_KEY_INVALID for idempotency key validation failures
           content:
             application/json:
               schema:
@@ -1171,7 +1198,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ApiResponse'
         '409':
-          description: Credit note closed, over-apply, invoice paid, cross-rate allocation (partial or full), or insufficient invoice base
+          description: Credit note closed, over-apply, invoice paid, cross-rate allocation (partial or full), or insufficient invoice base; also IDEMPOTENCY_CONFLICT, IDEMPOTENCY_IN_PROGRESS or IDEMPOTENCY_RESPONSE_UNAVAILABLE for idempotency key reuse
           content:
             application/json:
               schema:
@@ -1213,6 +1240,7 @@ paths:
       summary: Refund a credit note
       parameters:
         - $ref: '#/components/parameters/ID'
+        - $ref: '#/components/parameters/IdempotencyKey'
       requestBody:
         required: true
         content:
@@ -1232,7 +1260,7 @@ paths:
                       data:
                         $ref: '#/components/schemas/CreditNote'
         '400':
-          description: Invalid input, exchange rate not found, or refund amount too small
+          description: Invalid input, exchange rate not found, or refund amount too small; also IDEMPOTENCY_KEY_REQUIRED or IDEMPOTENCY_KEY_INVALID for idempotency key validation failures
           content:
             application/json:
               schema:
@@ -1244,7 +1272,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ApiResponse'
         '409':
-          description: Credit note closed, over-refund, or accounting period closed
+          description: Credit note closed, over-refund, or accounting period closed; also IDEMPOTENCY_CONFLICT, IDEMPOTENCY_IN_PROGRESS or IDEMPOTENCY_RESPONSE_UNAVAILABLE for idempotency key reuse
           content:
             application/json:
               schema:
@@ -1292,6 +1320,8 @@ paths:
                             type: integer
     post:
       summary: Create a receipt or payment
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
       requestBody:
         required: true
         content:
@@ -1305,6 +1335,18 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/PaymentResponse'
+        '400':
+          description: 'Idempotency key validation failed: IDEMPOTENCY_KEY_REQUIRED when enforcement is enabled and the header is missing, IDEMPOTENCY_KEY_INVALID when the key format is invalid.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+        '409':
+          description: 'Idempotency key reuse conflict: IDEMPOTENCY_CONFLICT when the same key was used with a different payload, IDEMPOTENCY_IN_PROGRESS while the original request is still running, or IDEMPOTENCY_RESPONSE_UNAVAILABLE when the stored response is too large to replay.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
   /finance/payments/{id}:
     parameters:
       - $ref: '#/components/parameters/ID'
@@ -1322,6 +1364,8 @@ paths:
       - $ref: '#/components/parameters/ID'
     post:
       summary: Allocate a receipt/payment to invoices
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
       requestBody:
         required: true
         content:
@@ -1342,7 +1386,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/PaymentResponse'
         '400':
-          description: Over allocation or type/partner/currency mismatch
+          description: Over allocation or type/partner/currency mismatch; also IDEMPOTENCY_KEY_REQUIRED or IDEMPOTENCY_KEY_INVALID for idempotency key validation failures
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+        '409':
+          description: 'Idempotency key reuse conflict: IDEMPOTENCY_CONFLICT when the same key was used with a different payload, IDEMPOTENCY_IN_PROGRESS while the original request is still running, or IDEMPOTENCY_RESPONSE_UNAVAILABLE when the stored response is too large to replay.'
           content:
             application/json:
               schema:
@@ -1352,6 +1402,8 @@ paths:
       - $ref: '#/components/parameters/ID'
     post:
       summary: Reverse receipt/payment allocations
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
       requestBody:
         required: true
         content:
@@ -1366,7 +1418,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/PaymentDetailResponse'
         '400':
-          description: 'Invalid input or allocation mismatch: BAD_REQUEST, PAYMENT_TYPE_MISMATCH, PARTNER_MISMATCH, CURRENCY_MISMATCH, DUPLICATE_INVOICE, REASON_REQUIRED.'
+          description: 'Invalid input or allocation mismatch: BAD_REQUEST, PAYMENT_TYPE_MISMATCH, PARTNER_MISMATCH, CURRENCY_MISMATCH, DUPLICATE_INVOICE, REASON_REQUIRED; also IDEMPOTENCY_KEY_REQUIRED or IDEMPOTENCY_KEY_INVALID for idempotency key validation failures.'
           content:
             application/json:
               schema:
@@ -1378,7 +1430,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ApiResponse'
         '409':
-          description: 'Payment not allocated, allocation not found, or accounting period closed: PAYMENT_NOT_ALLOCATED, ALLOCATION_NOT_FOUND, PERIOD_CLOSED.'
+          description: 'Payment not allocated, allocation not found, or accounting period closed: PAYMENT_NOT_ALLOCATED, ALLOCATION_NOT_FOUND, PERIOD_CLOSED; also IDEMPOTENCY_CONFLICT, IDEMPOTENCY_IN_PROGRESS or IDEMPOTENCY_RESPONSE_UNAVAILABLE for idempotency key reuse.'
           content:
             application/json:
               schema:
@@ -1954,6 +2006,15 @@ components:
       required: false
       schema:
         type: string
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: false
+      description: 客户端生成的幂等键；同一 key + 同一请求只执行一次。
+      schema:
+        type: string
+        minLength: 8
+        maxLength: 128
     Page:
       in: query
       name: page

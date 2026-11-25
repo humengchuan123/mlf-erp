@@ -284,6 +284,7 @@ interface PaymentsApi {
   (params?: PaymentListParams): Promise<Paged<Payment>>
   get(id: string): Promise<PaymentDetail>
   unallocate(id: string, input: UnallocatePaymentInput): Promise<PaymentDetail>
+  unallocate(id: string, input: UnallocatePaymentInput, idempotencyKey: string): Promise<PaymentDetail>
 }
 
 const payments = function payments(params: PaymentListParams = {}): Promise<Paged<Payment>> {
@@ -292,8 +293,36 @@ const payments = function payments(params: PaymentListParams = {}): Promise<Page
 
 payments.get = (id: string) => api.get<PaymentDetail>(`/finance/payments/${id}`)
 
-payments.unallocate = (id: string, input: UnallocatePaymentInput) =>
-  api.post<PaymentDetail>(`/finance/payments/${id}/unallocate`, input)
+payments.unallocate = (id: string, input: UnallocatePaymentInput, idempotencyKey?: string) =>
+  api.post<PaymentDetail>(`/finance/payments/${id}/unallocate`, input, { idempotencyKey })
+
+interface CreditNotesApi {
+  list(params?: CreditNoteListParams): Promise<Paged<CreditNoteSummary>>
+  get(id: string): Promise<CreditNote>
+  allocate(id: string, input: AllocateCreditNoteInput): Promise<CreditNote>
+  allocate(id: string, input: AllocateCreditNoteInput, idempotencyKey: string): Promise<CreditNote>
+  allocationCandidates(id: string): Promise<Invoice[]>
+  refund(id: string, input: RefundCreditNoteInput): Promise<CreditNote>
+  refund(id: string, input: RefundCreditNoteInput, idempotencyKey: string): Promise<CreditNote>
+}
+
+const creditNotes: CreditNotesApi = {
+  list(params: CreditNoteListParams = {}): Promise<Paged<CreditNoteSummary>> {
+    return api.get<Paged<CreditNoteSummary>>(`/finance/credit-notes${queryString(params)}`)
+  },
+  get(id: string): Promise<CreditNote> {
+    return api.get<CreditNote>(`/finance/credit-notes/${id}`)
+  },
+  allocate(id: string, input: AllocateCreditNoteInput, idempotencyKey?: string): Promise<CreditNote> {
+    return api.post<CreditNote>(`/finance/credit-notes/${id}/allocations`, input, { idempotencyKey })
+  },
+  allocationCandidates(id: string): Promise<Invoice[]> {
+    return api.get<Invoice[]>(`/finance/credit-notes/${id}/allocation-candidates`)
+  },
+  refund(id: string, input: RefundCreditNoteInput, idempotencyKey?: string): Promise<CreditNote> {
+    return api.post<CreditNote>(`/finance/credit-notes/${id}/refunds`, input, { idempotencyKey })
+  }
+}
 
 export const financeApi = {
   invoices(params: {
@@ -316,32 +345,16 @@ export const financeApi = {
   voidInvoice(id: string): Promise<Invoice> {
     return api.post<Invoice>(`/finance/invoices/${id}/void`)
   },
-  creditNotes: {
-    list(params: CreditNoteListParams = {}): Promise<Paged<CreditNoteSummary>> {
-      return api.get<Paged<CreditNoteSummary>>(`/finance/credit-notes${queryString(params)}`)
-    },
-    get(id: string): Promise<CreditNote> {
-      return api.get<CreditNote>(`/finance/credit-notes/${id}`)
-    },
-    allocate(id: string, input: AllocateCreditNoteInput): Promise<CreditNote> {
-      return api.post<CreditNote>(`/finance/credit-notes/${id}/allocations`, input)
-    },
-    allocationCandidates(id: string): Promise<Invoice[]> {
-      return api.get<Invoice[]>(`/finance/credit-notes/${id}/allocation-candidates`)
-    },
-    refund(id: string, input: RefundCreditNoteInput): Promise<CreditNote> {
-      return api.post<CreditNote>(`/finance/credit-notes/${id}/refunds`, input)
-    }
-  },
+  creditNotes,
   payments,
   payment(id: string): Promise<PaymentDetail> {
     return api.get<PaymentDetail>(`/finance/payments/${id}`)
   },
-  createPayment(input: PaymentInput): Promise<Payment> {
-    return api.post<Payment>('/finance/payments', input)
+  createPayment(input: PaymentInput, idempotencyKey?: string): Promise<Payment> {
+    return api.post<Payment>('/finance/payments', input, { idempotencyKey })
   },
-  allocate(paymentId: string, allocations: AllocationInput[]): Promise<Payment> {
-    return api.post<Payment>(`/finance/payments/${paymentId}/allocate`, { allocations })
+  allocate(paymentId: string, allocations: AllocationInput[], idempotencyKey?: string): Promise<Payment> {
+    return api.post<Payment>(`/finance/payments/${paymentId}/allocate`, { allocations }, { idempotencyKey })
   },
   exchangeRates: {
     list(params: { currency?: string; start_date?: string; end_date?: string; page?: number; page_size?: number } = {}): Promise<Paged<ExchangeRate>> {

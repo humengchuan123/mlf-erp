@@ -203,6 +203,7 @@ const detail = ref<PurchaseReceipt | null>(null)
 
 const returnVisible = ref(false)
 const returning = ref(false)
+const returnIdempotencyKey = ref('')
 const returnTarget = ref<PurchaseReceipt | null>(null)
 const returnForm = reactive({
   return_date: today(),
@@ -264,6 +265,7 @@ function hasReturnable(row: PurchaseReceipt) {
 }
 
 function openReturn(row: PurchaseReceipt) {
+  returnIdempotencyKey.value = crypto.randomUUID()
   returnTarget.value = row
   returnForm.return_date = today()
   returnForm.reason = ''
@@ -381,7 +383,8 @@ async function saveReturn() {
       reason: returnForm.reason,
       remark: returnForm.remark,
       lines
-    })
+    }, returnIdempotencyKey.value)
+    returnIdempotencyKey.value = ''
     ElMessage.success('采购退货已创建')
     returnVisible.value = false
     await load()

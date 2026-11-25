@@ -331,6 +331,7 @@ const form = reactive({
 const detailVisible = ref(false)
 const detailOrder = ref<SalesOrder | null>(null)
 const shipVisible = ref(false)
+const shipIdempotencyKey = ref('')
 const shipOrderTarget = ref<SalesOrder | null>(null)
 const shipForm = reactive({
   shipment_date: today(),
@@ -631,6 +632,7 @@ async function runAction(order: SalesOrder, label: string, action: () => Promise
 }
 
 async function openShip(order: SalesOrder) {
+  shipIdempotencyKey.value = crypto.randomUUID()
   try {
     const detail = await salesApi.get(order.id)
     shipOrderTarget.value = detail
@@ -724,7 +726,8 @@ async function saveShip() {
       shipment_date: shipForm.shipment_date,
       remark: shipForm.remark,
       lines
-    })
+    }, shipIdempotencyKey.value)
+    shipIdempotencyKey.value = ''
     ElMessage.success('发货成功，库存已扣减并生成应收发票')
     shipVisible.value = false
     await loadOrders()

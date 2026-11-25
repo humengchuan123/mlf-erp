@@ -322,6 +322,7 @@ const form = reactive({
 const detailVisible = ref(false)
 const detailOrder = ref<PurchaseOrder | null>(null)
 const receiveVisible = ref(false)
+const receiveIdempotencyKey = ref('')
 const receiveOrder = ref<PurchaseOrder | null>(null)
 const receiveForm = reactive({
   receipt_date: today(),
@@ -622,6 +623,7 @@ async function runAction(order: PurchaseOrder, label: string, action: () => Prom
 }
 
 async function openReceive(order: PurchaseOrder) {
+  receiveIdempotencyKey.value = crypto.randomUUID()
   try {
     const detail = await purchaseApi.get(order.id)
     receiveOrder.value = detail
@@ -669,7 +671,8 @@ async function saveReceive() {
       receipt_date: receiveForm.receipt_date,
       remark: receiveForm.remark,
       lines
-    })
+    }, receiveIdempotencyKey.value)
+    receiveIdempotencyKey.value = ''
     ElMessage.success('收货成功，库存已入库')
     receiveVisible.value = false
     await loadOrders()

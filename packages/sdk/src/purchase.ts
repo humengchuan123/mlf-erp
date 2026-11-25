@@ -224,8 +224,8 @@ export const purchaseApi = {
   cancel(id: string): Promise<unknown> {
     return api.post(`/purchase/orders/${id}/cancel`)
   },
-  receive(id: string, input: ReceiveInput): Promise<PurchaseReceipt> {
-    return api.post<PurchaseReceipt>(`/purchase/orders/${id}/receive`, input)
+  receive(id: string, input: ReceiveInput, idempotencyKey?: string): Promise<PurchaseReceipt> {
+    return api.post<PurchaseReceipt>(`/purchase/orders/${id}/receive`, input, { idempotencyKey })
   },
   receipts(params: { order_id?: string; page?: number; page_size?: number } = {}): Promise<Paged<PurchaseReceipt>> {
     return api.get<Paged<PurchaseReceipt>>(`/purchase/receipts${queryString(params)}`)
@@ -245,8 +245,8 @@ export const purchaseApi = {
     get(id: string): Promise<PurchaseReturn> {
       return api.get<PurchaseReturn>(`/purchase/returns/${id}`)
     },
-    create(receiptID: string, input: CreatePurchaseReturnInput): Promise<PurchaseReturn> {
-      return api.post<PurchaseReturn>(`/purchase/receipts/${receiptID}/returns`, input)
+    create(receiptID: string, input: CreatePurchaseReturnInput, idempotencyKey?: string): Promise<PurchaseReturn> {
+      return api.post<PurchaseReturn>(`/purchase/receipts/${receiptID}/returns`, input, { idempotencyKey })
     }
   }
 }

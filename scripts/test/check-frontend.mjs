@@ -112,6 +112,8 @@ assertFile('apps/web/src/views/sales/OrderListView.vue', [
   'gross_amount',
   'exchange_rate',
   'base_total_amount',
+  'shipIdempotencyKey',
+  'crypto.randomUUID',
   '发货'
 ])
 
@@ -125,7 +127,9 @@ assertFile('apps/web/src/views/purchase/OrderListView.vue', [
   'tax_amount',
   'gross_amount',
   'exchange_rate',
-  'base_total_amount'
+  'base_total_amount',
+  'receiveIdempotencyKey',
+  'crypto.randomUUID'
 ])
 
 assertFile('apps/web/src/views/purchase/PurchaseReceiptListView.vue', [
@@ -135,7 +139,9 @@ assertFile('apps/web/src/views/purchase/PurchaseReceiptListView.vue', [
   'purchaseApi.returns.create',
   'returned_qty',
   'returnable_qty',
-  'return_qty'
+  'return_qty',
+  'returnIdempotencyKey',
+  'crypto.randomUUID'
 ])
 
 assertFile('apps/web/src/views/purchase/PurchaseReturnListView.vue', [
@@ -156,7 +162,9 @@ assertFile('apps/web/src/views/sales/ShipmentListView.vue', [
   'returnable_qty',
   'net_amount',
   'tax_amount',
-  'total_cost'
+  'total_cost',
+  'returnIdempotencyKey',
+  'crypto.randomUUID'
 ])
 
 assertFile('apps/web/src/views/sales/SalesReturnListView.vue', [
@@ -190,7 +198,10 @@ assertFile('apps/web/src/views/finance/CreditNoteListView.vue', [
   'refundFxAdjustment',
   'el-dialog',
   'finance.credit_note.apply',
-  'finance.credit_note.refund'
+  'finance.credit_note.refund',
+  'applyIdempotencyKey',
+  'refundIdempotencyKey',
+  'crypto.randomUUID'
 ])
 
 assertFile('apps/web/src/views/finance/InvoiceListView.vue', [
@@ -237,10 +248,20 @@ assertFile('apps/web/src/views/finance/PaymentListView.vue', [
   'reversal_date',
   '@click="openReversal(row)"',
   'reverseSelected',
-  'invoice_ids'
+  'invoice_ids',
+  'createIdempotencyKey',
+  'allocateIdempotencyKey',
+  'reverseIdempotencyKey',
+  'crypto.randomUUID'
 ])
 
 assertFile('packages/sdk/src/index.ts', ["./sales", "./finance", "./gl"])
+
+assertFile('packages/sdk/src/client.ts', [
+  'RequestOptions',
+  'idempotencyKey',
+  'Idempotency-Key'
+])
 
 assertFile('apps/web/src/views/finance/AccountListView.vue', [
   'PageHeader',
@@ -314,7 +335,8 @@ assertFile('packages/sdk/src/sales.ts', [
   'tax_rate_id',
   'gross_amount',
   'exchange_rate',
-  'base_total_amount'
+  'base_total_amount',
+  'idempotencyKey'
 ])
 
 assertFile('packages/sdk/src/finance.ts', [
@@ -353,7 +375,8 @@ assertFile('packages/sdk/src/finance.ts', [
   'PaymentAllocationReversal',
   'UnallocatePaymentInput',
   'payment_allocation_reversals',
-  'fx_reversal_voucher_codes'
+  'fx_reversal_voucher_codes',
+  'idempotencyKey'
 ])
 
 assertFile('packages/sdk/src/purchase.ts', [
@@ -368,7 +391,8 @@ assertFile('packages/sdk/src/purchase.ts', [
   'tax_rate_id',
   'gross_amount',
   'exchange_rate',
-  'base_total_amount'
+  'base_total_amount',
+  'idempotencyKey'
 ])
 
 assertFile('api/openapi.yaml', [
@@ -400,7 +424,10 @@ assertFile('api/openapi.yaml', [
   'PaymentAllocationReversal:',
   'UnallocatePaymentInput',
   'payment_allocation_reversals',
-  'fx_reversal_voucher_codes'
+  'fx_reversal_voucher_codes',
+  'IdempotencyKey',
+  'IDEMPOTENCY_CONFLICT',
+  'IDEMPOTENCY_IN_PROGRESS'
 ])
 
 assertFile('packages/sdk/src/gl.ts', [

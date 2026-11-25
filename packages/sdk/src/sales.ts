@@ -228,8 +228,8 @@ export const salesApi = {
   cancel(id: string): Promise<unknown> {
     return api.post(`/sales/orders/${id}/cancel`)
   },
-  ship(id: string, input: ShipInput): Promise<Shipment> {
-    return api.post<Shipment>(`/sales/orders/${id}/ship`, input)
+  ship(id: string, input: ShipInput, idempotencyKey?: string): Promise<Shipment> {
+    return api.post<Shipment>(`/sales/orders/${id}/ship`, input, { idempotencyKey })
   },
   shipments(params: { order_id?: string; page?: number; page_size?: number } = {}): Promise<Paged<Shipment>> {
     return api.get<Paged<Shipment>>(`/sales/shipments${queryString(params)}`)
@@ -249,8 +249,8 @@ export const salesApi = {
     get(id: string): Promise<SalesReturn> {
       return api.get<SalesReturn>(`/sales/returns/${id}`)
     },
-    create(shipmentID: string, input: CreateSalesReturnInput): Promise<SalesReturn> {
-      return api.post<SalesReturn>(`/sales/shipments/${shipmentID}/returns`, input)
+    create(shipmentID: string, input: CreateSalesReturnInput, idempotencyKey?: string): Promise<SalesReturn> {
+      return api.post<SalesReturn>(`/sales/shipments/${shipmentID}/returns`, input, { idempotencyKey })
     }
   }
 }

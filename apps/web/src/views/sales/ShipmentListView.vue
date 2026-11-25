@@ -186,6 +186,7 @@ const detail = ref<Shipment | null>(null)
 
 const returnVisible = ref(false)
 const returning = ref(false)
+const returnIdempotencyKey = ref('')
 const returnTarget = ref<Shipment | null>(null)
 const returnForm = reactive({
   return_date: today(),
@@ -241,6 +242,7 @@ function hasReturnable(row: Shipment) {
 }
 
 function openReturn(row: Shipment) {
+  returnIdempotencyKey.value = crypto.randomUUID()
   returnTarget.value = row
   returnForm.return_date = today()
   returnForm.reason = ''
@@ -326,7 +328,8 @@ async function saveReturn() {
       reason: returnForm.reason,
       remark: returnForm.remark,
       lines
-    })
+    }, returnIdempotencyKey.value)
+    returnIdempotencyKey.value = ''
     ElMessage.success('销售退货已创建')
     returnVisible.value = false
     await load()

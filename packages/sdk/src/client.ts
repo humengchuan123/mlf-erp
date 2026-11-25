@@ -16,6 +16,10 @@ export class ApiError extends Error {
   }
 }
 
+export interface RequestOptions {
+  idempotencyKey?: string
+}
+
 let accessToken: string | null = null
 let refreshToken: string | null = null
 let unauthorizedHandler: (() => void) | null = null
@@ -88,9 +92,14 @@ export class ApiClient {
     return this.request<T>(path)
   }
 
-  post<T>(path: string, data?: unknown): Promise<T> {
+  post<T>(path: string, data?: unknown, options?: RequestOptions): Promise<T> {
+    const headers: Record<string, string> = {}
+    if (options?.idempotencyKey) {
+      headers['Idempotency-Key'] = options.idempotencyKey
+    }
     return this.request<T>(path, {
       method: 'POST',
+      headers,
       body: data === undefined ? undefined : JSON.stringify(data)
     })
   }
