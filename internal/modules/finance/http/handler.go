@@ -289,9 +289,10 @@ type allocatePaymentRequest struct {
 }
 
 type unallocatePaymentRequest struct {
-	InvoiceIDs   []string `json:"invoice_ids"`
-	ReversalDate string   `json:"reversal_date"`
-	Reason       string   `json:"reason"`
+	InvoiceIDs []string `json:"invoice_ids"`
+	// ReversalDate defaults to today in PaymentService.Unallocate when empty.
+	ReversalDate string `json:"reversal_date"`
+	Reason       string `json:"reason"`
 }
 
 type pagedResponse[T any] struct {
@@ -787,9 +788,12 @@ func (h *Handler) unallocatePayment(c *gin.Context) {
 	}
 	invoiceIDs := make([]string, 0, len(request.InvoiceIDs))
 	for _, item := range request.InvoiceIDs {
-		if invoiceID := strings.TrimSpace(item); invoiceID != "" {
-			invoiceIDs = append(invoiceIDs, invoiceID)
+		invoiceID := strings.TrimSpace(item)
+		if invoiceID == "" {
+			httpx.Error(c, http.StatusBadRequest, httpx.CodeBadRequest, "invoice ids must not be blank")
+			return
 		}
+		invoiceIDs = append(invoiceIDs, invoiceID)
 	}
 	if len(invoiceIDs) == 0 {
 		httpx.Error(c, http.StatusBadRequest, httpx.CodeBadRequest, "at least one invoice is required")

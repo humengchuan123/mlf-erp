@@ -3,11 +3,12 @@ info:
   title: MLF ERP API
   version: 1.2.0
   description: |
-    MLF ERP Stage 1 + Stage 2 + Stage 3A/3B/3C/3D/3E/3F/3G/3H/3I/3J API contract.
+    MLF ERP Stage 1 + Stage 2 + Stage 3A/3B/3C/3D/3E/3F/3G/3H/3I/3J/3K API contract.
     Master data uses a generic CRUD surface under /masterdata/{entity}.
     Purchase, sales, inventory, receivables/payables, payments, general ledger and reports are included.
     Stage 3H adds sales returns and credit notes; Stage 3I adds purchase returns.
     Stage 3J adds credit note allocation and refund workflows.
+    Stage 3K adds payment allocation reversals and FX settlement reversal postings.
 servers:
   - url: /api/v1
 security:
@@ -1365,7 +1366,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/PaymentDetailResponse'
         '400':
-          description: Invalid input, duplicate invoice, or missing reason
+          description: 'Invalid input or allocation mismatch: BAD_REQUEST, PAYMENT_TYPE_MISMATCH, PARTNER_MISMATCH, CURRENCY_MISMATCH, DUPLICATE_INVOICE, REASON_REQUIRED.'
           content:
             application/json:
               schema:
@@ -1377,7 +1378,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ApiResponse'
         '409':
-          description: Payment not allocated, allocation not found, or accounting period closed
+          description: 'Payment not allocated, allocation not found, or accounting period closed: PAYMENT_NOT_ALLOCATED, ALLOCATION_NOT_FOUND, PERIOD_CLOSED.'
           content:
             application/json:
               schema:
@@ -3434,11 +3435,23 @@ components:
           type: string
         remark:
           type: string
+        voucher_code:
+          type: string
         created_at:
           type: string
           format: date-time
     PaymentAllocation:
       type: object
+      required:
+        - id
+        - payment_id
+        - invoice_id
+        - invoice_code
+        - invoice_date
+        - amount
+        - base_amount
+        - invoice_base_amount
+        - created_at
       properties:
         id:
           type: string
@@ -3462,6 +3475,22 @@ components:
           format: date-time
     PaymentAllocationReversal:
       type: object
+      required:
+        - id
+        - payment_id
+        - payment_code
+        - payment_date
+        - invoice_id
+        - invoice_code
+        - invoice_date
+        - amount
+        - base_amount
+        - invoice_base_amount
+        - reversal_date
+        - reason
+        - fx_reversal_voucher_codes
+        - created_by
+        - created_at
       properties:
         id:
           type: string
@@ -3503,6 +3532,7 @@ components:
       allOf:
         - $ref: '#/components/schemas/Payment'
         - type: object
+          required: [allocations, reversals]
           properties:
             allocations:
               type: array
@@ -3567,14 +3597,18 @@ components:
         invoice_ids:
           type: array
           minItems: 1
+          uniqueItems: true
           items:
             type: string
             format: uuid
         reversal_date:
           type: string
           format: date
+          description: Optional reversal date. Defaults to today; must not be before the payment date and must fall in an open accounting period.
         reason:
           type: string
+          minLength: 1
+          description: Non-blank reversal reason.
     GlAccount:
       type: object
       properties:

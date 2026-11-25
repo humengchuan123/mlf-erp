@@ -225,7 +225,7 @@ export interface PaymentAllocationReversal {
 
 export interface UnallocatePaymentInput {
   invoice_ids: string[]
-  reversal_date: string
+  reversal_date?: string
   reason: string
 }
 
@@ -260,7 +260,7 @@ export interface AllocationInput {
   amount: string
 }
 
-function queryString(params: Record<string, string | number | undefined>): string {
+function queryString(params: object): string {
   const search = new URLSearchParams()
   for (const [key, value] of Object.entries(params)) {
     if (value !== undefined && value !== '') {
@@ -272,7 +272,6 @@ function queryString(params: Record<string, string | number | undefined>): strin
 }
 
 export interface PaymentListParams {
-  [key: string]: string | number | undefined
   payment_type?: string
   status?: string
   partner_id?: string
@@ -284,19 +283,16 @@ export interface PaymentListParams {
 interface PaymentsApi {
   (params?: PaymentListParams): Promise<Paged<Payment>>
   get(id: string): Promise<PaymentDetail>
-  getDetail(id: string): Promise<PaymentDetail>
   unallocate(id: string, input: UnallocatePaymentInput): Promise<PaymentDetail>
 }
 
-const paymentsApi = function payments(params: PaymentListParams = {}): Promise<Paged<Payment>> {
+const payments = function payments(params: PaymentListParams = {}): Promise<Paged<Payment>> {
   return api.get<Paged<Payment>>(`/finance/payments${queryString(params)}`)
 } as PaymentsApi
 
-paymentsApi.get = (id: string) => api.get<PaymentDetail>(`/finance/payments/${id}`)
+payments.get = (id: string) => api.get<PaymentDetail>(`/finance/payments/${id}`)
 
-paymentsApi.getDetail = (id: string) => api.get<PaymentDetail>(`/finance/payments/${id}`)
-
-paymentsApi.unallocate = (id: string, input: UnallocatePaymentInput) =>
+payments.unallocate = (id: string, input: UnallocatePaymentInput) =>
   api.post<PaymentDetail>(`/finance/payments/${id}/unallocate`, input)
 
 export const financeApi = {
@@ -337,9 +333,9 @@ export const financeApi = {
       return api.post<CreditNote>(`/finance/credit-notes/${id}/refunds`, input)
     }
   },
-  payments: paymentsApi,
-  payment(id: string): Promise<Payment> {
-    return api.get<Payment>(`/finance/payments/${id}`)
+  payments,
+  payment(id: string): Promise<PaymentDetail> {
+    return api.get<PaymentDetail>(`/finance/payments/${id}`)
   },
   createPayment(input: PaymentInput): Promise<Payment> {
     return api.post<Payment>('/finance/payments', input)

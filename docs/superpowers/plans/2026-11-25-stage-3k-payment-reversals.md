@@ -515,10 +515,10 @@ Invoice detail:
 ```ts
 export interface PaymentAllocation { id, payment_id, invoice_id, invoice_code, invoice_date, amount, base_amount, invoice_base_amount, created_at }
 export interface PaymentAllocationReversal { id, payment_id, payment_code, payment_date, invoice_id, invoice_code, invoice_date, amount, base_amount, invoice_base_amount, reversal_date, reason, fx_reversal_voucher_codes: string[], created_at }
-export interface UnallocatePaymentInput { invoice_ids: string[]; reversal_date: string; reason: string }
-export interface PaymentDetail { payment: Payment; allocations: PaymentAllocation[]; reversals: PaymentAllocationReversal[] }
+export interface UnallocatePaymentInput { invoice_ids: string[]; reversal_date?: string; reason: string }
+export interface PaymentDetail extends Payment { allocations: PaymentAllocation[]; reversals: PaymentAllocationReversal[] }
 ```
-`financeApi.payments.unallocate(id,input): Promise<PaymentDetail>`, `get` returns `PaymentDetail`? Existing `get` returns `Payment`; changing type may affect UI. Could add `getDetail` or change get to detail. Prefer `get(id): Promise<PaymentDetail>` and update frontend; or add `detail(id)`. Plan: add `getDetail(id)` and keep `get`; API `GET /payments/:id` returns detail, so `get` can return `PaymentDetail`; adjust UI. Simpler `get` returns `PaymentDetail` and list `Payment`. Existing code may expect Payment; update.
+`financeApi.payments.unallocate(id,input): Promise<PaymentDetail>`; payment detail uses `financeApi.payments.get(id): Promise<PaymentDetail>` and legacy `financeApi.payment(id)` returns the same detail. List remains `financeApi.payments(params): Promise<Paged<Payment>>`. Do not add a separate `getDetail`. Existing code may expect `Payment`; return detail is a superset.
 
 - [ ] **Step 3: OpenAPI 1.2.0**
 
@@ -556,7 +556,7 @@ git commit -m "feat(stage-3k): add payment reversal APIs"
 
 - 列表已核销/部分核销行显示“反核销”按钮，权限 `finance.payment.reverse`。
 - 反核销弹窗：
-  - 加载 `financeApi.payments.get(id)` 的 allocations。
+  - 加载 `financeApi.payments.get(id)`（返回 `PaymentDetail`，含 `allocations`/`reversals`；不使用 `getDetail`）。
   - 表格：发票号、日期、金额、付款本位币、发票本位币；勾选核销行。
   - 反核销日期默认今天；原因必填。
   - 提交 `financeApi.payments.unallocate(id, { invoice_ids, reversal_date, reason })`。
