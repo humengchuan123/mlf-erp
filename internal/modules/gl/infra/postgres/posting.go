@@ -113,6 +113,19 @@ type FXSettlementPosting struct {
 	BaseAdjustment decimal.Decimal
 }
 
+type FXSettlementReversalPosting struct {
+	TenantID       string
+	OrgID          string
+	VoucherCode    string
+	SourceID       string
+	SourceCode     string
+	InvoiceType    string
+	PartnerID      string
+	VoucherDate    time.Time
+	BaseAdjustment decimal.Decimal
+	CreatedBy      string
+}
+
 type postingLine struct {
 	AccountKey string
 	Summary    string
@@ -389,10 +402,70 @@ func creditNoteRefundPostingLines(input CreditNoteRefundPosting) ([]postingLine,
 }
 
 func PostFXSettlement(ctx context.Context, tx pgx.Tx, input FXSettlementPosting) error {
-	adjustment := input.BaseAdjustment.Round(4)
-	if adjustment.IsZero() {
+	lines, err := fxSettlementPostingLines(input)
+	if err != nil {
+		return err
+	}
+	if len(lines) == 0 {
 		return nil
 	}
+	return postVoucherTx(ctx, tx, voucherPostingInput{
+		TenantID:    input.TenantID,
+		OrgID:       input.OrgID,
+		VoucherCode: input.VoucherCode,
+		VoucherDate: input.VoucherDate,
+		VoucherType: domain.VoucherTypeFXSettlement,
+		SourceType:  domain.SourceTypeFXSettlement,
+		SourceID:    input.SourceID,
+		SourceCode:  input.SourceCode,
+		Memo:        "汇兑损益 " + input.SourceCode,
+		CreatedBy:   input.CreatedBy,
+		Lines:       lines,
+	})
+}
+
+func PostFXSettlementReversal(ctx context.Context, tx pgx.Tx, input FXSettlementReversalPosting) error {
+	lines, err := fxSettlementReversalPostingLines(input)
+	if err != nil {
+		return err
+	}
+	if len(lines) == 0 {
+		return nil
+	}
+	return postVoucherTx(ctx, tx, voucherPostingInput{
+		TenantID:    input.TenantID,
+		OrgID:       input.OrgID,
+		VoucherCode: input.VoucherCode,
+		VoucherDate: input.VoucherDate,
+		VoucherType: domain.VoucherTypeFXSettlementReversal,
+		SourceType:  domain.SourceTypeFXSettlementReversal,
+		SourceID:    input.SourceID,
+		SourceCode:  input.SourceCode,
+		Memo:        "汇兑结算反核销 " + input.SourceCode,
+		CreatedBy:   input.CreatedBy,
+		Lines:       lines,
+	})
+}
+
+func fxSettlementReversalPostingLines(input FXSettlementReversalPosting) ([]postingLine, error) {
+	return fxSettlementPostingLines(FXSettlementPosting{
+		PartnerID:      input.PartnerID,
+		InvoiceType:    input.InvoiceType,
+		BaseAdjustment: input.BaseAdjustment.Neg(),
+	})
+}
+
+func fxSettlementPostingLines(input FXSettlementPosting) ([]postingLine, error) {
+	adjustment := input.BaseAdjustment.Round(4)
+	if adjustment.IsZero() {
+		return nil, nil
+	}
+	switch input.InvoiceType {
+	case "receivable", "payable":
+	default:
+		return nil, domain.ErrInvalidInput
+	}
+
 	absolute := adjustment.Abs()
 	lines := make([]postingLine, 0, 2)
 	if input.InvoiceType == "receivable" {
@@ -420,19 +493,22 @@ func PostFXSettlement(ctx context.Context, tx pgx.Tx, input FXSettlementPosting)
 			)
 		}
 	}
-	return postVoucherTx(ctx, tx, voucherPostingInput{
-		TenantID:    input.TenantID,
-		OrgID:       input.OrgID,
-		VoucherCode: input.VoucherCode,
-		VoucherDate: input.VoucherDate,
-		VoucherType: domain.VoucherTypeFXSettlement,
-		SourceType:  domain.SourceTypeFXSettlement,
-		SourceID:    input.SourceID,
-		SourceCode:  input.SourceCode,
-		Memo:        "汇兑损益 " + input.SourceCode,
-		CreatedBy:   input.CreatedBy,
-		Lines:       lines,
-	})
+	return lines, nil
+}
+
+// CheckPeriodOpen verifies that the accounting period containing date is open.
+func CheckPeriodOpen(ctx context.Context, tx pgx.Tx, tenantID string, date time.Time) error {
+	if date.IsZero() {
+		date = time.Now()
+	}
+	period, err := ensurePeriodTx(ctx, tx, tenantID, date)
+	if err != nil {
+		return err
+	}
+	if period.Status == domain.PeriodStatusClosed {
+		return domain.ErrPeriodClosed
+	}
+	return nil
 }
 
 type voucherPostingInput struct {
