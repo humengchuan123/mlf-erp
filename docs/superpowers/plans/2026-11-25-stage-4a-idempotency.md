@@ -66,7 +66,7 @@ expired --any hash--> in_progress（重新占用）
 |---|---|---|
 | 400 | `IDEMPOTENCY_KEY_REQUIRED` | 强制模式下缺少 header |
 | 400 | `IDEMPOTENCY_KEY_INVALID` | key 格式不合法 |
-| 409 | `IDEMPOTENCY_CONFLICT` | 已完成/失败记录 + 同 key 不同请求 |
+| 409 | `IDEMPOTENCY_CONFLICT` | 已完成记录 + 同 key 不同请求 |
 | 409 | `IDEMPOTENCY_IN_PROGRESS` | 同 key 请求仍在执行（含不同 payload） |
 | 409 | `IDEMPOTENCY_RESPONSE_UNAVAILABLE` | 首次响应过大未保存，无法回放 |
 
@@ -85,6 +85,7 @@ expired --any hash--> in_progress（重新占用）
 - `internal/platform/idempotency/cleanup.go`
 - `internal/platform/idempotency/middleware_test.go`
 - `internal/platform/idempotency/model_test.go`
+- `internal/platform/httpmw/cors_test.go`
 - `apps/web/src/utils/idempotency.ts`
 - `tests/api/stage4a_test.go`
 - `scripts/test/stage4a-api.ps1`
@@ -94,6 +95,7 @@ expired --any hash--> in_progress（重新占用）
 - `db/migrations/README.md`
 - `internal/platform/config/config.go`
 - `internal/platform/httpx/response.go`
+- `internal/platform/httpmw/cors.go`
 - `cmd/api/main.go`
 - `.env.example`
 - `packages/sdk/src/client.ts`

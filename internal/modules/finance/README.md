@@ -244,9 +244,9 @@ if amount == remaining_amount:
   - `POST /api/v1/finance/payments`
   - `POST /api/v1/finance/payments/:id/allocate`
   - `POST /api/v1/finance/payments/:id/unallocate`
-- 请求头 `Idempotency-Key`：8–128 字符，允许 `A-Z a-z 0-9 . _ : -`；作用域为租户+用户+方法+路径。
+- 请求头 `Idempotency-Key`：8–128 字符，允许 `A-Z a-z 0-9 . _ : -`；作用域为租户+用户+key+方法+路径。
 - 同一 key + 相同请求体：回放首次响应，响应头 `Idempotency-Replayed: true`，不重复产生退款/收付款/核销/反核销。
-- 同一 key + 不同请求体：409 `IDEMPOTENCY_CONFLICT`。
+- 已完成记录 + 同一 key 不同请求体：409 `IDEMPOTENCY_CONFLICT`；`failed` 记录任意请求体可重置并重试。
 - 并发同 key 同请求：409 `IDEMPOTENCY_IN_PROGRESS`；首次完成后可重试回放。
 - Header 默认可选；`IDEMPOTENCY_REQUIRED=true` 时缺失返回 400 `IDEMPOTENCY_KEY_REQUIRED`；非法 key 返回 400 `IDEMPOTENCY_KEY_INVALID`。
 - 默认 TTL 24 小时；5xx/401/403/408/429 标记失败，可用同一 key 修正后重试；其余 4xx 标记 completed 并缓存错误。

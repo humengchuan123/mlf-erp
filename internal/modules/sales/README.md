@@ -86,7 +86,7 @@ draft → submitted → approved → partially_shipped → shipped
 
 - `POST /sales/orders/:id/ship` 和 `POST /sales/shipments/:id/returns` 支持 `Idempotency-Key`。
 - 同一 key + 相同请求体只生成一次发货/退货；重复请求回放首次响应并返回 `Idempotency-Replayed: true`。
-- 同一 key + 不同请求体返回 409 `IDEMPOTENCY_CONFLICT`；并发同 key 返回 409 `IDEMPOTENCY_IN_PROGRESS`。
+- 已完成记录 + 同一 key 不同请求体返回 409 `IDEMPOTENCY_CONFLICT`；并发/进行中同 key 返回 409 `IDEMPOTENCY_IN_PROGRESS`；`failed` 记录任意请求体可重置并重试。
 - 前端在发货/退货弹窗打开时生成 `newIdempotencyKey()`（优先 `crypto.randomUUID`，非 HTTPS 回退 `getRandomValues`），成功后清空；网络/5xx/401/403/408/429 及幂等冲突/进行中保留 key，其余 4xx 旋转新 key。
 - Header 默认可选；生产强制前需客户端全部接入。实现细节见 finance 模块“资金操作幂等”。
 

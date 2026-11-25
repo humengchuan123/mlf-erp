@@ -231,7 +231,7 @@ go test -tags=integration ./tests/api -run 'TestStage3|TestStage4' -count=1 -v
 - 408 加入服务端 retryable 和客户端保留策略；`TestMiddlewareRetryableStatuses` 增加 408。
 - 计划/报告/README 同步；提交动作数订正为 9；报告文件名与计划一致。
 
-修复后规格复审结论待回填。
+最终规格复审：**ISSUES（仅文档）**——计划错误表、3 个模块 README 仍写“失败记录不同 payload CONFLICT”，作用域少了 key，CORS 文件清单缺失。上述文档已订正；无代码/测试阻塞。质量审核 **APPROVED**。
 
 ## 7. 已知限制
 
@@ -259,7 +259,7 @@ go test -tags=integration ./tests/api -run 'TestStage3|TestStage4' -count=1 -v
 - [x] 9 个受保护端点全部有 OpenAPI header 和 409 说明。
 - [x] `TestStage4A` 通过；Stage 3B–3K 回归通过。
 - [x] 干净库版本 26，全链路通过。
-- [x] 模块文档/报告完整；质量审核 APPROVED，规格复审待回填。
+- [x] 模块文档/报告完整；质量审核 APPROVED；规格复审仅文档问题，已订正。
 - [ ] 用户审阅通过。
 
 ## 9. 后续
