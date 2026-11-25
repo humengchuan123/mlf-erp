@@ -9,12 +9,13 @@ import (
 )
 
 type Config struct {
-	App   AppConfig
-	HTTP  HTTPConfig
-	DB    DBConfig
-	Redis RedisConfig
-	Auth  AuthConfig
-	Log   LogConfig
+	App         AppConfig
+	HTTP        HTTPConfig
+	DB          DBConfig
+	Redis       RedisConfig
+	Auth        AuthConfig
+	Idempotency IdempotencyConfig
+	Log         LogConfig
 }
 
 type AppConfig struct {
@@ -50,6 +51,14 @@ type AuthConfig struct {
 	JWTIssuer       string
 	AccessTokenTTL  time.Duration
 	RefreshTokenTTL time.Duration
+}
+
+type IdempotencyConfig struct {
+	TTL              time.Duration
+	Required         bool
+	MaxBodyBytes     int64
+	MaxResponseBytes int64
+	CleanupInterval  time.Duration
 }
 
 type LogConfig struct {
@@ -90,6 +99,13 @@ func Load() (*Config, error) {
 			AccessTokenTTL:  getDuration("ACCESS_TOKEN_TTL", 15*time.Minute),
 			RefreshTokenTTL: getDuration("REFRESH_TOKEN_TTL", 168*time.Hour),
 		},
+		Idempotency: IdempotencyConfig{
+			TTL:              getDuration("IDEMPOTENCY_TTL", 24*time.Hour),
+			Required:         getBool("IDEMPOTENCY_REQUIRED", false),
+			MaxBodyBytes:     int64(getInt("IDEMPOTENCY_MAX_BODY_BYTES", 1<<20)),
+			MaxResponseBytes: int64(getInt("IDEMPOTENCY_MAX_RESPONSE_BYTES", 4<<20)),
+			CleanupInterval:  getDuration("IDEMPOTENCY_CLEANUP_INTERVAL", time.Hour),
+		},
 		Log: LogConfig{
 			Level: getString("LOG_LEVEL", "info"),
 		},
@@ -123,6 +139,18 @@ func Load() (*Config, error) {
 	}
 	if cfg.Auth.RefreshTokenTTL <= 0 {
 		return nil, fmt.Errorf("REFRESH_TOKEN_TTL must be greater than zero")
+	}
+	if cfg.Idempotency.TTL <= 0 {
+		return nil, fmt.Errorf("IDEMPOTENCY_TTL must be greater than zero")
+	}
+	if cfg.Idempotency.MaxBodyBytes <= 0 {
+		return nil, fmt.Errorf("IDEMPOTENCY_MAX_BODY_BYTES must be greater than zero")
+	}
+	if cfg.Idempotency.MaxResponseBytes <= 0 {
+		return nil, fmt.Errorf("IDEMPOTENCY_MAX_RESPONSE_BYTES must be greater than zero")
+	}
+	if cfg.Idempotency.CleanupInterval <= 0 {
+		return nil, fmt.Errorf("IDEMPOTENCY_CLEANUP_INTERVAL must be greater than zero")
 	}
 
 	return cfg, nil
