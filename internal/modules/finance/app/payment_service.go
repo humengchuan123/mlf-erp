@@ -40,6 +40,12 @@ type AllocateInput struct {
 	Allocations []domain.AllocationInput
 }
 
+type PaymentDetail struct {
+	Payment     *domain.Payment
+	Allocations []*domain.PaymentAllocation
+	Reversals   []*domain.PaymentAllocationReversal
+}
+
 func (s *PaymentService) List(
 	ctx context.Context,
 	paymentType, status, partnerID, keyword string,
@@ -63,6 +69,85 @@ func (s *PaymentService) List(
 func (s *PaymentService) Get(ctx context.Context, id string) (*domain.Payment, error) {
 	tenantID, _, _ := tenantActor(ctx)
 	return s.payments.Get(ctx, scope.FromActor(ctx, tenantID), tenantID, id)
+}
+
+func (s *PaymentService) GetDetail(ctx context.Context, id string) (*PaymentDetail, error) {
+	paymentID, err := canonicalUUID(id)
+	if err != nil {
+		return nil, domain.ErrInvalidInput
+	}
+	tenantID, _, _ := tenantActor(ctx)
+	filter := scope.FromActor(ctx, tenantID)
+	payment, err := s.payments.Get(ctx, filter, tenantID, paymentID)
+	if err != nil {
+		return nil, err
+	}
+	allocations, err := s.payments.ListAllocations(ctx, filter, tenantID, paymentID)
+	if err != nil {
+		return nil, err
+	}
+	reversals, err := s.payments.ListReversals(ctx, filter, tenantID, paymentID)
+	if err != nil {
+		return nil, err
+	}
+	return &PaymentDetail{
+		Payment:     payment,
+		Allocations: allocations,
+		Reversals:   reversals,
+	}, nil
+}
+
+func (s *PaymentService) Unallocate(ctx context.Context, id string, input domain.UnallocateInput) (*PaymentDetail, error) {
+	tenantID, _, userID := tenantActor(ctx)
+	paymentID, err := canonicalUUID(id)
+	if err != nil {
+		return nil, domain.ErrInvalidInput
+	}
+	reason := strings.TrimSpace(input.Reason)
+	if reason == "" {
+		return nil, domain.ErrReasonRequired
+	}
+	if len(input.InvoiceIDs) == 0 {
+		return nil, domain.ErrInvalidInput
+	}
+
+	seen := make(map[string]struct{}, len(input.InvoiceIDs))
+	invoiceIDs := make([]string, 0, len(input.InvoiceIDs))
+	for _, raw := range input.InvoiceIDs {
+		invoiceID, err := canonicalUUID(raw)
+		if err != nil {
+			return nil, domain.ErrInvalidInput
+		}
+		if _, exists := seen[invoiceID]; exists {
+			return nil, domain.ErrDuplicateInvoice
+		}
+		seen[invoiceID] = struct{}{}
+		invoiceIDs = append(invoiceIDs, invoiceID)
+	}
+
+	reversalDate := input.ReversalDate
+	if reversalDate.IsZero() {
+		reversalDate = time.Now()
+	}
+	reversalDate = normalizePaymentDate(reversalDate)
+
+	filter := scope.FromActor(ctx, tenantID)
+	payment, err := s.payments.Get(ctx, filter, tenantID, paymentID)
+	if err != nil {
+		return nil, err
+	}
+	if reversalDate.Before(normalizePaymentDate(payment.PaymentDate)) {
+		return nil, domain.ErrInvalidInput
+	}
+
+	if _, err := s.payments.Unallocate(ctx, filter, tenantID, paymentID, userID, domain.UnallocateInput{
+		InvoiceIDs:   invoiceIDs,
+		ReversalDate: reversalDate,
+		Reason:       reason,
+	}); err != nil {
+		return nil, err
+	}
+	return s.GetDetail(ctx, paymentID)
 }
 
 func (s *PaymentService) Create(ctx context.Context, input PaymentInput) (*domain.Payment, error) {
@@ -194,4 +279,16 @@ func (s *PaymentService) Allocate(ctx context.Context, paymentID string, input A
 		return nil, err
 	}
 	return s.payments.Get(ctx, filter, tenantID, paymentID)
+}
+
+func canonicalUUID(raw string) (string, error) {
+	parsed, err := uuid.Parse(strings.TrimSpace(raw))
+	if err != nil {
+		return "", err
+	}
+	return parsed.String(), nil
+}
+
+func normalizePaymentDate(value time.Time) time.Time {
+	return time.Date(value.Year(), value.Month(), value.Day(), 0, 0, 0, 0, time.UTC)
 }

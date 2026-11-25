@@ -17,9 +17,10 @@ func NewInvoiceService(invoices domain.InvoiceRepository) *InvoiceService {
 }
 
 type InvoiceDetail struct {
-	Invoice               *domain.Invoice
-	Allocations           []*domain.Allocation
-	CreditNoteAllocations []*domain.CreditNoteAllocation
+	Invoice                    *domain.Invoice
+	Allocations                []*domain.Allocation
+	CreditNoteAllocations      []*domain.CreditNoteAllocation
+	PaymentAllocationReversals []*domain.PaymentAllocationReversal
 }
 
 func (s *InvoiceService) List(
@@ -58,10 +59,15 @@ func (s *InvoiceService) Get(ctx context.Context, id string) (*InvoiceDetail, er
 	if err != nil {
 		return nil, err
 	}
+	paymentAllocationReversals, err := s.invoices.ListPaymentAllocationReversals(ctx, filter, tenantID, id)
+	if err != nil {
+		return nil, err
+	}
 	return &InvoiceDetail{
-		Invoice:               invoice,
-		Allocations:           allocations,
-		CreditNoteAllocations: creditNoteAllocations,
+		Invoice:                    invoice,
+		Allocations:                allocations,
+		CreditNoteAllocations:      creditNoteAllocations,
+		PaymentAllocationReversals: paymentAllocationReversals,
 	}, nil
 }
 

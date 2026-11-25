@@ -13,6 +13,7 @@ type InvoiceRepository interface {
 	Get(ctx context.Context, filter scope.Filter, tenantID, id string) (*Invoice, error)
 	ListAllocations(ctx context.Context, filter scope.Filter, tenantID, invoiceID string) ([]*Allocation, error)
 	ListCreditNoteAllocations(ctx context.Context, filter scope.Filter, tenantID, invoiceID string) ([]*CreditNoteAllocation, error)
+	ListPaymentAllocationReversals(ctx context.Context, filter scope.Filter, tenantID, invoiceID string) ([]*PaymentAllocationReversal, error)
 	Issue(ctx context.Context, filter scope.Filter, tenantID, id string, input IssueInput) (*Invoice, error)
 	Void(ctx context.Context, filter scope.Filter, tenantID, id, userID string) (*Invoice, error)
 }
@@ -32,6 +33,9 @@ type PaymentRepository interface {
 	Get(ctx context.Context, filter scope.Filter, tenantID, id string) (*Payment, error)
 	List(ctx context.Context, filter scope.Filter, tenantID, paymentType, status, partnerID, keyword string, offset, limit int) ([]*Payment, int, error)
 	Allocate(ctx context.Context, filter scope.Filter, tenantID, paymentID, userID string, allocations []*AllocationInput) error
+	Unallocate(ctx context.Context, filter scope.Filter, tenantID, paymentID, userID string, input UnallocateInput) (*Payment, error)
+	ListAllocations(ctx context.Context, filter scope.Filter, tenantID, paymentID string) ([]*PaymentAllocation, error)
+	ListReversals(ctx context.Context, filter scope.Filter, tenantID, paymentID string) ([]*PaymentAllocationReversal, error)
 }
 
 type ExchangeRateRepository interface {

@@ -237,6 +237,30 @@ func (r *InvoiceRepository) ListCreditNoteAllocations(ctx context.Context, filte
 	return items, rows.Err()
 }
 
+func (r *InvoiceRepository) ListPaymentAllocationReversals(ctx context.Context, filter scope.Filter, tenantID, invoiceID string) ([]*domain.PaymentAllocationReversal, error) {
+	args := []any{tenantID, invoiceID}
+	where := "r.tenant_id = $1 AND r.invoice_id = $2"
+	appendScope(&where, &args, "i", filter)
+
+	rows, err := r.db.Query(ctx, paymentAllocationReversalSelectSQL+`
+		WHERE `+where+`
+		ORDER BY r.reversal_date DESC, r.created_at DESC`, args...)
+	if err != nil {
+		return nil, fmt.Errorf("list invoice payment allocation reversals: %w", err)
+	}
+	defer rows.Close()
+
+	items := make([]*domain.PaymentAllocationReversal, 0)
+	for rows.Next() {
+		item, scanErr := scanPaymentAllocationReversal(rows)
+		if scanErr != nil {
+			return nil, scanErr
+		}
+		items = append(items, item)
+	}
+	return items, rows.Err()
+}
+
 const invoiceSelectSQL = `
 	SELECT i.id::text, i.tenant_id::text, i.org_id::text, i.code, i.invoice_type,
 	       i.source_type, i.source_id::text, i.source_code,
