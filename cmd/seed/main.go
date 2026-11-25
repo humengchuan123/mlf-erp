@@ -90,6 +90,7 @@ var permissions = []struct {
 	{"finance.exchange_rate.write", "管理汇率", "finance", "api"},
 	{"finance.credit_note.apply", "贷项单抵用", "finance", "api"},
 	{"finance.credit_note.refund", "贷项单退款", "finance", "api"},
+	{"finance.payment.reverse", "收付款反核销", "finance", "api"},
 }
 
 var defaultCodeRules = []struct {
