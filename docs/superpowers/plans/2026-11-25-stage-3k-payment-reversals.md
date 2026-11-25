@@ -614,6 +614,9 @@ git commit -m "feat(stage-3k): add payment reversal UI"
    - Two concurrent unallocate requests; one success, one 409.
 8. `data scope`
    - demo_dept cannot see/reverse admin payment.
+   - self-scope user viewing a payment created by them but invoice created by another user still sees payment allocations/reversals (payment parent scope).
+   - self-scope user viewing an invoice created by them sees allocations/reversals even when payment/credit note was created by another user (invoice parent scope).
+   - dept/tenant isolation still works.
 9. `payment/invoice detail history`
    - payment detail allocations/reversals, invoice detail reversals, list summary no arrays.
 10. `reversal date before payment/closed period`

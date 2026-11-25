@@ -786,7 +786,10 @@ func (r *PaymentRepository) Unallocate(
 func (r *PaymentRepository) ListAllocations(ctx context.Context, filter scope.Filter, tenantID, paymentID string) ([]*domain.PaymentAllocation, error) {
 	args := []any{tenantID, paymentID}
 	where := "a.tenant_id = $1 AND a.payment_id = $2"
-	appendScope(&where, &args, "i", filter)
+	// Scope on the parent payment: the payment itself was already authorized
+	// for read, so child allocation rows must not additionally be filtered by
+	// the invoice or its creator.
+	appendScope(&where, &args, "p", filter)
 
 	rows, err := r.db.Query(ctx, `
 		SELECT a.id::text, a.tenant_id::text, a.payment_id::text, a.invoice_id::text,
@@ -824,6 +827,9 @@ func (r *PaymentRepository) ListAllocations(ctx context.Context, filter scope.Fi
 func (r *PaymentRepository) ListReversals(ctx context.Context, filter scope.Filter, tenantID, paymentID string) ([]*domain.PaymentAllocationReversal, error) {
 	args := []any{tenantID, paymentID}
 	where := "r.tenant_id = $1 AND r.payment_id = $2"
+	// Scope on the parent payment: the payment itself was already authorized
+	// for read, so child reversal rows must not additionally be filtered by
+	// the invoice or its creator.
 	appendScope(&where, &args, "p", filter)
 
 	rows, err := r.db.Query(ctx, paymentAllocationReversalSelectSQL+`

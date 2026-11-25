@@ -162,7 +162,10 @@ func (r *InvoiceRepository) Void(
 func (r *InvoiceRepository) ListAllocations(ctx context.Context, filter scope.Filter, tenantID, invoiceID string) ([]*domain.Allocation, error) {
 	args := []any{tenantID, invoiceID}
 	where := "a.tenant_id = $1 AND a.invoice_id = $2"
-	appendScope(&where, &args, "p", filter)
+	// Scope on the parent invoice: the invoice itself was already authorized
+	// for read, so child allocation rows must not additionally be filtered by
+	// the payment or its creator.
+	appendScope(&where, &args, "i", filter)
 
 	rows, err := r.db.Query(ctx, `
 		SELECT a.id::text, a.tenant_id::text, a.payment_id::text, a.invoice_id::text, a.amount::text,
@@ -170,6 +173,7 @@ func (r *InvoiceRepository) ListAllocations(ctx context.Context, filter scope.Fi
 		       p.code, p.payment_type, p.payment_date
 		FROM erp.finance_payment_allocations a
 		JOIN erp.finance_payments p ON p.tenant_id = a.tenant_id AND p.id = a.payment_id
+		JOIN erp.finance_invoices i ON i.tenant_id = a.tenant_id AND i.id = a.invoice_id
 		WHERE `+where+`
 		ORDER BY a.created_at`, args...)
 	if err != nil {
@@ -240,6 +244,9 @@ func (r *InvoiceRepository) ListCreditNoteAllocations(ctx context.Context, filte
 func (r *InvoiceRepository) ListPaymentAllocationReversals(ctx context.Context, filter scope.Filter, tenantID, invoiceID string) ([]*domain.PaymentAllocationReversal, error) {
 	args := []any{tenantID, invoiceID}
 	where := "r.tenant_id = $1 AND r.invoice_id = $2"
+	// Scope on the parent invoice: the invoice itself was already authorized
+	// for read, so child reversal rows must not additionally be filtered by
+	// the payment or its creator.
 	appendScope(&where, &args, "i", filter)
 
 	rows, err := r.db.Query(ctx, paymentAllocationReversalSelectSQL+`
