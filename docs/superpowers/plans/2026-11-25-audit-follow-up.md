@@ -15,6 +15,8 @@
 
 **Plan type:** 本文件是**项目级路线图**，不是单个阶段的逐行实现计划。每个 Stage 启动前，按仓库现有流程另写一份 `docs/superpowers/plans/YYYY-MM-DD-stage-4x-*.md`，包含精确文件、代码、测试和提交步骤。路线图先用于用户审阅和排序确认。
 
+> **执行状态（2026-11-25）：** Stage 4A 资金操作幂等已完成，实现计划 `docs/superpowers/plans/2026-11-25-stage-4a-idempotency.md`，报告 `docs/reports/2026-11-25-stage-4a-idempotency.md`。Stage 4B/4C 待用户确认。
+
 ---
 
 ## 0. 结论与建议
@@ -122,7 +124,9 @@ Wave 3（P2）
 
 ## 2. 阶段路线图
 
-### Stage 4A：资金操作幂等与重复提交防护（P0）
+### Stage 4A：资金操作幂等与重复提交防护（P0）— 已完成
+
+**状态：** 2026-11-25 完成；实现计划 `docs/superpowers/plans/2026-11-25-stage-4a-idempotency.md`，报告 `docs/reports/2026-11-25-stage-4a-idempotency.md`。
 
 **Goal:** 让所有会产生资金或库存副作用的 POST 操作可安全重试；同一业务请求重复提交只产生一次副作用。
 
