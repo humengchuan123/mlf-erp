@@ -804,6 +804,216 @@ func TestStage4B(t *testing.T) {
 	t.Run("data scope and tenant boundaries", func(t *testing.T) {
 		demoDept.expectError(http.MethodGet, "/approvals/pending", nil, http.StatusForbidden, "FORBIDDEN")
 	})
+
+	// 17. Org-specific flows win over tenant-wide flows regardless of priority;
+	// deactivated flows no longer match; remaining ties follow priority desc.
+	t.Run("flow matching precedence and deactivation", func(t *testing.T) {
+		hq := findItem(getArray(admin, "/system/orgs", http.StatusOK), "code", "HQ")
+		if hq == nil {
+			t.Fatal("HQ organization not found")
+		}
+		hqID := text(hq, "id")
+
+		tenantFlow := stage4BCreateFlow(t, admin, stage4BAlwaysFlowBody(
+			"stage4b-always-tenant-2000",
+			"",
+			2000,
+			[]map[string]any{stage4BUserStep(1, "Stage 4B tenant approver", adminID)},
+		))
+		tenantFlowID := text(tenantFlow, "id")
+		hqFlow := stage4BCreateFlow(t, admin, stage4BAlwaysFlowBody(
+			"stage4b-always-hq-2001",
+			hqID,
+			2001,
+			[]map[string]any{stage4BUserStep(1, "Stage 4B HQ approver", adminID)},
+		))
+		hqFlowID := text(hqFlow, "id")
+
+		firstOrder := stage4BCreateSalesOrder(t, demoAdmin, customerID, warehouseID, materialID, vat0ID, "1.00")
+		firstOrderID := text(firstOrder, "id")
+		submitted := demoAdmin.mustPost("/sales/orders/"+firstOrderID+"/submit", nil, http.StatusOK)
+		if !stage4BBool(t, submitted, "approval_pending") {
+			t.Fatalf("always flow first submit approval_pending = false, want true")
+		}
+		firstRequest := stage4BRequestForDocument(t, admin, "sales_order", firstOrderID)
+		if firstRequest == nil {
+			t.Fatalf("always flow first approval request not found")
+		}
+		if got := text(firstRequest, "flow_id"); got != hqFlowID {
+			t.Fatalf("org-specific flow matching = %q, want HQ flow %q", got, hqFlowID)
+		}
+
+		deactivated := admin.mustPost("/system/approval-flows/"+hqFlowID+"/active", map[string]any{"active": false}, http.StatusOK)
+		if stage4BBool(t, deactivated, "active") {
+			t.Fatalf("HQ flow active after deactivation = true, want false")
+		}
+
+		secondOrder := stage4BCreateSalesOrder(t, demoAdmin, customerID, warehouseID, materialID, vat0ID, "1.00")
+		secondOrderID := text(secondOrder, "id")
+		submitted = demoAdmin.mustPost("/sales/orders/"+secondOrderID+"/submit", nil, http.StatusOK)
+		if !stage4BBool(t, submitted, "approval_pending") {
+			t.Fatalf("deactivated flow submit approval_pending = false, want true")
+		}
+		secondRequest := stage4BRequestForDocument(t, admin, "sales_order", secondOrderID)
+		if secondRequest == nil {
+			t.Fatalf("deactivated flow approval request not found")
+		}
+		if got := text(secondRequest, "flow_id"); got != tenantFlowID {
+			t.Fatalf("deactivated flow matching = %q, want tenant flow %q", got, tenantFlowID)
+		}
+
+		stage4BCreateFlow(t, admin, stage4BAlwaysFlowBody(
+			"stage4b-always-tenant-3000",
+			"",
+			3000,
+			[]map[string]any{stage4BUserStep(1, "Stage 4B priority 3000 approver", adminID)},
+		))
+		priority3001 := stage4BCreateFlow(t, admin, stage4BAlwaysFlowBody(
+			"stage4b-always-tenant-3001",
+			"",
+			3001,
+			[]map[string]any{stage4BUserStep(1, "Stage 4B priority 3001 approver", adminID)},
+		))
+		priority3001ID := text(priority3001, "id")
+
+		thirdOrder := stage4BCreateSalesOrder(t, demoAdmin, customerID, warehouseID, materialID, vat0ID, "1.00")
+		thirdOrderID := text(thirdOrder, "id")
+		submitted = demoAdmin.mustPost("/sales/orders/"+thirdOrderID+"/submit", nil, http.StatusOK)
+		if !stage4BBool(t, submitted, "approval_pending") {
+			t.Fatalf("priority flow submit approval_pending = false, want true")
+		}
+		thirdRequest := stage4BRequestForDocument(t, admin, "sales_order", thirdOrderID)
+		if thirdRequest == nil {
+			t.Fatalf("priority flow approval request not found")
+		}
+		if got := text(thirdRequest, "flow_id"); got != priority3001ID {
+			t.Fatalf("priority flow matching = %q, want flow %q", got, priority3001ID)
+		}
+
+		for _, orderID := range []string{firstOrderID, secondOrderID, thirdOrderID} {
+			demoAdmin.mustPost("/sales/orders/"+orderID+"/cancel", nil, http.StatusOK)
+			if got := text(admin.mustGet("/sales/orders/"+orderID, http.StatusOK), "status"); got != "cancelled" {
+				t.Fatalf("order %s status after cleanup cancel = %q, want cancelled", orderID, got)
+			}
+		}
+	})
+
+	// 18. Non-super-admin approvers cannot act outside their step even with the
+	// approve permission; super admins remain the fallback. Multi-step approve
+	// responses must expose the next pending step.
+	t.Run("super admin fallback and not approver", func(t *testing.T) {
+		users := listItems(admin, "/system/users?keyword="+url.QueryEscape("demo_company")+"&page_size=20", http.StatusOK)
+		company := findItem(users, "username", "demo_company")
+		if company == nil {
+			t.Fatal("demo_company user not found")
+		}
+		companyID := text(company, "id")
+
+		otherApprover, _, _ := stage4BEnsureSelfScopeApprover(t, admin)
+
+		flow := stage4BCreateFlow(t, admin, stage4BAlwaysFlowBody(
+			"stage4b-always-company-4000",
+			"",
+			4000,
+			[]map[string]any{stage4BUserStep(1, "Stage 4B company approver", companyID)},
+		))
+		flowID := text(flow, "id")
+
+		order := stage4BCreateSalesOrder(t, demoAdmin, customerID, warehouseID, materialID, vat0ID, "1.00")
+		orderID := text(order, "id")
+		submitted := demoAdmin.mustPost("/sales/orders/"+orderID+"/submit", nil, http.StatusOK)
+		if !stage4BBool(t, submitted, "approval_pending") {
+			t.Fatalf("company approver submit approval_pending = false, want true")
+		}
+		request := stage4BRequestForDocument(t, admin, "sales_order", orderID)
+		if request == nil {
+			t.Fatalf("company approver approval request not found")
+		}
+		if got := text(request, "flow_id"); got != flowID {
+			t.Fatalf("company approver flow_id = %q, want %q", got, flowID)
+		}
+
+		path := "/sales/orders/" + orderID + "/approve"
+		otherApprover.expectError(http.MethodPost, path, map[string]any{"comment": "not the step approver"}, http.StatusForbidden, "NOT_APPROVER")
+		if got := text(admin.mustGet("/sales/orders/"+orderID, http.StatusOK), "status"); got != "submitted" {
+			t.Fatalf("order status after NOT_APPROVER = %q, want submitted", got)
+		}
+
+		approved := stage4BApprove(t, admin, path, "stage4b super admin fallback")
+		if stage4BBool(t, approved, "approval_pending") {
+			t.Fatalf("super admin approve approval_pending = true, want false")
+		}
+		if got := text(admin.mustGet("/sales/orders/"+orderID, http.StatusOK), "status"); got != "approved" {
+			t.Fatalf("order status after super admin approve = %q, want approved", got)
+		}
+		request = stage4BRequestForDocument(t, admin, "sales_order", orderID)
+		if request == nil {
+			t.Fatalf("company approver approval request not found after approve")
+		}
+		if got := text(request, "status"); got != "approved" {
+			t.Fatalf("company approver request status = %q, want approved", got)
+		}
+		actions := stage4BArray(t, request, "actions")
+		if len(actions) != 1 {
+			t.Fatalf("company approver approval actions = %d, want 1", len(actions))
+		}
+		action, _ := actions[0].(map[string]any)
+		if got := text(action, "actor_id"); got != adminID {
+			t.Fatalf("company approver action actor_id = %q, want super admin %q", got, adminID)
+		}
+
+		twoStep := stage4BCreateFlow(t, admin, stage4BAlwaysFlowBody(
+			"stage4b-always-two-step-5000",
+			"",
+			5000,
+			[]map[string]any{
+				stage4BUserStep(1, "Stage 4B two step one", adminID),
+				stage4BUserStep(2, "Stage 4B two step two", adminID),
+			},
+		))
+		twoStepID := text(twoStep, "id")
+
+		twoStepOrder := stage4BCreateSalesOrder(t, demoAdmin, customerID, warehouseID, materialID, vat0ID, "1.00")
+		twoStepOrderID := text(twoStepOrder, "id")
+		submitted = demoAdmin.mustPost("/sales/orders/"+twoStepOrderID+"/submit", nil, http.StatusOK)
+		if !stage4BBool(t, submitted, "approval_pending") {
+			t.Fatalf("two-step submit approval_pending = false, want true")
+		}
+		request = stage4BRequestForDocument(t, admin, "sales_order", twoStepOrderID)
+		if request == nil {
+			t.Fatalf("two-step approval request not found")
+		}
+		if got := text(request, "flow_id"); got != twoStepID {
+			t.Fatalf("two-step flow_id = %q, want %q", got, twoStepID)
+		}
+
+		twoStepPath := "/sales/orders/" + twoStepOrderID + "/approve"
+		first := stage4BApprove(t, admin, twoStepPath, "stage4b two step first")
+		if !stage4BBool(t, first, "approval_pending") {
+			t.Fatalf("two-step first approve approval_pending = false, want true")
+		}
+		if got := text(first, "status"); got != "pending" {
+			t.Fatalf("two-step first approve status = %q, want pending", got)
+		}
+		if got := stage4BInt(t, first, "current_step"); got != 2 {
+			t.Fatalf("two-step first approve current_step = %d, want 2", got)
+		}
+
+		second := stage4BApprove(t, admin, twoStepPath, "stage4b two step second")
+		if stage4BBool(t, second, "approval_pending") {
+			t.Fatalf("two-step second approve approval_pending = true, want false")
+		}
+		if got := text(admin.mustGet("/sales/orders/"+twoStepOrderID, http.StatusOK), "status"); got != "approved" {
+			t.Fatalf("two-step order status after final approve = %q, want approved", got)
+		}
+		request = stage4BRequestForDocument(t, admin, "sales_order", twoStepOrderID)
+		if request == nil {
+			t.Fatalf("two-step approval request not found after final approve")
+		}
+		if got := text(request, "status"); got != "approved" {
+			t.Fatalf("two-step request status after final approve = %q, want approved", got)
+		}
+	})
 }
 
 func stage4BFlowBody(name, documentType, threshold string, priority int, steps []map[string]any) map[string]any {
@@ -813,6 +1023,19 @@ func stage4BFlowBody(name, documentType, threshold string, priority int, steps [
 		"org_id":           "",
 		"condition_type":   "amount_gte",
 		"threshold_amount": threshold,
+		"priority":         priority,
+		"active":           true,
+		"steps":            steps,
+	}
+}
+
+func stage4BAlwaysFlowBody(name, orgID string, priority int, steps []map[string]any) map[string]any {
+	return map[string]any{
+		"name":             name,
+		"document_type":    "sales_order",
+		"org_id":           orgID,
+		"condition_type":   "always",
+		"threshold_amount": "0",
 		"priority":         priority,
 		"active":           true,
 		"steps":            steps,
