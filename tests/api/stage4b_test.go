@@ -805,8 +805,9 @@ func TestStage4B(t *testing.T) {
 		demoDept.expectError(http.MethodGet, "/approvals/pending", nil, http.StatusForbidden, "FORBIDDEN")
 	})
 
-	// 17. Org-specific flows win over tenant-wide flows regardless of priority;
-	// deactivated flows no longer match; remaining ties follow priority desc.
+	// 17. Org-specific flows win over tenant-wide flows even when the
+	// org-specific flow has lower priority; deactivated flows no longer match;
+	// remaining ties follow priority desc.
 	t.Run("flow matching precedence and deactivation", func(t *testing.T) {
 		hq := findItem(getArray(admin, "/system/orgs", http.StatusOK), "code", "HQ")
 		if hq == nil {
@@ -822,9 +823,9 @@ func TestStage4B(t *testing.T) {
 		))
 		tenantFlowID := text(tenantFlow, "id")
 		hqFlow := stage4BCreateFlow(t, admin, stage4BAlwaysFlowBody(
-			"stage4b-always-hq-2001",
+			"stage4b-always-hq-1999",
 			hqID,
-			2001,
+			1999,
 			[]map[string]any{stage4BUserStep(1, "Stage 4B HQ approver", adminID)},
 		))
 		hqFlowID := text(hqFlow, "id")
@@ -840,7 +841,7 @@ func TestStage4B(t *testing.T) {
 			t.Fatalf("always flow first approval request not found")
 		}
 		if got := text(firstRequest, "flow_id"); got != hqFlowID {
-			t.Fatalf("org-specific flow matching = %q, want HQ flow %q", got, hqFlowID)
+			t.Fatalf("org-specific flow matching = %q, want lower-priority HQ flow %q", got, hqFlowID)
 		}
 
 		deactivated := admin.mustPost("/system/approval-flows/"+hqFlowID+"/active", map[string]any{"active": false}, http.StatusOK)
@@ -862,12 +863,13 @@ func TestStage4B(t *testing.T) {
 			t.Fatalf("deactivated flow matching = %q, want tenant flow %q", got, tenantFlowID)
 		}
 
-		stage4BCreateFlow(t, admin, stage4BAlwaysFlowBody(
+		priority3000 := stage4BCreateFlow(t, admin, stage4BAlwaysFlowBody(
 			"stage4b-always-tenant-3000",
 			"",
 			3000,
 			[]map[string]any{stage4BUserStep(1, "Stage 4B priority 3000 approver", adminID)},
 		))
+		priority3000ID := text(priority3000, "id")
 		priority3001 := stage4BCreateFlow(t, admin, stage4BAlwaysFlowBody(
 			"stage4b-always-tenant-3001",
 			"",
@@ -895,6 +897,9 @@ func TestStage4B(t *testing.T) {
 			if got := text(admin.mustGet("/sales/orders/"+orderID, http.StatusOK), "status"); got != "cancelled" {
 				t.Fatalf("order %s status after cleanup cancel = %q, want cancelled", orderID, got)
 			}
+		}
+		for _, flowID := range []string{tenantFlowID, priority3000ID, priority3001ID} {
+			admin.mustPost("/system/approval-flows/"+flowID+"/active", map[string]any{"active": false}, http.StatusOK)
 		}
 	})
 
@@ -1012,6 +1017,144 @@ func TestStage4B(t *testing.T) {
 		}
 		if got := text(request, "status"); got != "approved" {
 			t.Fatalf("two-step request status after final approve = %q, want approved", got)
+		}
+
+		for _, id := range []string{flowID, twoStepID} {
+			admin.mustPost("/system/approval-flows/"+id+"/active", map[string]any{"active": false}, http.StatusOK)
+		}
+	})
+
+	// 19. Requester-assigned user steps are skipped wherever they appear in the
+	// flow, and every skip is recorded as an action.
+	t.Run("mixed self steps are skipped and recorded", func(t *testing.T) {
+		flow := stage4BCreateFlow(t, admin, stage4BFlowBody(
+			"stage4b-mixed-self-6000",
+			"sales_order",
+			"1000.00",
+			6000,
+			[]map[string]any{
+				stage4BUserStep(1, "Stage 4B requester step", demoAdminID),
+				stage4BUserStep(2, "Stage 4B admin step", adminID),
+			},
+		))
+		flowID := text(flow, "id")
+
+		order := stage4BCreateSalesOrder(t, demoAdmin, customerID, warehouseID, materialID, vat0ID, "1000.00")
+		orderID := text(order, "id")
+		submitted := demoAdmin.mustPost("/sales/orders/"+orderID+"/submit", nil, http.StatusOK)
+		if !stage4BBool(t, submitted, "approval_pending") {
+			t.Fatalf("mixed self submit approval_pending = false, want true")
+		}
+		request := stage4BRequestForDocument(t, admin, "sales_order", orderID)
+		if request == nil {
+			t.Fatalf("mixed self approval request not found")
+		}
+		if got := text(request, "flow_id"); got != flowID {
+			t.Fatalf("mixed self flow_id = %q, want %q", got, flowID)
+		}
+		if got := stage4BInt(t, request, "current_step"); got != 2 {
+			t.Fatalf("mixed self current_step after submit = %d, want 2", got)
+		}
+		stage4BExpectActions(t, request, map[int]stage4BExpectedAction{
+			1: {action: "skip", actor: demoAdminID},
+		})
+		if findItem(stage4BPending(t, admin), "document_id", orderID) == nil {
+			t.Fatalf("pending list for admin does not contain mixed self order %s", orderID)
+		}
+
+		approved := stage4BApprove(t, admin, "/sales/orders/"+orderID+"/approve", "stage4b mixed self approved")
+		if stage4BBool(t, approved, "approval_pending") {
+			t.Fatalf("mixed self approve approval_pending = true, want false")
+		}
+		if got := text(admin.mustGet("/sales/orders/"+orderID, http.StatusOK), "status"); got != "approved" {
+			t.Fatalf("mixed self order status after approve = %q, want approved", got)
+		}
+		request = stage4BRequestForDocument(t, admin, "sales_order", orderID)
+		if request == nil {
+			t.Fatalf("mixed self approval request not found after approve")
+		}
+		if got := text(request, "status"); got != "approved" {
+			t.Fatalf("mixed self request status after approve = %q, want approved", got)
+		}
+		stage4BExpectActions(t, request, map[int]stage4BExpectedAction{
+			1: {action: "skip", actor: demoAdminID},
+			2: {action: "approve", actor: adminID},
+		})
+
+		advanceFlow := stage4BCreateFlow(t, admin, stage4BFlowBody(
+			"stage4b-mixed-advance-6100",
+			"sales_order",
+			"1100.00",
+			6100,
+			[]map[string]any{
+				stage4BUserStep(1, "Stage 4B admin step one", adminID),
+				stage4BUserStep(2, "Stage 4B requester step", demoAdminID),
+				stage4BUserStep(3, "Stage 4B admin step three", adminID),
+			},
+		))
+		advanceFlowID := text(advanceFlow, "id")
+
+		advanceOrder := stage4BCreateSalesOrder(t, demoAdmin, customerID, warehouseID, materialID, vat0ID, "1100.00")
+		advanceOrderID := text(advanceOrder, "id")
+		submitted = demoAdmin.mustPost("/sales/orders/"+advanceOrderID+"/submit", nil, http.StatusOK)
+		if !stage4BBool(t, submitted, "approval_pending") {
+			t.Fatalf("mixed advance submit approval_pending = false, want true")
+		}
+		request = stage4BRequestForDocument(t, admin, "sales_order", advanceOrderID)
+		if request == nil {
+			t.Fatalf("mixed advance approval request not found")
+		}
+		if got := text(request, "flow_id"); got != advanceFlowID {
+			t.Fatalf("mixed advance flow_id = %q, want %q", got, advanceFlowID)
+		}
+
+		first := stage4BApprove(t, admin, "/sales/orders/"+advanceOrderID+"/approve", "stage4b mixed advance step one")
+		if !stage4BBool(t, first, "approval_pending") {
+			t.Fatalf("mixed advance first approve approval_pending = false, want true")
+		}
+		if got := text(first, "status"); got != "pending" {
+			t.Fatalf("mixed advance first approve status = %q, want pending", got)
+		}
+		if got := stage4BInt(t, first, "current_step"); got != 3 {
+			t.Fatalf("mixed advance first approve current_step = %d, want 3", got)
+		}
+		request = stage4BRequestForDocument(t, admin, "sales_order", advanceOrderID)
+		if request == nil {
+			t.Fatalf("mixed advance approval request not found after step one")
+		}
+		stage4BExpectActions(t, request, map[int]stage4BExpectedAction{
+			1: {action: "approve", actor: adminID},
+			2: {action: "skip", actor: demoAdminID},
+		})
+
+		second := stage4BApprove(t, admin, "/sales/orders/"+advanceOrderID+"/approve", "stage4b mixed advance step three")
+		if stage4BBool(t, second, "approval_pending") {
+			t.Fatalf("mixed advance final approve approval_pending = true, want false")
+		}
+		if got := text(admin.mustGet("/sales/orders/"+advanceOrderID, http.StatusOK), "status"); got != "approved" {
+			t.Fatalf("mixed advance order status after final approve = %q, want approved", got)
+		}
+		request = stage4BRequestForDocument(t, admin, "sales_order", advanceOrderID)
+		if request == nil {
+			t.Fatalf("mixed advance approval request not found after final approve")
+		}
+		if got := text(request, "status"); got != "approved" {
+			t.Fatalf("mixed advance request status after final approve = %q, want approved", got)
+		}
+		stage4BExpectActions(t, request, map[int]stage4BExpectedAction{
+			1: {action: "approve", actor: adminID},
+			2: {action: "skip", actor: demoAdminID},
+			3: {action: "approve", actor: adminID},
+		})
+
+		for _, id := range []string{orderID, advanceOrderID} {
+			demoAdmin.mustPost("/sales/orders/"+id+"/cancel", nil, http.StatusOK)
+			if got := text(admin.mustGet("/sales/orders/"+id, http.StatusOK), "status"); got != "cancelled" {
+				t.Fatalf("order %s status after cleanup cancel = %q, want cancelled", id, got)
+			}
+		}
+		for _, id := range []string{flowID, advanceFlowID} {
+			admin.mustPost("/system/approval-flows/"+id+"/active", map[string]any{"active": false}, http.StatusOK)
 		}
 	})
 }
@@ -1335,6 +1478,45 @@ func stage4BArray(t *testing.T, m map[string]any, key string) []any {
 		t.Fatalf("field %s = %v, want array", key, raw)
 	}
 	return items
+}
+
+type stage4BExpectedAction struct {
+	action string
+	actor  string
+}
+
+// stage4BExpectActions compares approval actions by step number because
+// same-transaction actions share created_at and therefore have no stable order.
+func stage4BExpectActions(t *testing.T, request map[string]any, want map[int]stage4BExpectedAction) {
+	t.Helper()
+	actions := stage4BArray(t, request, "actions")
+	if len(actions) != len(want) {
+		t.Fatalf("approval actions = %d, want %d", len(actions), len(want))
+	}
+	seen := make(map[int]bool, len(actions))
+	for _, raw := range actions {
+		action, ok := raw.(map[string]any)
+		if !ok {
+			t.Fatalf("approval action payload = %v", raw)
+		}
+		stepNo := stage4BInt(t, action, "step_no")
+		expected, ok := want[stepNo]
+		if !ok {
+			t.Fatalf("unexpected approval action for step %d: %v", stepNo, action)
+		}
+		if seen[stepNo] {
+			t.Fatalf("duplicate approval action for step %d", stepNo)
+		}
+		seen[stepNo] = true
+		if got := text(action, "action"); got != expected.action {
+			t.Fatalf("step %d action = %q, want %q", stepNo, got, expected.action)
+		}
+		if expected.actor != "" {
+			if got := text(action, "actor_id"); got != expected.actor {
+				t.Fatalf("step %d action actor_id = %q, want %q", stepNo, got, expected.actor)
+			}
+		}
+	}
 }
 
 func stage4BUnique(prefix string) string {
