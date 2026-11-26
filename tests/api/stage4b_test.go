@@ -481,7 +481,64 @@ func TestStage4B(t *testing.T) {
 		}
 	})
 
-	// 10. Two concurrent approvals: exactly one succeeds and one action is
+	// 10. A role approver whose data scope is self (users created through the
+	// API have no org_memberships row) can still complete an approval. The
+	// approval engine authorizes the role step, and the order transitions then
+	// bypass the approver's data scope.
+	t.Run("self-scoped approver completes approval", func(t *testing.T) {
+		approver, approverID, roleID := stage4BEnsureSelfScopeApprover(t, admin)
+
+		flow := stage4BCreateFlow(t, admin, stage4BFlowBody(
+			"stage4b-self-approver-900",
+			"sales_order",
+			"900.00",
+			900,
+			[]map[string]any{stage4BRoleStep(1, "Stage 4B self approver", roleID)},
+		))
+		flowID := text(flow, "id")
+
+		order := stage4BCreateSalesOrder(t, demoAdmin, customerID, warehouseID, materialID, vat0ID, "900.00")
+		orderID := text(order, "id")
+		submitted := demoAdmin.mustPost("/sales/orders/"+orderID+"/submit", nil, http.StatusOK)
+		if !stage4BBool(t, submitted, "approval_pending") {
+			t.Fatalf("sales 900 submit approval_pending = false, want true")
+		}
+		request := stage4BRequestForDocument(t, admin, "sales_order", orderID)
+		if request == nil {
+			t.Fatalf("sales 900 approval request not found")
+		}
+		if got := text(request, "flow_id"); got != flowID {
+			t.Fatalf("sales 900 flow_id = %q, want %q", got, flowID)
+		}
+		if findItem(stage4BPending(t, approver), "document_id", orderID) == nil {
+			t.Fatalf("pending list for self-scoped approver does not contain sales order %s", orderID)
+		}
+
+		approved := stage4BApprove(t, approver, "/sales/orders/"+orderID+"/approve", "stage4b self-scoped approved")
+		if stage4BBool(t, approved, "approval_pending") {
+			t.Fatalf("sales 900 approve approval_pending = true, want false")
+		}
+		if got := text(admin.mustGet("/sales/orders/"+orderID, http.StatusOK), "status"); got != "approved" {
+			t.Fatalf("sales 900 order status = %q, want approved", got)
+		}
+		request = stage4BRequestForDocument(t, admin, "sales_order", orderID)
+		if request == nil {
+			t.Fatalf("sales 900 approval request not found after approval")
+		}
+		if got := text(request, "status"); got != "approved" {
+			t.Fatalf("sales 900 request status = %q, want approved", got)
+		}
+		actions := stage4BArray(t, request, "actions")
+		if len(actions) != 1 {
+			t.Fatalf("sales 900 approval actions = %d, want 1", len(actions))
+		}
+		action, _ := actions[0].(map[string]any)
+		if got := text(action, "actor_id"); got != approverID {
+			t.Fatalf("sales 900 action actor_id = %q, want %q", got, approverID)
+		}
+	})
+
+	// 11. Two concurrent approvals: exactly one succeeds and one action is
 	// recorded.
 	t.Run("concurrent approval succeeds once", func(t *testing.T) {
 		flow := stage4BCreateFlow(t, admin, stage4BFlowBody(
@@ -557,7 +614,7 @@ func TestStage4B(t *testing.T) {
 		}
 	})
 
-	// 11. Users without approval permissions cannot configure flows, read
+	// 12. Users without approval permissions cannot configure flows, read
 	// pending work, or approve orders.
 	t.Run("approval permissions", func(t *testing.T) {
 		demoDept.expectError(http.MethodGet, "/system/approval-flows", nil, http.StatusForbidden, "FORBIDDEN")
@@ -573,8 +630,8 @@ func TestStage4B(t *testing.T) {
 		demoDept.expectError(http.MethodPost, "/sales/orders/"+sales100OrderID+"/approve", map[string]any{"comment": "denied"}, http.StatusForbidden, "FORBIDDEN")
 	})
 
-	// 12. Flows with any approval request (including history) cannot be edited
-	// or deleted.
+	// 13. Flows with any approval request (including history) cannot be edited
+	// or deleted, but can still be deactivated and reactivated.
 	t.Run("flow history protection", func(t *testing.T) {
 		original := admin.mustGet("/system/approval-flows/"+sales100FlowID, http.StatusOK)
 		updateBody := stage4BFlowBody(
@@ -590,9 +647,26 @@ func TestStage4B(t *testing.T) {
 		if got, want := text(current, "name"), text(original, "name"); got != want {
 			t.Fatalf("flow name after rejected update = %q, want %q", got, want)
 		}
+
+		deactivated := admin.mustPost("/system/approval-flows/"+sales100FlowID+"/active", map[string]any{"active": false}, http.StatusOK)
+		if stage4BBool(t, deactivated, "active") {
+			t.Fatalf("flow active after deactivation = true, want false")
+		}
+		current = admin.mustGet("/system/approval-flows/"+sales100FlowID, http.StatusOK)
+		if stage4BBool(t, current, "active") {
+			t.Fatalf("flow active after deactivation = true, want false")
+		}
+		if got, want := text(current, "name"), text(original, "name"); got != want {
+			t.Fatalf("flow name after deactivation = %q, want %q", got, want)
+		}
+
+		restored := admin.mustPost("/system/approval-flows/"+sales100FlowID+"/active", map[string]any{"active": true}, http.StatusOK)
+		if !stage4BBool(t, restored, "active") {
+			t.Fatalf("flow active after restore = false, want true")
+		}
 	})
 
-	// 13. Purchase orders use the same approval workflow integration.
+	// 14. Purchase orders use the same approval workflow integration.
 	t.Run("purchase order flow", func(t *testing.T) {
 		flow := stage4BCreateFlow(t, admin, stage4BFlowBody(
 			"stage4b-purchase-100",
@@ -635,7 +709,7 @@ func TestStage4B(t *testing.T) {
 		}
 	})
 
-	// 14. Pending/history detail contract, including empty arrays.
+	// 15. Pending/history detail contract, including empty arrays.
 	t.Run("pending and request detail contract", func(t *testing.T) {
 		order := stage4BCreateSalesOrder(t, demoAdmin, customerID, warehouseID, materialID, vat0ID, "800.00")
 		orderID := text(order, "id")
@@ -724,7 +798,7 @@ func TestStage4B(t *testing.T) {
 		}
 	})
 
-	// 15. Seeded dept user has no approval read permission. Tenant isolation is
+	// 16. Seeded dept user has no approval read permission. Tenant isolation is
 	// asserted on every request above; org-scoped pending visibility cannot be
 	// exercised because the user API does not set data_scope or org memberships.
 	t.Run("data scope and tenant boundaries", func(t *testing.T) {
@@ -909,6 +983,70 @@ func stage4BEnsureApproverUser(t *testing.T, admin *client, roleID string) (*cli
 		"role_ids": roleIDs,
 	}, http.StatusOK)
 	return newClient(t).login(username, env("TEST_DEMO_PASSWORD", "Demo@123456")), userID
+}
+
+// stage4BEnsureSelfScopeApprover creates an approval role and a user with only
+// the approval permissions. The user is created through the API with an org_id
+// but no org_memberships row, so the auth middleware resolves data_scope=self.
+func stage4BEnsureSelfScopeApprover(t *testing.T, admin *client) (*client, string, string) {
+	t.Helper()
+
+	hq := findItem(getArray(admin, "/system/orgs", http.StatusOK), "code", "HQ")
+	if hq == nil {
+		t.Fatal("HQ organization not found")
+	}
+	hqID := text(hq, "id")
+
+	const roleCode = "stage4b_self_approver"
+	var roleID string
+	if role := findItem(getArray(admin, "/system/roles", http.StatusOK), "code", roleCode); role != nil {
+		roleID = text(role, "id")
+	} else {
+		roleID = text(admin.mustPost("/system/roles", map[string]any{
+			"code": roleCode,
+			"name": "Stage 4B self approver",
+		}, http.StatusCreated), "id")
+	}
+	status, payload := admin.put("/system/roles/"+roleID+"/permissions", map[string]any{
+		"permission_codes": []string{
+			"sales.order.approve",
+			"system.approval.read",
+		},
+	})
+	if status != http.StatusOK {
+		t.Fatalf("set stage4b self approver permissions status = %d, payload = %v", status, payload)
+	}
+
+	const username = "stage4b_self_approver"
+	users := listItems(admin, "/system/users?keyword="+url.QueryEscape(username)+"&page_size=20", http.StatusOK)
+	var userID string
+	if user := findItem(users, "username", username); user != nil {
+		userID = text(user, "id")
+		status, payload := admin.put("/system/users/"+userID, map[string]any{
+			"display_name":   "Stage 4B self approver",
+			"org_id":         hqID,
+			"status":         "active",
+			"password":       "Demo@123456",
+			"is_super_admin": false,
+		})
+		if status != http.StatusOK {
+			t.Fatalf("update stage4b self approver status = %d, payload = %v", status, payload)
+		}
+		admin.mustPost("/system/users/"+userID+"/roles", map[string]any{
+			"role_ids": []string{roleID},
+		}, http.StatusOK)
+	} else {
+		userID = text(admin.mustPost("/system/users", map[string]any{
+			"username":       username,
+			"display_name":   "Stage 4B self approver",
+			"password":       "Demo@123456",
+			"org_id":         hqID,
+			"is_super_admin": false,
+			"role_ids":       []string{roleID},
+		}, http.StatusCreated), "id")
+	}
+
+	return newClient(t).login(username, "Demo@123456"), userID, roleID
 }
 
 func stage4BRawPost(c *client, path string, body any) (int, string, map[string]any, error) {
