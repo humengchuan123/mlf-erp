@@ -26,8 +26,8 @@
         <el-table-column label="操作" width="200" fixed="right">
           <template #default="{ row }">
             <el-button link type="primary" @click="openDetail(row)">详情</el-button>
-            <el-button link type="success" @click="openApprove(row)">批准</el-button>
-            <el-button link type="danger" @click="openReject(row)">拒绝</el-button>
+            <el-button v-if="canApprove(row)" link type="success" @click="openApprove(row)">批准</el-button>
+            <el-button v-if="canApprove(row)" link type="danger" @click="openReject(row)">拒绝</el-button>
           </template>
         </el-table-column>
         <template #empty>
@@ -104,8 +104,8 @@
       <template #footer>
         <el-button @click="detailVisible = false">关闭</el-button>
         <template v-if="detail && detail.status === 'pending'">
-          <el-button type="danger" plain @click="openReject(detail)">拒绝</el-button>
-          <el-button type="success" @click="openApprove(detail)">批准</el-button>
+          <el-button v-if="canApprove(detail)" type="danger" plain @click="openReject(detail)">拒绝</el-button>
+          <el-button v-if="canApprove(detail)" type="success" @click="openApprove(detail)">批准</el-button>
         </template>
       </template>
     </el-dialog>
@@ -169,8 +169,22 @@ import {
   salesApi,
   type ApprovalRequest
 } from '@mlf-erp/sdk'
+import { useAuthStore } from '../../stores/auth'
 
 defineOptions({ name: 'PendingApprovalView' })
+
+const authStore = useAuthStore()
+
+function canApprove(row: ApprovalRequest | null) {
+  if (!row) return false
+  if (row.document_type === 'sales_order') {
+    return authStore.hasPermission('sales.order.approve')
+  }
+  if (row.document_type === 'purchase_order') {
+    return authStore.hasPermission('purchase.order.approve')
+  }
+  return false
+}
 
 const requests = ref<ApprovalRequest[]>([])
 const loading = ref(false)
