@@ -56,7 +56,8 @@ pending --cancel--> cancelled -> 订单 -> cancelled
 
 - `POST /sales/orders/:id/approve` / `reject`，权限 `sales.order.approve`。
 - `POST /purchase/orders/:id/approve` / `reject`，权限 `purchase.order.approve`。
-- 提交 `POST /orders/:id/submit` 返回 `approval_pending`。
+- 提交 `POST /orders/:id/submit` 返回 `approval_pending`；如已有 pending 请求，保持 submitted 并返回 409 `PENDING_APPROVAL_EXISTS`。
+- 非最后一步审批返回 `{status:"pending", current_step, approval_pending:true}`；最后一步通过后订单 approved。
 - 取消订单会取消 pending 请求。
 
 ## 错误码
@@ -64,7 +65,7 @@ pending --cancel--> cancelled -> 订单 -> cancelled
 - 400 `INVALID_APPROVAL_FLOW`
 - 403 `NOT_APPROVER` / `SELF_APPROVAL`
 - 404 `NOT_FOUND`
-- 409 `FLOW_IN_USE` / `PENDING_APPROVAL_EXISTS` / `NO_PENDING_APPROVAL` / `ALREADY_ACTED` / `APPROVAL_NO_APPROVER` / `INVALID_STATUS`
+- 409 `FLOW_IN_USE`（含历史请求的流程编辑/删除）/ `PENDING_APPROVAL_EXISTS`（已有 pending，提交保持 submitted）/ `NO_PENDING_APPROVAL` / `ALREADY_ACTED` / `APPROVAL_NO_APPROVER` / `INVALID_STATUS`
 
 ## 已知限制
 

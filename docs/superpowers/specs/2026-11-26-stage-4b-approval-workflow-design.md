@@ -191,10 +191,10 @@ pending --cancel--> cancelled
   1. 现有 `Submit` 状态转换 `draft -> submitted`。
   2. 查询订单详情；调用审批服务 `Start`。
   3. 无匹配流程：正常返回。
-  4. 匹配流程：创建 pending 请求；如创建失败，补偿 `submitted -> draft` 并返回错误。
+  4. 匹配流程：创建 pending 请求；如创建失败，补偿 `submitted -> draft` 并返回错误。例外：`PENDING_APPROVAL_EXISTS` 表示已有 pending 请求，保持 submitted 并返回 409，不做回退。
 - `POST /sales/orders/:id/approve`：
   - Body 可选 `{ "comment": "..." }`。
-  - 有 pending 请求：调用审批服务 `Approve`；未到最后一步返回 `{status:"pending", current_step}`；最后一步通过后执行 `submitted -> approved`。
+  - 有 pending 请求：调用审批服务 `Approve`；未到最后一步返回 `{status:"pending", current_step, approval_pending:true}`；最后一步通过后执行 `submitted -> approved`。
   - 无 pending 请求：保持原有 `submitted -> approved`。
 - `POST /sales/orders/:id/reject`（新增）：
   - Body `{ "comment": "..." }`（必填或至少非空？首期允许空，但建议必填；设计为必填）。
@@ -284,7 +284,7 @@ pending --cancel--> cancelled
 - `approval_actions` 部分唯一索引 `(request_id, step_no) WHERE action IN ('approve','reject')` 兜底并发重复审批。
 - 同一请求并发审批：一个成功，另一个 409 `ALREADY_ACTED` 或 `INVALID_STATUS`。
 - 订单状态转换继续使用 `UpdateStatus` 的 `WHERE status = from` 守卫。
-- 流程编辑/删除与审批请求：更新/删除前检查任意 `approval_requests`（含历史）；存在则拒绝并建议停用后新建，避免历史步骤/动作被改写或 FK 删除失败。并发创建请求时可能竞争；首期在事务内检查并接受极窄竞争窗口。
+- 流程编辑/删除与审批请求：更新/删除在事务内锁定 flow 并复查任意 `approval_requests`（含历史）；存在则拒绝并建议停用后新建，避免历史步骤/动作被改写或 FK 删除失败。
 
 ## 12. 前端
 

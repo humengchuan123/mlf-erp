@@ -390,7 +390,7 @@ type RequestRepository interface {
 `FlowService`:
 - `List/Get/Create/Update/Delete`。
 - 校验：document type、condition、threshold、steps 连续从 1、approver_type、approver_id 非空。
-- `Update/Delete`：`HasRequests` true -> `ErrFlowInUse`（含历史请求，保护审批历史并避免 FK 删除失败）。
+- `Update/Delete`：`HasRequests` true -> `ErrFlowInUse`（含历史请求，保护审批历史并避免 FK 删除失败）；仓储 Update 在事务内 `FOR UPDATE` 锁 flow 并复查请求。
 - 审批人存在性：注入 `RoleChecker`/`UserChecker` 接口（由 infra 实现，或 app 直接调用 system repositories？为避免耦合，定义接口）：
   ```go
   type ApproverValidator interface {
@@ -540,7 +540,11 @@ func (h *Handler) submitOrder(c *gin.Context) {
     order, err := h.orders.Get(ctx, id)
     if err != nil { _ = h.orders.Reopen(ctx, id); handle; return }
     started, err := h.approvals.Start(ctx, approvalapp.StartInput{...})
-    if err != nil { _ = h.orders.Reopen(ctx, id); handle; return }
+    if err != nil {
+        if errors.Is(err, approvaldomain.ErrPendingExists) { handle; return }
+        if reopenErr := h.orders.Reopen(ctx, id); reopenErr != nil { h.log.Error(...) }
+        handle; return
+    }
     h.recordAudit(...)
     httpx.OK(c, gin.H{"id": id, "action": "sales.order.submit", "approval_pending": started})
 }
@@ -548,8 +552,8 @@ func (h *Handler) submitOrder(c *gin.Context) {
 
 - [ ] **Step 4: 审批/拒绝/取消**
 
-- approve：解析可选 comment；`pending` 判断；pending -> `Approve`；final -> `orders.Approve`；非 final 返回 `{status:"pending", current_step}`；无 pending -> `orders.Approve`。
-- reject：comment 必填；`approvals.Reject`；`orders.Reopen`；返回。
+- approve：解析可选 comment；`pending` 判断；pending -> `Approve`；final -> `orders.ApproveByApproval`；非 final 返回 `{status:"pending", current_step, approval_pending:true}`；无 pending -> `orders.Approve`。
+- reject：comment 必填；`approvals.Reject`；`orders.ReopenByApproval`；返回。
 - cancel：`approvals.Cancel`（忽略 `ErrNoPending`）-> `orders.Cancel`。
 - 订单不存在/状态错误沿用现有错误映射。
 
