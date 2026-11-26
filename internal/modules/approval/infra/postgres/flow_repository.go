@@ -111,6 +111,32 @@ func (r *FlowRepository) Update(ctx context.Context, flow *domain.Flow) error {
 	}
 	defer tx.Rollback(ctx)
 
+	var found int
+	err = tx.QueryRow(ctx, `
+		SELECT 1
+		FROM erp.approval_flows
+		WHERE tenant_id = $1 AND id = $2
+		FOR UPDATE`, flow.TenantID, flow.ID).Scan(&found)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.ErrNotFound
+	}
+	if err != nil {
+		return fmt.Errorf("lock approval flow: %w", mapFlowWriteError(err))
+	}
+
+	var inUse bool
+	if err := tx.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1
+			FROM erp.approval_requests
+			WHERE tenant_id = $1 AND flow_id = $2
+		)`, flow.TenantID, flow.ID).Scan(&inUse); err != nil {
+		return fmt.Errorf("check approval flow requests: %w", err)
+	}
+	if inUse {
+		return domain.ErrFlowInUse
+	}
+
 	tag, err := tx.Exec(ctx, `
 		UPDATE erp.approval_flows
 		SET org_id = $3, document_type = $4, name = $5, condition_type = $6,

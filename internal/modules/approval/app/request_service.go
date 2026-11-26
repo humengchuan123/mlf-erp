@@ -84,6 +84,14 @@ func (s *RequestService) Pending(ctx context.Context, documentType domain.Docume
 	return request != nil, nil
 }
 
+func (s *RequestService) PendingRequest(ctx context.Context, documentType domain.DocumentType, documentID string) (*domain.Request, error) {
+	request, err := s.requests.GetPendingByDocument(ctx, currentTenantID(ctx), documentType, documentID)
+	if errors.Is(err, domain.ErrNotFound) {
+		return nil, nil
+	}
+	return request, err
+}
+
 func (s *RequestService) Approve(ctx context.Context, documentType domain.DocumentType, documentID string, actor domain.Actor, comment string) (bool, error) {
 	tenantID := currentTenantID(ctx)
 	request, err := s.requests.GetPendingByDocument(ctx, tenantID, documentType, documentID)

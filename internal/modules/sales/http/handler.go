@@ -323,7 +323,9 @@ func (h *Handler) submitOrder(c *gin.Context) {
 	}
 	order, err := h.orders.Get(ctx, id)
 	if err != nil {
-		_ = h.orders.Reopen(ctx, id)
+		if reopenErr := h.orders.Reopen(ctx, id); reopenErr != nil {
+			h.log.Error("sales order submit compensation failed", "order_id", id, "error", reopenErr)
+		}
 		h.handleError(c, err)
 		return
 	}
@@ -340,14 +342,13 @@ func (h *Handler) submitOrder(c *gin.Context) {
 		Currency:     order.Currency,
 	})
 	if err != nil {
-		if errors.Is(err, approvaldomain.ErrPendingExists) {
-			// A pending request already exists; the order stays submitted.
-			started = true
-		} else {
-			_ = h.orders.Reopen(ctx, id)
-			h.handleError(c, err)
-			return
+		if !errors.Is(err, approvaldomain.ErrPendingExists) {
+			if reopenErr := h.orders.Reopen(ctx, id); reopenErr != nil {
+				h.log.Error("sales order submit compensation failed", "order_id", id, "error", reopenErr)
+			}
 		}
+		h.handleError(c, err)
+		return
 	}
 	h.recordAudit(c, "sales.order.submit", "sales_order", id, nil)
 	httpx.OK(c, gin.H{"id": id, "action": "sales.order.submit", "approval_pending": started})
@@ -377,11 +378,16 @@ func (h *Handler) approveOrder(c *gin.Context) {
 			return
 		}
 		if !final {
+			currentStep := 0
+			if pendingRequest, pendingErr := h.approvals.PendingRequest(ctx, approvaldomain.DocumentSalesOrder, id); pendingErr == nil && pendingRequest != nil {
+				currentStep = pendingRequest.CurrentStep
+			}
 			h.recordAudit(c, "sales.order.approve", "sales_order", id, nil)
-			httpx.OK(c, gin.H{"id": id, "action": "sales.order.approve", "approval_pending": true})
+			httpx.OK(c, gin.H{"id": id, "action": "sales.order.approve", "status": "pending", "current_step": currentStep, "approval_pending": true})
 			return
 		}
 		if err := h.orders.ApproveByApproval(ctx, id); err != nil {
+			h.log.Error("approval final transition failed", "order_id", id, "document_type", "sales_order", "error", err)
 			h.handleError(c, err)
 			return
 		}
@@ -416,6 +422,7 @@ func (h *Handler) rejectOrder(c *gin.Context) {
 		return
 	}
 	if err := h.orders.ReopenByApproval(ctx, id); err != nil {
+		h.log.Error("approval rejection transition failed", "order_id", id, "document_type", "sales_order", "error", err)
 		h.handleError(c, err)
 		return
 	}
