@@ -27,6 +27,8 @@
 **Create:**
 - `db/migrations/000027_approval_workflow.up.sql`
 - `db/migrations/000027_approval_workflow.down.sql`
+- `db/migrations/000028_approval_skip_actions.up.sql`
+- `db/migrations/000028_approval_skip_actions.down.sql`
 - `internal/modules/approval/domain/flow.go`
 - `internal/modules/approval/domain/request.go`
 - `internal/modules/approval/domain/errors.go`

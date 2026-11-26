@@ -9,7 +9,7 @@ Stage 4B 通用审批流引擎，首期接入销售订单和采购订单。
 - `approval_flows`：流程定义（单据类型、组织、条件、阈值、优先级、启停）。
 - `approval_flow_steps`：顺序步骤（`role` / `user` 审批人）。
 - `approval_requests`：单据审批请求（`pending/approved/rejected/cancelled`、当前步骤、申请人、金额）。
-- `approval_actions`：append-only 审批动作（`approve/reject/cancel`、意见、审批人、时间）。
+- `approval_actions`：append-only 审批动作（`approve/reject/cancel/skip`、意见、审批人、时间）；`skip` 表示申请人本人的用户步骤被自动跳过，不代表通过。
 
 同一单据最多一个 `pending` 请求（部分唯一索引）。有审批请求（含历史）的流程禁止编辑/删除，但可通过独立停用接口切换 `active`。
 
@@ -26,7 +26,7 @@ Stage 4B 通用审批流引擎，首期接入销售订单和采购订单。
 - `user`：指定用户。
 - 顺序审批，每步一次动作；`approval_actions` 部分唯一索引防并发重复。
 - 禁止自批：申请人不能审批自己的请求；创建/推进时跳过申请人的 `user` 步骤；全部跳过返回 `APPROVAL_NO_APPROVER`。
-- 超级管理员可越过角色限制，但仍不能自批。
+- 超级管理员可越过步骤审批人限制（角色或指定用户），但仍不能自批。
 
 ## 状态与单据联动
 
@@ -74,4 +74,4 @@ pending --cancel--> cancelled -> 订单 -> cancelled
 - 不支持并行/会签/委托/升级/通知/复杂条件。
 - 流程无版本历史；有请求时不能编辑/删除，只能停用后新建。
 - 角色步骤可能无人可批，需要管理员调整角色或流程。
-- 超级管理员可越过角色限制（不能自批）。
+- 超级管理员可越过步骤审批人限制（角色或指定用户，不能自批）。

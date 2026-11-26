@@ -15,7 +15,7 @@
 
 **Plan type:** 本文件是**项目级路线图**，不是单个阶段的逐行实现计划。每个 Stage 启动前，按仓库现有流程另写一份 `docs/superpowers/plans/YYYY-MM-DD-stage-4x-*.md`，包含精确文件、代码、测试和提交步骤。路线图先用于用户审阅和排序确认。
 
-> **执行状态（2026-11-25）：** Stage 4A 资金操作幂等已完成，实现计划 `docs/superpowers/plans/2026-11-25-stage-4a-idempotency.md`，报告 `docs/reports/2026-11-25-stage-4a-idempotency.md`。Stage 4B/4C 待用户确认。
+> **执行状态（2026-11-26）：** Stage 4A 资金操作幂等已完成（报告 `docs/reports/2026-11-25-stage-4a-idempotency.md`）；Stage 4B 审批流与职责分离已完成（报告 `docs/reports/2026-11-26-stage-4b-approval-workflow.md`）。Stage 4C 成本核算收口待用户确认。
 
 ---
 
@@ -174,7 +174,9 @@ Wave 3（P2）
 
 ---
 
-### Stage 4B：审批流与职责分离（P0）
+### Stage 4B：审批流与职责分离（P0）— 已完成（首期）
+
+**状态：** 2026-11-26 完成首期（销售/采购订单）；退款/反核销/发货/收货/退货/期间重开审批留到 4B-2。报告 `docs/reports/2026-11-26-stage-4b-approval-workflow.md`。
 
 **Goal:** 提供可配置审批引擎，支持金额阈值、审批节点、审批人、条件、历史和禁止自批，并接入核心单据。
 

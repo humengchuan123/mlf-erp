@@ -340,7 +340,7 @@ paths:
   /approvals/pending:
     get:
       summary: List approval requests pending the current user
-      description: Requires `system.approval.read`. Returns requests where the current user is the approver of the current step; super administrators may act as fallback approvers for role steps.
+      description: Requires `system.approval.read`. Returns requests where the current user is the approver of the current step; super administrators may act as fallback approvers for role or user steps.
       responses:
         '200':
           description: OK
@@ -2718,7 +2718,7 @@ components:
                   description: Present on submit/approve responses; true while a later approval step is still pending.
                 status:
                   type: string
-                  description: Optional resulting order status.
+                  description: Optional approval request status (typically `pending`); the order remains `submitted` until the final approval step.
                 current_step:
                   type: integer
                   description: Optional current approval step after the action.

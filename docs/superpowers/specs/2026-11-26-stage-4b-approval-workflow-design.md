@@ -118,7 +118,7 @@
 | `tenant_id` | uuid NOT NULL | |
 | `request_id` | uuid NOT NULL | |
 | `step_no` | int NOT NULL | 审批/拒绝为当前步骤；取消为当前步骤 |
-| `action` | text NOT NULL | `approve` / `reject` / `cancel` |
+| `action` | text NOT NULL | `approve` / `reject` / `cancel` / `skip` |
 | `actor_id` | uuid NOT NULL | |
 | `comment` | text NOT NULL DEFAULT '' | |
 | `created_at` | timestamptz | |
@@ -160,10 +160,11 @@ LIMIT 1;
 - `approver_type = user`：指定用户。
 - `approver_type = role`：该角色下任意用户（通过 `erp.user_roles` 判断）；超级管理员可作为任意步骤的兜底审批人。
 - 申请人不能审批自己的请求：
-  - 创建请求时跳过 `user` 类型且 `approver_id = requested_by` 的步骤。
+  - 创建请求时跳过 `user` 类型且 `approver_id = requested_by` 的步骤，并为每个跳过步骤写入 `skip` 动作（`approver_id` 自动跳过不视为通过）。
   - 角色步骤不预先跳过；申请人不能以该角色身份审批（服务层拒绝）。
   - 若所有步骤都被跳过（流程只包含申请人本人），返回 `APPROVAL_NO_APPROVER`，订单提交补偿回 `draft`。
-- 审批通过后推进到下一步；若后续步骤是申请人本人的用户步骤，自动跳过；全部跳过则请求完成（`approved`）。
+- 审批通过后推进到下一步；若后续步骤是申请人本人的用户步骤，自动跳过并写入 `skip` 动作；全部跳过则请求完成（`approved`）。
+- 请求创建在事务内 `FOR SHARE` 锁定 flow 并重新加载步骤，写入 skip 动作，关闭流程编辑与请求创建的竞态窗口。
 
 ## 7. 请求状态机
 

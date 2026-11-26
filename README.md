@@ -486,11 +486,11 @@ docker build -f deploy/docker/web.Dockerfile -t mlf-erp/web:dev .
 - 流程包含顺序步骤，每步指定角色或用户审批人；审批动作 append-only，记录步骤、审批人、意见和时间。
 - 提交时匹配流程则创建 `pending` 请求，订单保持 `submitted`；最后一步通过后订单进入 `approved`；拒绝后订单回到 `draft`；取消订单会同时取消 pending 请求。
 - 无匹配流程时保持原有直审行为：提交后由有权限用户直接审批，不受审批流影响。
-- 禁止自批：申请人的用户步骤在创建请求时跳过，审批时服务端再次校验；若所有步骤均为申请人本人，提交返回 409 `APPROVAL_NO_APPROVER` 并将订单补偿回 `draft`。超级管理员可越过步骤角色限制，但仍不能审批自己的申请。
+- 禁止自批：申请人的用户步骤在创建/推进时自动跳过并写入 `skip` 审计，审批时服务端再次校验；若所有步骤均为申请人本人，提交返回 409 `APPROVAL_NO_APPROVER` 并将订单补偿回 `draft`。超级管理员可越过步骤审批人限制（角色或指定用户），但仍不能审批自己的申请。
 - 角色步骤按 `erp.user_roles` 校验；角色下无其他可用用户时请求可能无人可批，需要管理员调整角色或流程。
 - 新增权限：`system.approval.read`（流程/待办/历史）、`system.approval.write`（流程配置）、`system.approval.act`（预留）。订单审批仍要求 `sales.order.approve` / `purchase.order.approve`。
 - 端点：
-  - `GET/POST /api/v1/system/approval-flows`、`GET/PUT/DELETE /api/v1/system/approval-flows/:id`
+  - `GET/POST /api/v1/system/approval-flows`、`GET/PUT/DELETE /api/v1/system/approval-flows/:id`、`POST /api/v1/system/approval-flows/:id/active`
   - `GET /api/v1/approvals/pending`、`GET /api/v1/approvals/requests`、`GET /api/v1/approvals/requests/:id`
   - `POST /api/v1/sales/orders/:id/approve|reject`、`POST /api/v1/purchase/orders/:id/approve|reject`
 - 流程已有审批请求（含历史）时禁止编辑/删除，返回 409 `FLOW_IN_USE`；需要调整时新建流程替代。待办只返回当前步骤匹配当前用户/角色或超级管理员的请求，并排除申请人本人。
