@@ -378,12 +378,17 @@ func (h *Handler) approveOrder(c *gin.Context) {
 			return
 		}
 		if !final {
-			currentStep := 0
-			if pendingRequest, pendingErr := h.approvals.PendingRequest(ctx, approvaldomain.DocumentSalesOrder, id); pendingErr == nil && pendingRequest != nil {
-				currentStep = pendingRequest.CurrentStep
+			pendingRequest, pendingErr := h.approvals.PendingRequest(ctx, approvaldomain.DocumentSalesOrder, id)
+			if pendingErr != nil {
+				h.handleError(c, pendingErr)
+				return
+			}
+			if pendingRequest == nil {
+				h.handleError(c, approvaldomain.ErrNoPending)
+				return
 			}
 			h.recordAudit(c, "sales.order.approve", "sales_order", id, nil)
-			httpx.OK(c, gin.H{"id": id, "action": "sales.order.approve", "status": "pending", "current_step": currentStep, "approval_pending": true})
+			httpx.OK(c, gin.H{"id": id, "action": "sales.order.approve", "status": "pending", "current_step": pendingRequest.CurrentStep, "approval_pending": true})
 			return
 		}
 		if err := h.orders.ApproveByApproval(ctx, id); err != nil {
