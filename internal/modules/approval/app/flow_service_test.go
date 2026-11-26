@@ -267,6 +267,23 @@ func (r *fakeRequestRepo) Create(_ context.Context, request *domain.Request) err
 	if r.createErr != nil {
 		return r.createErr
 	}
+	// Mirror the real repository: resolve against the full flow steps and
+	// record requester-assigned user steps as skip actions.
+	resolved, err := domain.ResolveApprovalSteps(request.Steps, request.RequestedBy)
+	if err != nil {
+		return err
+	}
+	request.CurrentStep = resolved.CurrentStep
+	for _, step := range resolved.Skipped {
+		request.Actions = append(request.Actions, domain.Action{
+			TenantID:  request.TenantID,
+			RequestID: request.ID,
+			StepNo:    step.StepNo,
+			Action:    domain.ActionSkip,
+			ActorID:   request.RequestedBy,
+			Comment:   "applicant step skipped",
+		})
+	}
 	key := pendingKey(request.TenantID, request.DocumentType, request.DocumentID)
 	if _, ok := r.pending[key]; ok {
 		return domain.ErrPendingExists

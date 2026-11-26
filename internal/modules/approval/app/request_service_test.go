@@ -115,11 +115,21 @@ func TestRequestServiceStartCreatesPendingRequest(t *testing.T) {
 	if request.Currency != "USD" {
 		t.Fatalf("Currency = %q, want USD", request.Currency)
 	}
-	if len(request.Steps) != 2 {
-		t.Fatalf("steps = %d, want 2 (self step skipped)", len(request.Steps))
+	if len(request.Steps) != 3 {
+		t.Fatalf("steps = %d, want all 3 flow steps", len(request.Steps))
 	}
-	if request.Steps[0].ID != "fs-1" || request.Steps[1].ID != "fs-3" {
+	if request.Steps[0].ID != "fs-1" || request.Steps[1].ID != "fs-2" || request.Steps[2].ID != "fs-3" {
 		t.Fatalf("unexpected steps: %+v", request.Steps)
+	}
+	if len(request.Actions) != 1 {
+		t.Fatalf("actions = %d, want 1 skip action", len(request.Actions))
+	}
+	skip := request.Actions[0]
+	if skip.Action != domain.ActionSkip || skip.StepNo != 2 {
+		t.Fatalf("skip action = %+v, want skip for step 2", skip)
+	}
+	if skip.ActorID != "user-self" || skip.Comment != "applicant step skipped" {
+		t.Fatalf("skip action actor/comment = %q/%q", skip.ActorID, skip.Comment)
 	}
 	if flowRepo.lastMatchTenant != "tenant-1" || flowRepo.lastMatchOrg != "org-1" {
 		t.Fatalf("FindMatching() tenant/org = %q/%q", flowRepo.lastMatchTenant, flowRepo.lastMatchOrg)
@@ -157,8 +167,11 @@ func TestRequestServiceStartSkipsSelfStepAndStartsAtNextStep(t *testing.T) {
 	if request.CurrentStep != 2 {
 		t.Fatalf("CurrentStep = %d, want 2", request.CurrentStep)
 	}
-	if len(request.Steps) != 1 || request.Steps[0].ID != "fs-2" {
+	if len(request.Steps) != 2 || request.Steps[0].ID != "fs-1" || request.Steps[1].ID != "fs-2" {
 		t.Fatalf("unexpected steps: %+v", request.Steps)
+	}
+	if len(request.Actions) != 1 || request.Actions[0].Action != domain.ActionSkip || request.Actions[0].StepNo != 1 {
+		t.Fatalf("skip actions = %+v, want skip for step 1", request.Actions)
 	}
 }
 

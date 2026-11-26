@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"time"
 
 	"github.com/google/uuid"
@@ -23,7 +24,38 @@ func NewRequestRepository(db *pgxpool.Pool) *RequestRepository {
 }
 
 func (r *RequestRepository) Create(ctx context.Context, request *domain.Request) error {
-	_, err := r.db.Exec(ctx, `
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin create approval request: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	// Share-lock the flow so its steps cannot change between resolution and
+	// insert. Flow updates and deletes take FOR UPDATE and therefore wait.
+	var found int
+	err = tx.QueryRow(ctx, `
+		SELECT 1
+		FROM erp.approval_flows
+		WHERE tenant_id = $1 AND id = $2
+		FOR SHARE`, request.TenantID, request.FlowID).Scan(&found)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.ErrInvalidFlow
+	}
+	if err != nil {
+		return fmt.Errorf("lock approval flow: %w", err)
+	}
+
+	steps, err := loadFlowSteps(ctx, tx, request.TenantID, request.FlowID)
+	if err != nil {
+		return err
+	}
+	resolved, err := domain.ResolveApprovalSteps(steps, request.RequestedBy)
+	if err != nil {
+		return err
+	}
+	request.CurrentStep = resolved.CurrentStep
+
+	_, err = tx.Exec(ctx, `
 		INSERT INTO erp.approval_requests (
 			id, tenant_id, org_id, document_type, document_id, document_code,
 			flow_id, status, current_step, requested_by, requested_at,
@@ -37,6 +69,12 @@ func (r *RequestRepository) Create(ctx context.Context, request *domain.Request)
 	)
 	if err != nil {
 		return fmt.Errorf("insert approval request: %w", mapRequestCreateError(err))
+	}
+	if err := insertSkipActions(ctx, tx, request.TenantID, request.ID, request.RequestedBy, resolved.Skipped); err != nil {
+		return err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit create approval request: %w", err)
 	}
 	return nil
 }
@@ -308,8 +346,10 @@ func (r *RequestRepository) act(
 	newStatus := domain.RequestPending
 	newStep := request.CurrentStep
 	var completedAt *time.Time
+	var skipped []domain.FlowStep
 	if action == domain.ActionApprove {
-		next, hasNext := nextApproverStep(steps, request.CurrentStep, request.RequestedBy)
+		next, skippedSteps, hasNext := nextStepAndSkipped(steps, request.CurrentStep, request.RequestedBy)
+		skipped = skippedSteps
 		if hasNext {
 			newStep = next.StepNo
 		} else {
@@ -322,6 +362,10 @@ func (r *RequestRepository) act(
 		newStatus = domain.RequestRejected
 		now := time.Now()
 		completedAt = &now
+	}
+
+	if err := insertSkipActions(ctx, tx, tenantID, request.ID, request.RequestedBy, skipped); err != nil {
+		return false, err
 	}
 
 	updated, err := updateRequestState(ctx, tx, tenantID, request.ID, request.CurrentStep, newStatus, newStep, completedAt)
@@ -406,6 +450,8 @@ func (r *RequestRepository) lockPendingRequest(
 	return request, steps, nil
 }
 
+const skippedStepComment = "applicant step skipped"
+
 func insertApprovalAction(
 	ctx context.Context,
 	tx pgx.Tx,
@@ -422,6 +468,31 @@ func insertApprovalAction(
 	)
 	if err != nil {
 		return fmt.Errorf("insert approval action: %w", mapActionInsertError(err))
+	}
+	return nil
+}
+
+// insertSkipActions records steps skipped because they were assigned to the
+// requester. ON CONFLICT DO NOTHING keeps repeated resolutions idempotent
+// against the approval_actions_skip_idx unique index.
+func insertSkipActions(
+	ctx context.Context,
+	tx pgx.Tx,
+	tenantID, requestID, requestedBy string,
+	steps []domain.FlowStep,
+) error {
+	for _, step := range steps {
+		_, err := tx.Exec(ctx, `
+			INSERT INTO erp.approval_actions (
+				id, tenant_id, request_id, step_no, action, actor_id, comment
+			) VALUES ($1,$2,$3,$4,$5,$6,$7)
+			ON CONFLICT DO NOTHING`,
+			uuid.NewString(), tenantID, requestID, step.StepNo,
+			string(domain.ActionSkip), requestedBy, skippedStepComment,
+		)
+		if err != nil {
+			return fmt.Errorf("insert approval skip action: %w", mapActionInsertError(err))
+		}
 	}
 	return nil
 }
@@ -477,17 +548,21 @@ func findFlowStep(steps []domain.FlowStep, stepNo int) (domain.FlowStep, bool) {
 	return domain.FlowStep{}, false
 }
 
-// nextApproverStep returns the lowest step after currentStep, skipping user
-// steps assigned to the requester (self approval is not allowed).
-func nextApproverStep(steps []domain.FlowStep, currentStep int, requestedBy string) (domain.FlowStep, bool) {
+// nextStepAndSkipped returns the lowest eligible step after currentStep and
+// every user step after currentStep assigned to the requester. Role steps are
+// retained even when the requester holds the role. When no eligible step
+// remains the request is complete.
+func nextStepAndSkipped(steps []domain.FlowStep, currentStep int, requestedBy string) (domain.FlowStep, []domain.FlowStep, bool) {
 	var selected domain.FlowStep
 	found := false
+	skipped := make([]domain.FlowStep, 0)
 
 	for _, step := range steps {
 		if step.StepNo <= currentStep {
 			continue
 		}
 		if step.ApproverType == domain.ApproverUser && step.ApproverID == requestedBy {
+			skipped = append(skipped, step)
 			continue
 		}
 		if !found || step.StepNo < selected.StepNo {
@@ -495,7 +570,8 @@ func nextApproverStep(steps []domain.FlowStep, currentStep int, requestedBy stri
 			found = true
 		}
 	}
-	return selected, found
+	sort.Slice(skipped, func(i, j int) bool { return skipped[i].StepNo < skipped[j].StepNo })
+	return selected, skipped, found
 }
 
 func loadApprovalActions(ctx context.Context, q querier, tenantID, requestID string) ([]domain.Action, error) {

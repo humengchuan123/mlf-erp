@@ -6,62 +6,89 @@ import (
 	"github.com/mlf-erp/mlf-erp/internal/modules/approval/domain"
 )
 
-func TestNextApproverStepSkipsRequesterUserStep(t *testing.T) {
+func TestNextStepAndSkippedSkipsRequesterUserSteps(t *testing.T) {
 	steps := []domain.FlowStep{
 		{StepNo: 1, ApproverType: domain.ApproverRole, ApproverID: "role-1"},
+		{StepNo: 4, ApproverType: domain.ApproverUser, ApproverID: "requester"},
 		{StepNo: 2, ApproverType: domain.ApproverUser, ApproverID: "requester"},
 		{StepNo: 3, ApproverType: domain.ApproverUser, ApproverID: "finance"},
 	}
 
-	next, ok := nextApproverStep(steps, 1, "requester")
+	next, skipped, ok := nextStepAndSkipped(steps, 1, "requester")
 	if !ok {
-		t.Fatal("nextApproverStep() = no step, want step 3")
+		t.Fatal("nextStepAndSkipped() = no step, want step 3")
 	}
 	if next.StepNo != 3 || next.ApproverID != "finance" {
-		t.Fatalf("nextApproverStep() = step %d approver %q, want step 3 finance", next.StepNo, next.ApproverID)
+		t.Fatalf("nextStepAndSkipped() = step %d approver %q, want step 3 finance", next.StepNo, next.ApproverID)
+	}
+	if len(skipped) != 2 || skipped[0].StepNo != 2 || skipped[1].StepNo != 4 {
+		t.Fatalf("nextStepAndSkipped() skipped = %+v, want steps 2 and 4 in order", skipped)
 	}
 }
 
-func TestNextApproverStepDoesNotSkipRequesterRoleStep(t *testing.T) {
+func TestNextStepAndSkippedDoesNotSkipRequesterRoleStep(t *testing.T) {
 	steps := []domain.FlowStep{
 		{StepNo: 1, ApproverType: domain.ApproverUser, ApproverID: "manager"},
 		{StepNo: 2, ApproverType: domain.ApproverRole, ApproverID: "requester-role"},
 	}
 
-	next, ok := nextApproverStep(steps, 1, "requester")
+	next, skipped, ok := nextStepAndSkipped(steps, 1, "requester")
 	if !ok {
-		t.Fatal("nextApproverStep() = no step, want role step 2")
+		t.Fatal("nextStepAndSkipped() = no step, want role step 2")
 	}
 	if next.StepNo != 2 {
-		t.Fatalf("nextApproverStep() step = %d, want 2", next.StepNo)
+		t.Fatalf("nextStepAndSkipped() step = %d, want 2", next.StepNo)
+	}
+	if len(skipped) != 0 {
+		t.Fatalf("nextStepAndSkipped() skipped = %+v, want none", skipped)
 	}
 }
 
-func TestNextApproverStepNoneAfterSkippingSelf(t *testing.T) {
+func TestNextStepAndSkippedNoneAfterSkippingSelf(t *testing.T) {
 	steps := []domain.FlowStep{
 		{StepNo: 1, ApproverType: domain.ApproverRole, ApproverID: "role-1"},
 		{StepNo: 2, ApproverType: domain.ApproverUser, ApproverID: "requester"},
 	}
 
-	next, ok := nextApproverStep(steps, 1, "requester")
+	next, skipped, ok := nextStepAndSkipped(steps, 1, "requester")
 	if ok {
-		t.Fatalf("nextApproverStep() = step %d, want none", next.StepNo)
+		t.Fatalf("nextStepAndSkipped() = step %d, want none", next.StepNo)
+	}
+	if len(skipped) != 1 || skipped[0].StepNo != 2 {
+		t.Fatalf("nextStepAndSkipped() skipped = %+v, want step 2", skipped)
 	}
 }
 
-func TestNextApproverStepChoosesLowestStep(t *testing.T) {
+func TestNextStepAndSkippedChoosesLowestStep(t *testing.T) {
 	steps := []domain.FlowStep{
 		{StepNo: 3, ApproverType: domain.ApproverUser, ApproverID: "finance"},
 		{StepNo: 1, ApproverType: domain.ApproverUser, ApproverID: "manager"},
 		{StepNo: 2, ApproverType: domain.ApproverUser, ApproverID: "director"},
 	}
 
-	next, ok := nextApproverStep(steps, 1, "requester")
+	next, skipped, ok := nextStepAndSkipped(steps, 1, "requester")
 	if !ok {
-		t.Fatal("nextApproverStep() = no step, want step 2")
+		t.Fatal("nextStepAndSkipped() = no step, want step 2")
 	}
 	if next.StepNo != 2 {
-		t.Fatalf("nextApproverStep() step = %d, want 2", next.StepNo)
+		t.Fatalf("nextStepAndSkipped() step = %d, want 2", next.StepNo)
+	}
+	if len(skipped) != 0 {
+		t.Fatalf("nextStepAndSkipped() skipped = %+v, want none", skipped)
+	}
+}
+
+func TestNextStepAndSkippedNoFutureSteps(t *testing.T) {
+	steps := []domain.FlowStep{
+		{StepNo: 1, ApproverType: domain.ApproverUser, ApproverID: "manager"},
+	}
+
+	next, skipped, ok := nextStepAndSkipped(steps, 1, "requester")
+	if ok {
+		t.Fatalf("nextStepAndSkipped() = step %d, want none", next.StepNo)
+	}
+	if len(skipped) != 0 {
+		t.Fatalf("nextStepAndSkipped() skipped = %+v, want none", skipped)
 	}
 }
 

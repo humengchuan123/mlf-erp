@@ -21,6 +21,7 @@ const (
 	ActionApprove ActionType = "approve"
 	ActionReject  ActionType = "reject"
 	ActionCancel  ActionType = "cancel"
+	ActionSkip    ActionType = "skip"
 )
 
 type Request struct {

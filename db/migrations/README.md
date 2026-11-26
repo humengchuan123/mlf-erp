@@ -27,6 +27,7 @@
 - `000025_payment_base_allocation_repair`：把收付款已核销本位币金额回填为有效核销明细 `base_amount` 之和，修正历史按总额一次性四舍五入造成的差异。Down 为 no-op，数据修复不可安全回滚。
 - `000026_idempotency_keys`：资金/库存 POST 操作的幂等键、请求哈希、响应回放和过期清理；Down 直接删除该表。
 - `000027_approval_workflow`：审批流程、步骤、请求、动作四表；新增 `system.approval.read/write/act` 权限并为 admin 授权。Down 在存在审批请求或动作数据时拒绝执行。
+- `000028_approval_skip_actions`：审批动作新增 `skip` 类型及跳过步骤唯一索引，用于记录申请人自审批步骤被自动跳过。Down 在存在跳过动作时拒绝执行。
 - 迁移由 `cmd/migrate` 执行，使用 `golang-migrate`，SQL 文件通过 `embed` 打进二进制。
 - 所有业务表遵循 `tenant_id` 非空、唯一键带租户、外键尽量带租户的原则。
 

@@ -3,7 +3,6 @@ package app
 import (
 	"context"
 	"errors"
-	"sort"
 	"strings"
 	"time"
 
@@ -35,17 +34,13 @@ func (s *RequestService) Start(ctx context.Context, input domain.StartInput) (bo
 		return false, nil
 	}
 
-	steps := make([]domain.FlowStep, 0, len(flow.Steps))
-	for _, step := range flow.Steps {
-		if step.ApproverType == domain.ApproverUser && step.ApproverID == input.RequestedBy {
-			continue
-		}
-		steps = append(steps, step)
+	// Fast-fail here for unit tests and early feedback. The repository
+	// recomputes the resolution while holding the flow lock so current_step
+	// cannot go stale if the flow changes before insert.
+	resolved, err := domain.ResolveApprovalSteps(flow.Steps, input.RequestedBy)
+	if err != nil {
+		return false, err
 	}
-	if len(steps) == 0 {
-		return false, domain.ErrNoApprover
-	}
-	sort.Slice(steps, func(i, j int) bool { return steps[i].StepNo < steps[j].StepNo })
 
 	now := time.Now()
 	request := &domain.Request{
@@ -57,7 +52,7 @@ func (s *RequestService) Start(ctx context.Context, input domain.StartInput) (bo
 		DocumentCode: input.DocumentCode,
 		FlowID:       flow.ID,
 		Status:       domain.RequestPending,
-		CurrentStep:  steps[0].StepNo,
+		CurrentStep:  resolved.CurrentStep,
 		RequestedBy:  input.RequestedBy,
 		RequestedAt:  now,
 		Amount:       input.Amount,
@@ -65,7 +60,7 @@ func (s *RequestService) Start(ctx context.Context, input domain.StartInput) (bo
 		Currency:     input.Currency,
 		CreatedAt:    now,
 		UpdatedAt:    now,
-		Steps:        steps,
+		Steps:        flow.Steps,
 	}
 	if err := s.requests.Create(ctx, request); err != nil {
 		return false, err
