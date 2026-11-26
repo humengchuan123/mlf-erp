@@ -140,6 +140,16 @@ draft → submitted → approved → partially_shipped → shipped
 }
 ```
 
+## 审批流（Stage 4B）
+
+- 提交时按单据类型、组织、金额阈值匹配审批流；无匹配流程保持原有 `draft -> submitted -> approved` 直审行为。
+- 有匹配流程：订单保持 `submitted`，创建 pending 审批请求；`approve` 按顺序步骤推进，最后一步通过后订单 `approved`；`reject` 后订单回 `draft`；取消订单会取消 pending 请求。
+- 审批人支持角色/指定用户；禁止自批；超级管理员可越过角色限制但不能自批。
+- 审批最终通过/拒绝后的订单转换使用审批授权范围，审批人不需要拥有订单的数据范围。
+- 权限：订单审批 `sales.order.approve`；流程配置/待办 `system.approval.read/write`。
+- 订单详情显示审批历史；待办页统一批准/拒绝。
+- 首期只覆盖订单；退款/反核销/发货/收货/退货/期间重开审批在 4B-2。
+
 ## 后续
 
 - 报价、价格协议、折扣、客户信用。
