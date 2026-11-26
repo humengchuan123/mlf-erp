@@ -152,7 +152,11 @@ assertFile('apps/web/src/views/sales/OrderListView.vue', [
   'newIdempotencyKey',
   '发货',
   'approvalApi.requests',
-  '审批历史'
+  '审批历史',
+  'canReadApproval',
+  'system.approval.read',
+  'v-if="canReadApproval"',
+  'if (canReadApproval.value)'
 ])
 
 assertFile('apps/web/src/views/purchase/OrderListView.vue', [
@@ -169,7 +173,11 @@ assertFile('apps/web/src/views/purchase/OrderListView.vue', [
   'receiveIdempotencyKey',
   'newIdempotencyKey',
   'approvalApi.requests',
-  '审批历史'
+  '审批历史',
+  'canReadApproval',
+  'system.approval.read',
+  'v-if="canReadApproval"',
+  'if (canReadApproval.value)'
 ])
 
 assertFile('apps/web/src/views/purchase/PurchaseReceiptListView.vue', [
@@ -314,7 +322,9 @@ assertFile('packages/sdk/src/approval.ts', [
   '/approvals/requests',
   'pending(',
   'requests(',
-  'request('
+  'request(',
+  'completed_at?: string | null',
+  'tenant-level'
 ])
 
 assertFile('packages/sdk/src/client.ts', [
@@ -478,6 +488,11 @@ assertFile('api/openapi.yaml', [
   'ApprovalFlowActiveInput:',
   'ApprovalRequest:',
   'ApprovalFlowInput:',
+  'completed_at:',
+  "type: [string, 'null']",
+  'approval_pending:',
+  'current_step:',
+  '空字符串表示租户级',
   '/purchase/receipts/{id}/returns:',
   '/purchase/returns:',
   '/purchase/returns/{id}:',

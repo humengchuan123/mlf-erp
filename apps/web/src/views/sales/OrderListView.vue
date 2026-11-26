@@ -208,8 +208,8 @@
           <el-table-column prop="remaining_qty" label="未发" width="90" align="right" />
         </el-table>
 
-        <el-divider content-position="left">审批历史</el-divider>
-        <div v-loading="approvalHistoryLoading" class="approval-history">
+        <el-divider v-if="canReadApproval" content-position="left">审批历史</el-divider>
+        <div v-if="canReadApproval" v-loading="approvalHistoryLoading" class="approval-history">
           <div v-if="approvalHistoryError" class="approval-history__hint">
             {{ approvalHistoryError }}
           </div>
@@ -371,6 +371,7 @@ interface ShipFormLine {
 const authStore = useAuthStore()
 const canWrite = computed(() => authStore.hasPermission('sales.order.write'))
 const canApprove = computed(() => authStore.hasPermission('sales.order.approve'))
+const canReadApproval = computed(() => authStore.hasPermission('system.approval.read'))
 
 const orders = ref<SalesOrder[]>([])
 const partners = ref<Partner[]>([])
@@ -668,13 +669,24 @@ async function openDetail(order: SalesOrder) {
   try {
     detailOrder.value = await salesApi.get(order.id)
     detailVisible.value = true
-    await loadApprovalHistory(order.id)
+    if (canReadApproval.value) {
+      await loadApprovalHistory(order.id)
+    } else {
+      approvalRequests.value = []
+      approvalHistoryError.value = ''
+    }
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : '加载销售订单详情失败')
   }
 }
 
 async function loadApprovalHistory(orderID: string) {
+  if (!canReadApproval.value) {
+    approvalRequests.value = []
+    approvalHistoryError.value = ''
+    approvalHistoryLoading.value = false
+    return
+  }
   approvalHistoryLoading.value = true
   approvalHistoryError.value = ''
   try {

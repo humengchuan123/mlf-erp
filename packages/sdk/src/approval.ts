@@ -19,6 +19,7 @@ export interface ApprovalFlowStep {
 export interface ApprovalFlow {
   id: string
   tenant_id: string
+  /** Empty string means a tenant-level flow; otherwise the organization scope. */
   org_id: string
   name: string
   document_type: ApprovalDocumentType
@@ -71,7 +72,7 @@ export interface ApprovalRequest {
   current_step: number
   requested_by: string
   requested_at: string
-  completed_at?: string
+  completed_at?: string | null
   amount: string
   currency: string
   base_amount: string

@@ -2713,6 +2713,15 @@ components:
                   type: string
                 action:
                   type: string
+                approval_pending:
+                  type: boolean
+                  description: Present on submit/approve responses; true while a later approval step is still pending.
+                status:
+                  type: string
+                  description: Optional resulting order status.
+                current_step:
+                  type: integer
+                  description: Optional current approval step after the action.
     PurchaseOrderLine:
       type: object
       properties:
@@ -4679,8 +4688,7 @@ components:
           format: uuid
         org_id:
           type: string
-          format: uuid
-          description: Empty for tenant-level flows; otherwise scoped to the organization.
+          description: 空字符串表示租户级；否则为该组织范围内的流程。
         name:
           type: string
         document_type:
@@ -4814,7 +4822,7 @@ components:
           type: string
           format: date-time
         completed_at:
-          type: string
+          type: [string, 'null']
           format: date-time
           description: Null while the request is pending.
         amount:
