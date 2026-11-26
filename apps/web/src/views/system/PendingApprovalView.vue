@@ -216,6 +216,7 @@ function actionLabel(value: string) {
   if (value === 'approve') return '批准'
   if (value === 'reject') return '拒绝'
   if (value === 'cancel') return '取消'
+  if (value === 'skip') return '已跳过'
   return value || '-'
 }
 
@@ -231,6 +232,7 @@ function stepState(request: ApprovalRequest, stepNo: number) {
   if (action) {
     if (action.action === 'approve') return '已通过'
     if (action.action === 'reject') return '已拒绝'
+    if (action.action === 'skip') return '已跳过'
     return '已取消'
   }
   if (request.status === 'pending') {

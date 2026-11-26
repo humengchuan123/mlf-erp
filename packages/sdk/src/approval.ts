@@ -5,7 +5,7 @@ export type ApprovalDocumentType = 'sales_order' | 'purchase_order'
 export type ApprovalConditionType = 'always' | 'amount_gte'
 export type ApprovalApproverType = 'role' | 'user'
 export type ApprovalRequestStatus = 'pending' | 'approved' | 'rejected' | 'cancelled'
-export type ApprovalActionType = 'approve' | 'reject' | 'cancel'
+export type ApprovalActionType = 'approve' | 'reject' | 'cancel' | 'skip'
 
 export interface ApprovalFlowStep {
   id: string

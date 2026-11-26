@@ -123,7 +123,9 @@ assertFile('apps/web/src/views/system/PendingApprovalView.vue', [
   'purchaseApi.approve',
   'salesApi.reject',
   'purchaseApi.reject',
-  '审批动作'
+  '审批动作',
+  "action === 'skip'",
+  '已跳过'
 ])
 
 assertFile('apps/web/src/views/finance/ExchangeRateListView.vue', [
@@ -156,7 +158,9 @@ assertFile('apps/web/src/views/sales/OrderListView.vue', [
   'canReadApproval',
   'system.approval.read',
   'v-if="canReadApproval"',
-  'if (canReadApproval.value)'
+  'if (canReadApproval.value)',
+  "action === 'skip'",
+  '已跳过'
 ])
 
 assertFile('apps/web/src/views/purchase/OrderListView.vue', [
@@ -177,7 +181,9 @@ assertFile('apps/web/src/views/purchase/OrderListView.vue', [
   'canReadApproval',
   'system.approval.read',
   'v-if="canReadApproval"',
-  'if (canReadApproval.value)'
+  'if (canReadApproval.value)',
+  "action === 'skip'",
+  '已跳过'
 ])
 
 assertFile('apps/web/src/views/purchase/PurchaseReceiptListView.vue', [
@@ -324,7 +330,8 @@ assertFile('packages/sdk/src/approval.ts', [
   'requests(',
   'request(',
   'completed_at?: string | null',
-  'tenant-level'
+  'tenant-level',
+  "'skip'"
 ])
 
 assertFile('packages/sdk/src/client.ts', [
@@ -524,7 +531,8 @@ assertFile('api/openapi.yaml', [
   'fx_reversal_voucher_codes',
   'IdempotencyKey',
   'IDEMPOTENCY_CONFLICT',
-  'IDEMPOTENCY_IN_PROGRESS'
+  'IDEMPOTENCY_IN_PROGRESS',
+  'enum: [approve, reject, cancel, skip]'
 ])
 
 assertFile('packages/sdk/src/gl.ts', [

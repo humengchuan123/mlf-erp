@@ -4778,7 +4778,8 @@ components:
           type: integer
         action:
           type: string
-          enum: [approve, reject, cancel]
+          enum: [approve, reject, cancel, skip]
+          description: A `skip` action marks a requester-assigned step skipped automatically because self-approval is not allowed.
         actor_id:
           type: string
           format: uuid
