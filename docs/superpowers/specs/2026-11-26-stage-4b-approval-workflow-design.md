@@ -66,6 +66,8 @@
 
 索引：`(tenant_id, document_type, active, priority DESC)`、`(tenant_id, org_id)`。
 
+有审批请求（含历史）时禁止编辑/删除流程字段/步骤；`active` 可通过独立停用接口切换，用于“停用旧流程后新建”。
+
 ### 4.2 `erp.approval_flow_steps`
 
 | 字段 | 类型 | 说明 |
@@ -221,6 +223,7 @@ pending --cancel--> cancelled
 | GET | `/api/v1/system/approval-flows/:id` | `system.approval.read` | 详情 |
 | PUT | `/api/v1/system/approval-flows/:id` | `system.approval.write` | 更新；有审批请求（含历史）时 409 `FLOW_IN_USE`，建议停用后新建 |
 | DELETE | `/api/v1/system/approval-flows/:id` | `system.approval.write` | 删除；有审批请求（含历史）时 409 `FLOW_IN_USE` |
+| POST | `/api/v1/system/approval-flows/:id/active` | `system.approval.write` | 启用/停用；有历史请求也允许（只改 active） |
 
 创建/更新请求：
 
@@ -285,7 +288,7 @@ pending --cancel--> cancelled
 
 ## 12. 前端
 
-- 平台 > 审批流程：列表、条件、阈值、优先级、启停；创建/编辑弹窗含步骤编辑器（角色/用户选择）。
+- 平台 > 审批流程：列表、条件、阈值、优先级、启停；创建/编辑弹窗含步骤编辑器（角色/用户选择）。列表行内开关调用停用接口；有历史请求的流程不能编辑字段/步骤，但可以停用。
 - 平台 > 待我审批：待办列表；详情弹窗显示步骤/历史；批准/拒绝（意见必填拒绝）。
 - 销售/采购订单详情抽屉：增加“审批历史”区，展示请求状态、当前步骤、步骤和动作历史。
 - 订单列表的“审批”按钮保持；无权限或非当前审批人时后端返回 403，前端展示错误。
@@ -311,7 +314,7 @@ pending --cancel--> cancelled
 - 并发审批：同一请求两个并发 -> 一个 200，一个 409。
 - 取消：提交后取消订单 -> 请求 cancelled。
 - 权限：无 `system.approval.write` 不能配置；无 `.approve` 不能审批；无 `system.approval.read` 不能看待办。
-- 流程编辑/删除有审批请求（含历史）-> 409 `FLOW_IN_USE`。
+- 流程编辑/删除有审批请求（含历史）-> 409 `FLOW_IN_USE`；`POST /active` 可停用。
 - 全部步骤为申请人 -> 提交返回 `APPROVAL_NO_APPROVER`，订单回 draft。
 - 数据范围：dept/self 用户待办只看到自己组织/相关请求（首期至少 tenant 隔离；org scope 视实现）。
 
@@ -324,7 +327,7 @@ pending --cancel--> cancelled
 - 首期只覆盖销售/采购订单；退款/反核销/发货/收货/退货/期间重开在 4B-2。
 - 跨模块提交/审批/拒绝不是单事务；有补偿和错误日志，极端情况下需人工核对。
 - 不支持并行/会签/委托/升级/通知/复杂条件。
-- 流程编辑/删除在有审批请求（含历史）时禁止；需要调整时停用后新建。无版本历史。
+- 流程编辑/删除在有审批请求（含历史）时禁止；可通过 `POST /active` 停用后新建。无版本历史。
 - 角色步骤的“角色下无其他可用用户”无法在配置时完全校验，可能导致请求无人可批；需管理员调整角色或流程。
 - 无审批 SLA/超时提醒。
 - 超级管理员可越过步骤角色限制（不能自批）；这是运维兜底，不是日常审批路径。

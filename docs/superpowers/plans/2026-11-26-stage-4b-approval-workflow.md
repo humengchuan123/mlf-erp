@@ -368,6 +368,7 @@ type FlowRepository interface {
     Create(ctx context.Context, flow *Flow) error
     Update(ctx context.Context, flow *Flow) error
     Delete(ctx context.Context, tenantID, id string) error
+    SetActive(ctx context.Context, tenantID, id string, active bool, updatedBy string) error
     FindMatching(ctx context.Context, tenantID, orgID string, docType DocumentType, baseAmount decimal.Decimal) (*Flow, error)
     HasRequests(ctx context.Context, tenantID, flowID string) (bool, error)
 }
@@ -475,6 +476,7 @@ system.POST("/approval-flows", authmw.RequirePermission("system.approval.write")
 system.GET("/approval-flows/:id", authmw.RequirePermission("system.approval.read"), h.getFlow)
 system.PUT("/approval-flows/:id", authmw.RequirePermission("system.approval.write"), h.updateFlow)
 system.DELETE("/approval-flows/:id", authmw.RequirePermission("system.approval.write"), h.deleteFlow)
+system.POST("/approval-flows/:id/active", authmw.RequirePermission("system.approval.write"), h.setFlowActive)
 
 approvals := group.Group("/approvals")
 approvals.GET("/pending", authmw.RequirePermission("system.approval.read"), h.listPending)
@@ -574,14 +576,14 @@ git commit -m "feat(stage-4b): integrate approvals into orders"
 
 - [ ] **Step 1: SDK**
 
-`approvalApi`：flows list/get/create/update/remove；pending；requests list/get。
+`approvalApi`：flows list/get/create/update/remove/setFlowActive；pending；requests list/get。
 类型：`ApprovalFlow`、`ApprovalFlowStep`、`ApprovalRequest`、`ApprovalAction`、`CreateApprovalFlowInput`。
 Sales/purchase：`approve(id, input?: {comment?: string})`、`reject(id, input: {comment: string})`。
 `api.post` 已支持 body；不需要改 client。
 
 - [ ] **Step 2: OpenAPI**
 
-- `/system/approval-flows` CRUD、`/approvals/pending`、`/approvals/requests`、`/approvals/requests/{id}`。
+- `/system/approval-flows` CRUD、`/system/approval-flows/{id}/active`、`/approvals/pending`、`/approvals/requests`、`/approvals/requests/{id}`。
 - Sales/purchase approve 增加可选请求体、reject 新增路径。
 - 错误码 400/403/404/409。
 - 版本升至 `1.3.0`。
@@ -616,9 +618,9 @@ git commit -m "feat(stage-4b): add approval SDK and OpenAPI"
 
 - [ ] **Step 2: 审批流程页**
 
-- 列表：名称、单据类型、组织、条件、阈值、优先级、启停。
+- 列表：名称、单据类型、组织、条件、阈值、优先级、启停；行内启停开关调用 `setFlowActive`（有历史请求也可停用）。
 - 新建/编辑弹窗：名称、单据类型、组织（可空=租户级）、条件、阈值、优先级、启停、步骤编辑器（step_no、名称、角色/用户、角色/用户选择）。
-- 删除确认；`FLOW_IN_USE` 错误提示。
+- 删除确认；`FLOW_IN_USE` 错误提示；有历史时引导用行内开关停用后新建。
 
 - [ ] **Step 3: 待办页**
 
@@ -676,7 +678,7 @@ git commit -m "feat(stage-4b): add approval UI"
 10. 并发审批：同一请求两个并发 -> 一个 200，一个 409。
 11. 取消：提交后取消 -> 请求 cancelled。
 12. 权限：无 `system.approval.write` 不能配置；无 `.approve` 不能审批；无 `system.approval.read` 不能看待办。
-13. 有审批请求（含历史）时编辑/删除流程 -> 409 `FLOW_IN_USE`；停用后新建可用。
+13. 有审批请求（含历史）时编辑/删除流程 -> 409 `FLOW_IN_USE`；`POST /active` 停用成功；停用后新建可用。
 14. 全部步骤为申请人 -> 提交 409 `APPROVAL_NO_APPROVER`，订单回 draft。
 15. 数据范围/租户隔离（至少 tenant + org scope）。
 
