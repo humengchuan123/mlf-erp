@@ -11,6 +11,9 @@ import (
 	"time"
 
 	"github.com/joho/godotenv"
+	approvalapp "github.com/mlf-erp/mlf-erp/internal/modules/approval/app"
+	approvalhttp "github.com/mlf-erp/mlf-erp/internal/modules/approval/http"
+	approvalpostgres "github.com/mlf-erp/mlf-erp/internal/modules/approval/infra/postgres"
 	financeapp "github.com/mlf-erp/mlf-erp/internal/modules/finance/app"
 	financehttp "github.com/mlf-erp/mlf-erp/internal/modules/finance/http"
 	financepostgres "github.com/mlf-erp/mlf-erp/internal/modules/finance/infra/postgres"
@@ -160,6 +163,13 @@ func main() {
 	currencyHandler.Register(protected)
 	taxRateHandler.Register(protected)
 
+	approvalFlowRepository := approvalpostgres.NewFlowRepository(db)
+	approvalRequestRepository := approvalpostgres.NewRequestRepository(db)
+	approvalValidator := approvalpostgres.NewValidator(db)
+	approvalFlowService := approvalapp.NewFlowService(approvalFlowRepository, approvalValidator)
+	approvalRequestService := approvalapp.NewRequestService(approvalFlowRepository, approvalRequestRepository)
+	approvalhttp.Register(protected, approvalFlowService, approvalRequestService, auditService, log)
+
 	exchangeRateRepository := financepostgres.NewExchangeRateRepository(db)
 	purchaseRepository := purchasepostgres.NewRepository(db)
 	orderService := app.NewOrderService(
@@ -174,7 +184,7 @@ func main() {
 	receiptService := app.NewReceiptService(purchaseRepository, codeRuleService, exchangeRateRepository)
 	purchaseReturnRepository := purchasepostgres.NewReturnRepository(db)
 	purchaseReturnService := app.NewReturnService(purchaseReturnRepository, codeRuleService)
-	purchasehttp.Register(protected, orderService, receiptService, purchaseReturnService, auditService, log)
+	purchasehttp.Register(protected, orderService, receiptService, purchaseReturnService, approvalRequestService, auditService, log)
 
 	inventoryRepository := inventorypostgres.NewQueryRepository(db)
 	inventoryService := inventoryapp.NewQueryService(inventoryRepository)
@@ -194,7 +204,7 @@ func main() {
 	salesShipmentService := salesapp.NewShipmentService(salesRepository, codeRuleService, exchangeRateRepository)
 	returnRepository := salespostgres.NewReturnRepository(db)
 	returnService := salesapp.NewReturnService(returnRepository, codeRuleService)
-	saleshttp.Register(protected, salesOrderService, salesShipmentService, returnService, auditService, log)
+	saleshttp.Register(protected, salesOrderService, salesShipmentService, returnService, approvalRequestService, auditService, log)
 
 	invoiceRepository := financepostgres.NewInvoiceRepository(db)
 	creditNoteRepository := financepostgres.NewCreditNoteRepository(db)

@@ -1,8 +1,8 @@
 package purchasehttp
 
 import (
-	"context"
 	"errors"
+	"io"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -11,10 +11,13 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	approvalapp "github.com/mlf-erp/mlf-erp/internal/modules/approval/app"
+	approvaldomain "github.com/mlf-erp/mlf-erp/internal/modules/approval/domain"
 	gldomain "github.com/mlf-erp/mlf-erp/internal/modules/gl/domain"
 	"github.com/mlf-erp/mlf-erp/internal/modules/purchase/app"
 	"github.com/mlf-erp/mlf-erp/internal/modules/purchase/domain"
 	systemapp "github.com/mlf-erp/mlf-erp/internal/modules/system/app"
+	"github.com/mlf-erp/mlf-erp/internal/platform/auth"
 	"github.com/mlf-erp/mlf-erp/internal/platform/authmw"
 	"github.com/mlf-erp/mlf-erp/internal/platform/fx"
 	"github.com/mlf-erp/mlf-erp/internal/platform/httpmw"
@@ -23,11 +26,12 @@ import (
 )
 
 type Handler struct {
-	orders   *app.OrderService
-	receipts *app.ReceiptService
-	returns  *app.ReturnService
-	audit    *systemapp.AuditService
-	log      *slog.Logger
+	orders    *app.OrderService
+	receipts  *app.ReceiptService
+	returns   *app.ReturnService
+	approvals *approvalapp.RequestService
+	audit     *systemapp.AuditService
+	log       *slog.Logger
 }
 
 func Register(
@@ -35,10 +39,11 @@ func Register(
 	orders *app.OrderService,
 	receipts *app.ReceiptService,
 	returns *app.ReturnService,
+	approvals *approvalapp.RequestService,
 	audit *systemapp.AuditService,
 	log *slog.Logger,
 ) {
-	handler := &Handler{orders: orders, receipts: receipts, returns: returns, audit: audit, log: log}
+	handler := &Handler{orders: orders, receipts: receipts, returns: returns, approvals: approvals, audit: audit, log: log}
 	purchase := group.Group("/purchase")
 	purchase.GET("/orders", authmw.RequirePermission("purchase.order.read"), handler.listOrders)
 	purchase.POST("/orders", authmw.RequirePermission("purchase.order.write"), handler.createOrder)
@@ -46,6 +51,7 @@ func Register(
 	purchase.PUT("/orders/:id", authmw.RequirePermission("purchase.order.write"), handler.updateOrder)
 	purchase.POST("/orders/:id/submit", authmw.RequirePermission("purchase.order.write"), handler.submitOrder)
 	purchase.POST("/orders/:id/approve", authmw.RequirePermission("purchase.order.approve"), handler.approveOrder)
+	purchase.POST("/orders/:id/reject", authmw.RequirePermission("purchase.order.approve"), handler.rejectOrder)
 	purchase.POST("/orders/:id/cancel", authmw.RequirePermission("purchase.order.write"), handler.cancelOrder)
 	purchase.POST("/orders/:id/receive", authmw.RequirePermission("purchase.order.write"), handler.receiveOrder)
 	purchase.GET("/receipts", authmw.RequirePermission("purchase.receipt.read"), handler.listReceipts)
@@ -306,24 +312,118 @@ func (h *Handler) updateOrder(c *gin.Context) {
 }
 
 func (h *Handler) submitOrder(c *gin.Context) {
-	h.transition(c, "purchase.order.submit", h.orders.Submit)
-}
-
-func (h *Handler) approveOrder(c *gin.Context) {
-	h.transition(c, "purchase.order.approve", h.orders.Approve)
-}
-
-func (h *Handler) cancelOrder(c *gin.Context) {
-	h.transition(c, "purchase.order.cancel", h.orders.Cancel)
-}
-
-func (h *Handler) transition(c *gin.Context, action string, fn func(ctx context.Context, id string) error) {
-	if err := fn(c.Request.Context(), c.Param("id")); err != nil {
+	ctx := c.Request.Context()
+	id := c.Param("id")
+	if err := h.orders.Submit(ctx, id); err != nil {
 		h.handleError(c, err)
 		return
 	}
-	h.recordAudit(c, action, "purchase_order", c.Param("id"), nil)
-	httpx.OK(c, gin.H{"id": c.Param("id"), "action": action})
+	order, err := h.orders.Get(ctx, id)
+	if err != nil {
+		_ = h.orders.Reopen(ctx, id)
+		h.handleError(c, err)
+		return
+	}
+	actor, _ := auth.ActorFrom(ctx)
+	started, err := h.approvals.Start(ctx, approvaldomain.StartInput{
+		TenantID:     actor.TenantID,
+		OrgID:        order.OrgID,
+		DocumentType: approvaldomain.DocumentPurchaseOrder,
+		DocumentID:   order.ID,
+		DocumentCode: order.Code,
+		RequestedBy:  actor.UserID,
+		Amount:       order.TotalAmount,
+		BaseAmount:   order.BaseTotalAmount,
+		Currency:     order.Currency,
+	})
+	if err != nil {
+		_ = h.orders.Reopen(ctx, id)
+		h.handleError(c, err)
+		return
+	}
+	h.recordAudit(c, "purchase.order.submit", "purchase_order", id, nil)
+	httpx.OK(c, gin.H{"id": id, "action": "purchase.order.submit", "approval_pending": started})
+}
+
+func (h *Handler) approveOrder(c *gin.Context) {
+	ctx := c.Request.Context()
+	id := c.Param("id")
+	comment, ok := parseApprovalComment(c)
+	if !ok {
+		httpx.Error(c, http.StatusBadRequest, httpx.CodeBadRequest, "invalid approval payload")
+		return
+	}
+	actor, _ := auth.ActorFrom(ctx)
+	pending, err := h.approvals.Pending(ctx, approvaldomain.DocumentPurchaseOrder, id)
+	if err != nil {
+		h.handleError(c, err)
+		return
+	}
+	if pending {
+		final, approveErr := h.approvals.Approve(ctx, approvaldomain.DocumentPurchaseOrder, id, approvaldomain.Actor{
+			UserID:       actor.UserID,
+			IsSuperAdmin: actor.IsSuperAdmin,
+		}, comment)
+		if approveErr != nil {
+			h.handleError(c, approveErr)
+			return
+		}
+		if !final {
+			h.recordAudit(c, "purchase.order.approve", "purchase_order", id, nil)
+			httpx.OK(c, gin.H{"id": id, "action": "purchase.order.approve", "approval_pending": true})
+			return
+		}
+	}
+	if err := h.orders.Approve(ctx, id); err != nil {
+		h.handleError(c, err)
+		return
+	}
+	h.recordAudit(c, "purchase.order.approve", "purchase_order", id, nil)
+	httpx.OK(c, gin.H{"id": id, "action": "purchase.order.approve", "approval_pending": false})
+}
+
+func (h *Handler) rejectOrder(c *gin.Context) {
+	ctx := c.Request.Context()
+	id := c.Param("id")
+	comment, ok := parseApprovalComment(c)
+	if !ok {
+		httpx.Error(c, http.StatusBadRequest, httpx.CodeBadRequest, "invalid rejection payload")
+		return
+	}
+	if comment == "" {
+		httpx.Error(c, http.StatusBadRequest, "REASON_REQUIRED", "rejection reason is required")
+		return
+	}
+	actor, _ := auth.ActorFrom(ctx)
+	if err := h.approvals.Reject(ctx, approvaldomain.DocumentPurchaseOrder, id, approvaldomain.Actor{
+		UserID:       actor.UserID,
+		IsSuperAdmin: actor.IsSuperAdmin,
+	}, comment); err != nil {
+		h.handleError(c, err)
+		return
+	}
+	if err := h.orders.Reopen(ctx, id); err != nil {
+		h.handleError(c, err)
+		return
+	}
+	h.recordAudit(c, "purchase.order.reject", "purchase_order", id, nil)
+	httpx.OK(c, gin.H{"id": id, "action": "purchase.order.reject"})
+}
+
+func (h *Handler) cancelOrder(c *gin.Context) {
+	ctx := c.Request.Context()
+	id := c.Param("id")
+	actor, _ := auth.ActorFrom(ctx)
+	if err := h.approvals.Cancel(ctx, approvaldomain.DocumentPurchaseOrder, id, actor.UserID, "order cancelled"); err != nil {
+		h.handleError(c, err)
+		return
+	}
+	if err := h.orders.Cancel(ctx, id); err != nil {
+		h.handleError(c, err)
+		return
+	}
+	h.recordAudit(c, "purchase.order.cancel", "purchase_order", id, nil)
+	httpx.OK(c, gin.H{"id": id, "action": "purchase.order.cancel"})
 }
 
 func (h *Handler) receiveOrder(c *gin.Context) {
@@ -424,6 +524,22 @@ func (h *Handler) getReturn(c *gin.Context) {
 		return
 	}
 	httpx.OK(c, toPurchaseReturnResponse(item))
+}
+
+func parseApprovalComment(c *gin.Context) (string, bool) {
+	if c.Request.Body == nil || c.Request.ContentLength == 0 {
+		return "", true
+	}
+	var request struct {
+		Comment string `json:"comment"`
+	}
+	if err := c.ShouldBindJSON(&request); err != nil {
+		if errors.Is(err, io.EOF) {
+			return "", true
+		}
+		return "", false
+	}
+	return strings.TrimSpace(request.Comment), true
 }
 
 func parseOrderInput(c *gin.Context) (app.OrderInput, error) {
@@ -581,6 +697,26 @@ func (h *Handler) handleError(c *gin.Context, err error) {
 		httpx.Error(c, http.StatusBadRequest, "EXCHANGE_RATE_NOT_FOUND", "exchange rate not found")
 	case errors.Is(err, fx.ErrInvalidRate):
 		httpx.Error(c, http.StatusBadRequest, "INVALID_EXCHANGE_RATE", "invalid exchange rate")
+	case errors.Is(err, approvaldomain.ErrNotFound):
+		httpx.Error(c, http.StatusNotFound, httpx.CodeNotFound, "resource not found")
+	case errors.Is(err, approvaldomain.ErrInvalidFlow):
+		httpx.Error(c, http.StatusBadRequest, "INVALID_APPROVAL_FLOW", "invalid approval flow")
+	case errors.Is(err, approvaldomain.ErrFlowInUse):
+		httpx.Error(c, http.StatusConflict, "FLOW_IN_USE", "approval flow has approval requests")
+	case errors.Is(err, approvaldomain.ErrPendingExists):
+		httpx.Error(c, http.StatusConflict, "PENDING_APPROVAL_EXISTS", "pending approval already exists")
+	case errors.Is(err, approvaldomain.ErrNoPending):
+		httpx.Error(c, http.StatusConflict, "NO_PENDING_APPROVAL", "no pending approval")
+	case errors.Is(err, approvaldomain.ErrNotApprover):
+		httpx.Error(c, http.StatusForbidden, "NOT_APPROVER", "not the current approver")
+	case errors.Is(err, approvaldomain.ErrSelfApproval):
+		httpx.Error(c, http.StatusForbidden, "SELF_APPROVAL", "cannot approve own request")
+	case errors.Is(err, approvaldomain.ErrAlreadyActed):
+		httpx.Error(c, http.StatusConflict, "ALREADY_ACTED", "approval step already acted")
+	case errors.Is(err, approvaldomain.ErrNoApprover):
+		httpx.Error(c, http.StatusConflict, "APPROVAL_NO_APPROVER", "no eligible approver")
+	case errors.Is(err, approvaldomain.ErrInvalidStatus):
+		httpx.Error(c, http.StatusConflict, "INVALID_STATUS", "invalid approval status")
 	default:
 		h.log.Error("purchase request failed",
 			"error", err,

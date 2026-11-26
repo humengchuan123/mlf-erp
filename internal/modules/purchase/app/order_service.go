@@ -189,6 +189,10 @@ func (s *OrderService) Approve(ctx context.Context, id string) error {
 	return s.transition(ctx, id, domain.StatusSubmitted, domain.StatusApproved)
 }
 
+func (s *OrderService) Reopen(ctx context.Context, id string) error {
+	return s.transition(ctx, id, domain.StatusSubmitted, domain.StatusDraft)
+}
+
 func (s *OrderService) Cancel(ctx context.Context, id string) error {
 	tenantID, _, userID := tenantActor(ctx)
 	order, err := s.orders.Get(ctx, scope.FromActor(ctx, tenantID), tenantID, id)
