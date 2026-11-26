@@ -25,7 +25,7 @@
 - 并行审批、会签、或签、委托、转办、升级、超时提醒。
 - 复杂条件表达式（只支持 always / 金额 >= 阈值）。
 - 邮件/短信/站内通知。
-- 审批流版本历史（首期通过“有 pending 请求的流程禁止编辑/删除”保证稳定）。
+- 审批流版本历史（首期通过“有审批请求（含历史）的流程禁止编辑/删除”保证稳定；需要调整时停用后新建）。
 - 手工凭证审批。
 
 ## 3. 角色与权限
@@ -219,8 +219,8 @@ pending --cancel--> cancelled
 | GET | `/api/v1/system/approval-flows` | `system.approval.read` | 列表；支持 `document_type`、`active` |
 | POST | `/api/v1/system/approval-flows` | `system.approval.write` | 创建 |
 | GET | `/api/v1/system/approval-flows/:id` | `system.approval.read` | 详情 |
-| PUT | `/api/v1/system/approval-flows/:id` | `system.approval.write` | 更新；有 pending 请求时 409 `FLOW_IN_USE` |
-| DELETE | `/api/v1/system/approval-flows/:id` | `system.approval.write` | 删除；有 pending 请求时 409 `FLOW_IN_USE` |
+| PUT | `/api/v1/system/approval-flows/:id` | `system.approval.write` | 更新；有审批请求（含历史）时 409 `FLOW_IN_USE`，建议停用后新建 |
+| DELETE | `/api/v1/system/approval-flows/:id` | `system.approval.write` | 删除；有审批请求（含历史）时 409 `FLOW_IN_USE` |
 
 创建/更新请求：
 
@@ -268,7 +268,7 @@ pending --cancel--> cancelled
 | 403 | `NOT_APPROVER` | 当前用户不是当前步骤审批人 |
 | 403 | `SELF_APPROVAL` | 申请人试图审批自己的请求 |
 | 404 | `NOT_FOUND` | 流程/请求不存在 |
-| 409 | `FLOW_IN_USE` | 流程有 pending 请求，禁止编辑/删除 |
+| 409 | `FLOW_IN_USE` | 流程有审批请求（含历史），禁止编辑/删除 |
 | 409 | `PENDING_APPROVAL_EXISTS` | 同一单据已有 pending 请求 |
 | 409 | `NO_PENDING_APPROVAL` | 单据没有 pending 请求，不能拒绝 |
 | 409 | `ALREADY_ACTED` | 当前步骤已审批/拒绝（并发） |
@@ -281,7 +281,7 @@ pending --cancel--> cancelled
 - `approval_actions` 部分唯一索引 `(request_id, step_no) WHERE action IN ('approve','reject')` 兜底并发重复审批。
 - 同一请求并发审批：一个成功，另一个 409 `ALREADY_ACTED` 或 `INVALID_STATUS`。
 - 订单状态转换继续使用 `UpdateStatus` 的 `WHERE status = from` 守卫。
-- 流程编辑/删除与 pending 请求：先检查存在性；并发创建请求时可能竞争，首期接受（新请求使用旧步骤快照？实际查 flow steps；编辑通过后若已有请求，步骤可能变化。为降低风险，更新/删除前在有 pending 时拒绝，并在事务内检查；创建请求时锁定 flow 行 `FOR SHARE` 防止并发编辑。设计：`Start` 在事务内 `SELECT flow FOR SHARE`，`UpdateFlow/DeleteFlow` 使用 `FOR UPDATE` 检查 pending。首期实现可选；至少实现 pending 检查。”
+- 流程编辑/删除与审批请求：更新/删除前检查任意 `approval_requests`（含历史）；存在则拒绝并建议停用后新建，避免历史步骤/动作被改写或 FK 删除失败。并发创建请求时可能竞争；首期在事务内检查并接受极窄竞争窗口。
 
 ## 12. 前端
 
@@ -298,7 +298,7 @@ pending --cancel--> cancelled
 - 流程匹配：组织优先、priority、金额阈值、always、无匹配。
 - 审批人：角色/用户、超级管理员兜底、申请人自批拒绝、用户步骤自跳过、全部跳过报错。
 - 状态机：多步顺序、最后一步 approved、reject、cancel、并发重复动作。
-- 流程校验：步骤连续、审批人存在、条件/阈值、pending 流程禁止编辑。
+- 流程校验：步骤连续、审批人存在、条件/阈值、有审批请求的流程禁止编辑/删除。
 
 ### 13.2 接口测试（`TestStage4B`）
 
@@ -311,7 +311,7 @@ pending --cancel--> cancelled
 - 并发审批：同一请求两个并发 -> 一个 200，一个 409。
 - 取消：提交后取消订单 -> 请求 cancelled。
 - 权限：无 `system.approval.write` 不能配置；无 `.approve` 不能审批；无 `system.approval.read` 不能看待办。
-- 流程编辑/删除有 pending -> 409 `FLOW_IN_USE`。
+- 流程编辑/删除有审批请求（含历史）-> 409 `FLOW_IN_USE`。
 - 全部步骤为申请人 -> 提交返回 `APPROVAL_NO_APPROVER`，订单回 draft。
 - 数据范围：dept/self 用户待办只看到自己组织/相关请求（首期至少 tenant 隔离；org scope 视实现）。
 
@@ -324,7 +324,7 @@ pending --cancel--> cancelled
 - 首期只覆盖销售/采购订单；退款/反核销/发货/收货/退货/期间重开在 4B-2。
 - 跨模块提交/审批/拒绝不是单事务；有补偿和错误日志，极端情况下需人工核对。
 - 不支持并行/会签/委托/升级/通知/复杂条件。
-- 流程编辑/删除在有 pending 请求时禁止；无版本历史。
+- 流程编辑/删除在有审批请求（含历史）时禁止；需要调整时停用后新建。无版本历史。
 - 角色步骤的“角色下无其他可用用户”无法在配置时完全校验，可能导致请求无人可批；需管理员调整角色或流程。
 - 无审批 SLA/超时提醒。
 - 超级管理员可越过步骤角色限制（不能自批）；这是运维兜底，不是日常审批路径。
@@ -337,6 +337,6 @@ pending --cancel--> cancelled
 - [ ] 无流程时保持原有直审行为。
 - [ ] 待办、详情、历史、权限、数据范围可用。
 - [ ] 并发审批只成功一次。
-- [ ] 流程有 pending 时禁止编辑/删除。
+- [ ] 流程有审批请求（含历史）时禁止编辑/删除；可停用。
 - [ ] Stage 3B–4A 回归和干净库 Stage 3B–4B 通过。
 - [ ] SDK/OpenAPI/前端/文档/报告完整。

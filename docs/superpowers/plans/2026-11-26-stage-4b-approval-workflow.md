@@ -19,7 +19,7 @@
 - 有匹配流程：提交后订单仍为 `submitted`，创建 `pending` 请求；最后一步通过后 `submitted -> approved`；拒绝后 `submitted -> draft`（重新提交创建新请求）。
 - 条件：`always` / `amount_gte`（本位币 `base_total_amount`）。
 - 审批人：`role` / `user`；顺序审批；禁止自批；超级管理员可越过角色限制但不能自批。
-- 流程有 pending 请求时禁止编辑/删除（`FLOW_IN_USE`）。
+- 流程有审批请求（含历史）时禁止编辑/删除（`FLOW_IN_USE`）；需要调整时停用后新建。
 - 权限：`system.approval.read/write/act`；订单审批仍要求 `sales.order.approve` / `purchase.order.approve`。
 
 ## 1. 文件结构
@@ -369,7 +369,7 @@ type FlowRepository interface {
     Update(ctx context.Context, flow *Flow) error
     Delete(ctx context.Context, tenantID, id string) error
     FindMatching(ctx context.Context, tenantID, orgID string, docType DocumentType, baseAmount decimal.Decimal) (*Flow, error)
-    HasPendingRequests(ctx context.Context, tenantID, flowID string) (bool, error)
+    HasRequests(ctx context.Context, tenantID, flowID string) (bool, error)
 }
 
 type RequestRepository interface {
@@ -389,7 +389,7 @@ type RequestRepository interface {
 `FlowService`:
 - `List/Get/Create/Update/Delete`。
 - 校验：document type、condition、threshold、steps 连续从 1、approver_type、approver_id 非空。
-- `Update/Delete`：`HasPendingRequests` true -> `ErrFlowInUse`。
+- `Update/Delete`：`HasRequests` true -> `ErrFlowInUse`（含历史请求，保护审批历史并避免 FK 删除失败）。
 - 审批人存在性：注入 `RoleChecker`/`UserChecker` 接口（由 infra 实现，或 app 直接调用 system repositories？为避免耦合，定义接口）：
   ```go
   type ApproverValidator interface {
@@ -429,7 +429,7 @@ git commit -m "feat(stage-4b): add approval domain and services"
 - `List/Get` 查询 flow + steps（`ORDER BY step_no`）。
 - `Create/Update` 事务：写 flow + steps；Update 先删旧 steps 再插入。
 - `FindMatching` 按设计 §5 SQL，加载 steps。
-- `HasPendingRequests` 查询 `approval_requests status='pending' flow_id=$2`。
+- `HasRequests` 查询任意 `approval_requests flow_id=$2`（含历史）。
 - `Delete` 事务：检查 pending；删除 flow（steps cascade）。
 
 - [ ] **Step 2: RequestRepository**
@@ -676,7 +676,7 @@ git commit -m "feat(stage-4b): add approval UI"
 10. 并发审批：同一请求两个并发 -> 一个 200，一个 409。
 11. 取消：提交后取消 -> 请求 cancelled。
 12. 权限：无 `system.approval.write` 不能配置；无 `.approve` 不能审批；无 `system.approval.read` 不能看待办。
-13. 有 pending 时编辑/删除流程 -> 409 `FLOW_IN_USE`。
+13. 有审批请求（含历史）时编辑/删除流程 -> 409 `FLOW_IN_USE`；停用后新建可用。
 14. 全部步骤为申请人 -> 提交 409 `APPROVAL_NO_APPROVER`，订单回 draft。
 15. 数据范围/租户隔离（至少 tenant + org scope）。
 
@@ -726,7 +726,7 @@ git diff --check
 - [ ] 无流程保持原有直审。
 - [ ] 待办/详情/历史/权限/数据范围可用。
 - [ ] 并发审批只成功一次。
-- [ ] 有 pending 时流程禁止编辑/删除。
+- [ ] 有审批请求（含历史）时流程禁止编辑/删除；可停用。
 - [ ] Stage 3B–4A 回归和干净库 Stage 3B–4B 通过。
 - [ ] SDK/OpenAPI/前端/文档/报告完整。
 
@@ -735,6 +735,6 @@ git diff --check
 - 首期只覆盖订单；其他单据 4B-2。
 - 跨模块状态转换/审批动作非单事务，补偿 + 日志；极端情况需人工核对。
 - 无并行/会签/委托/升级/通知/复杂条件。
-- 流程无版本历史；有 pending 时禁止编辑/删除。
+- 流程无版本历史；有审批请求（含历史）时禁止编辑/删除，需停用后新建。
 - 角色步骤可能无人可批，需管理员调整。
 - 超级管理员可越过角色限制（不能自批）。
