@@ -109,6 +109,7 @@ assertFile('apps/web/src/views/system/ApprovalFlowListView.vue', [
   'approvalApi.createFlow',
   'approvalApi.updateFlow',
   'approvalApi.removeFlow',
+  'approvalApi.setFlowActive',
   'FLOW_IN_USE',
   '审批步骤'
 ])
@@ -307,6 +308,8 @@ assertFile('packages/sdk/src/approval.ts', [
   'createFlow',
   'updateFlow',
   'removeFlow',
+  'setFlowActive',
+  '/system/approval-flows/${id}/active',
   '/approvals/pending',
   '/approvals/requests',
   'pending(',
@@ -468,9 +471,11 @@ assertFile('packages/sdk/src/purchase.ts', [
 
 assertFile('api/openapi.yaml', [
   '/system/approval-flows:',
+  '/system/approval-flows/{id}/active:',
   '/approvals/pending:',
   '/approvals/requests:',
   'ApprovalFlow:',
+  'ApprovalFlowActiveInput:',
   'ApprovalRequest:',
   'ApprovalFlowInput:',
   '/purchase/receipts/{id}/returns:',

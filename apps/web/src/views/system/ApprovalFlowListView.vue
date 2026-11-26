@@ -50,11 +50,17 @@
           </template>
         </el-table-column>
         <el-table-column prop="priority" label="优先级" width="90" align="center" />
-        <el-table-column label="状态" width="90">
+        <el-table-column label="启停" width="120" align="center">
           <template #default="{ row }">
-            <el-tag :type="row.active ? 'success' : 'info'" size="small">
-              {{ row.active ? '启用' : '停用' }}
-            </el-tag>
+            <el-switch
+              v-model="row.active"
+              :loading="activeSaving.has(row.id)"
+              :disabled="!canWrite || activeSaving.has(row.id)"
+              inline-prompt
+              active-text="启用"
+              inactive-text="停用"
+              @change="(value: string | number | boolean) => changeFlowActive(row, value)"
+            />
           </template>
         </el-table-column>
         <el-table-column label="步骤" min-width="220">
@@ -234,6 +240,7 @@ const canWrite = computed(() => authStore.hasPermission('system.approval.write')
 const flows = ref<ApprovalFlow[]>([])
 const loading = ref(false)
 const saving = ref(false)
+const activeSaving = reactive(new Set<string>())
 const documentTypeFilter = ref<ApprovalDocumentType | ''>('')
 const activeFilter = ref<'' | 'true' | 'false'>('')
 
@@ -521,6 +528,28 @@ async function removeFlow(flow: ApprovalFlow) {
     await loadFlows()
   } catch (error) {
     ElMessage.error(approvalErrorMessage(error, '删除审批流程失败'))
+  }
+}
+
+async function changeFlowActive(flow: ApprovalFlow, value: string | number | boolean) {
+  const active = value === true
+  if (activeSaving.has(flow.id)) return
+
+  activeSaving.add(flow.id)
+  try {
+    const updated = await approvalApi.setFlowActive(flow.id, active)
+    const index = flows.value.findIndex((item) => item.id === flow.id)
+    if (index >= 0) {
+      flows.value[index] = updated
+    } else {
+      flow.active = updated.active
+    }
+    ElMessage.success(active ? '审批流程已启用' : '审批流程已停用')
+  } catch (error) {
+    flow.active = !active
+    ElMessage.error(approvalErrorMessage(error, active ? '启用审批流程失败' : '停用审批流程失败'))
+  } finally {
+    activeSaving.delete(flow.id)
   }
 }
 

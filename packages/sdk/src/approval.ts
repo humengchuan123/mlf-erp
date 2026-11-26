@@ -114,6 +114,9 @@ export const approvalApi = {
   removeFlow(id: string): Promise<unknown> {
     return api.delete(`/system/approval-flows/${id}`)
   },
+  setFlowActive(id: string, active: boolean): Promise<ApprovalFlow> {
+    return api.post<ApprovalFlow>(`/system/approval-flows/${id}/active`, { active })
+  },
   pending(): Promise<{ items: ApprovalRequest[] }> {
     return api.get<{ items: ApprovalRequest[] }>('/approvals/pending')
   },

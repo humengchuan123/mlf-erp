@@ -294,6 +294,49 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ApiResponse'
+  /system/approval-flows/{id}/active:
+    parameters:
+      - $ref: '#/components/parameters/ID'
+    post:
+      summary: Enable or disable an approval flow
+      description: Requires `system.approval.write`. Deactivation is allowed even when approval requests, including historical ones, reference the flow.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ApprovalFlowActiveInput'
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApprovalFlowResponse'
+        '400':
+          description: BAD_REQUEST when `active` is missing or not a boolean
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+        '403':
+          description: FORBIDDEN when the caller lacks `system.approval.write`
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+        '404':
+          description: NOT_FOUND when the approval flow does not exist
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+        '409':
+          description: CONFLICT when a concurrent change prevents updating the approval flow
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
   /approvals/pending:
     get:
       summary: List approval requests pending the current user
@@ -4711,6 +4754,12 @@ components:
           minItems: 1
           items:
             $ref: '#/components/schemas/ApprovalFlowStepInput'
+    ApprovalFlowActiveInput:
+      type: object
+      required: [active]
+      properties:
+        active:
+          type: boolean
     ApprovalAction:
       type: object
       properties:
