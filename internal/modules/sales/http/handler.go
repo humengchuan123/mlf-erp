@@ -340,9 +340,14 @@ func (h *Handler) submitOrder(c *gin.Context) {
 		Currency:     order.Currency,
 	})
 	if err != nil {
-		_ = h.orders.Reopen(ctx, id)
-		h.handleError(c, err)
-		return
+		if errors.Is(err, approvaldomain.ErrPendingExists) {
+			// A pending request already exists; the order stays submitted.
+			started = true
+		} else {
+			_ = h.orders.Reopen(ctx, id)
+			h.handleError(c, err)
+			return
+		}
 	}
 	h.recordAudit(c, "sales.order.submit", "sales_order", id, nil)
 	httpx.OK(c, gin.H{"id": id, "action": "sales.order.submit", "approval_pending": started})
@@ -376,10 +381,15 @@ func (h *Handler) approveOrder(c *gin.Context) {
 			httpx.OK(c, gin.H{"id": id, "action": "sales.order.approve", "approval_pending": true})
 			return
 		}
-	}
-	if err := h.orders.Approve(ctx, id); err != nil {
-		h.handleError(c, err)
-		return
+		if err := h.orders.ApproveByApproval(ctx, id); err != nil {
+			h.handleError(c, err)
+			return
+		}
+	} else {
+		if err := h.orders.Approve(ctx, id); err != nil {
+			h.handleError(c, err)
+			return
+		}
 	}
 	h.recordAudit(c, "sales.order.approve", "sales_order", id, nil)
 	httpx.OK(c, gin.H{"id": id, "action": "sales.order.approve", "approval_pending": false})
@@ -405,7 +415,7 @@ func (h *Handler) rejectOrder(c *gin.Context) {
 		h.handleError(c, err)
 		return
 	}
-	if err := h.orders.Reopen(ctx, id); err != nil {
+	if err := h.orders.ReopenByApproval(ctx, id); err != nil {
 		h.handleError(c, err)
 		return
 	}

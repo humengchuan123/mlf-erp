@@ -134,6 +134,11 @@ func (r *RequestRepository) List(
 			return nil, 0, stepErr
 		}
 		request.Steps = steps
+		actions, actionErr := loadApprovalActions(ctx, r.db, tenantID, request.ID)
+		if actionErr != nil {
+			return nil, 0, actionErr
+		}
+		request.Actions = actions
 	}
 	return requests, total, nil
 }

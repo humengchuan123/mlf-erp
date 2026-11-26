@@ -13,6 +13,7 @@ type FlowRepository interface {
 	Create(ctx context.Context, flow *Flow) error
 	Update(ctx context.Context, flow *Flow) error
 	Delete(ctx context.Context, tenantID, id string) error
+	SetActive(ctx context.Context, tenantID, id string, active bool, updatedBy string) error
 	FindMatching(ctx context.Context, tenantID, orgID string, documentType DocumentType, baseAmount decimal.Decimal) (*Flow, error)
 	HasRequests(ctx context.Context, tenantID, flowID string) (bool, error)
 }

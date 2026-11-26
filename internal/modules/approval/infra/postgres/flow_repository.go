@@ -142,6 +142,22 @@ func (r *FlowRepository) Update(ctx context.Context, flow *domain.Flow) error {
 	return nil
 }
 
+func (r *FlowRepository) SetActive(ctx context.Context, tenantID, id string, active bool, updatedBy string) error {
+	tag, err := r.db.Exec(ctx, `
+		UPDATE erp.approval_flows
+		SET active = $3, updated_by = $4, updated_at = now()
+		WHERE tenant_id = $1 AND id = $2`,
+		tenantID, id, active, updatedBy,
+	)
+	if err != nil {
+		return fmt.Errorf("set approval flow active: %w", mapFlowWriteError(err))
+	}
+	if tag.RowsAffected() == 0 {
+		return domain.ErrNotFound
+	}
+	return nil
+}
+
 func (r *FlowRepository) Delete(ctx context.Context, tenantID, id string) error {
 	tx, err := r.db.Begin(ctx)
 	if err != nil {

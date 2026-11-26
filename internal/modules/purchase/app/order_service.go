@@ -193,6 +193,33 @@ func (s *OrderService) Reopen(ctx context.Context, id string) error {
 	return s.transition(ctx, id, domain.StatusSubmitted, domain.StatusDraft)
 }
 
+// ApproveByApproval marks an order approved after the approval engine has
+// authorized the actor. The approval engine enforces the approver rules, so the
+// transition only needs to honor the tenant boundary rather than the actor's
+// data scope (an approver may not otherwise see the requester's order).
+func (s *OrderService) ApproveByApproval(ctx context.Context, id string) error {
+	return s.transitionByApproval(ctx, id, domain.StatusSubmitted, domain.StatusApproved)
+}
+
+// ReopenByApproval returns a rejected order to draft after the approval engine
+// has authorized the actor.
+func (s *OrderService) ReopenByApproval(ctx context.Context, id string) error {
+	return s.transitionByApproval(ctx, id, domain.StatusSubmitted, domain.StatusDraft)
+}
+
+func (s *OrderService) transitionByApproval(ctx context.Context, id string, from, to domain.Status) error {
+	tenantID, _, userID := tenantActor(ctx)
+	filter := scope.Filter{TenantID: tenantID, DataScope: "all"}
+	ok, err := s.orders.UpdateStatus(ctx, filter, tenantID, id, from, to, userID)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return domain.ErrConflict
+	}
+	return nil
+}
+
 func (s *OrderService) Cancel(ctx context.Context, id string) error {
 	tenantID, _, userID := tenantActor(ctx)
 	order, err := s.orders.Get(ctx, scope.FromActor(ctx, tenantID), tenantID, id)

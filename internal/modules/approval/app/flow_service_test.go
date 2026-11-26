@@ -152,6 +152,18 @@ func (r *fakeFlowRepo) Delete(_ context.Context, tenantID, id string) error {
 	return nil
 }
 
+func (r *fakeFlowRepo) SetActive(_ context.Context, tenantID, id string, active bool, updatedBy string) error {
+	key := flowKey(tenantID, id)
+	flow, ok := r.flows[key]
+	if !ok {
+		return domain.ErrNotFound
+	}
+	flow.Active = active
+	flow.UpdatedBy = updatedBy
+	flow.UpdatedAt = time.Now()
+	return nil
+}
+
 func (r *fakeFlowRepo) FindMatching(_ context.Context, tenantID, orgID string, documentType domain.DocumentType, baseAmount decimal.Decimal) (*domain.Flow, error) {
 	r.lastMatchTenant = tenantID
 	r.lastMatchOrg = orgID
@@ -587,6 +599,36 @@ func TestFlowServiceUpdateSuccess(t *testing.T) {
 	}
 	if len(repo.updated) != 1 {
 		t.Fatalf("updated flows = %d, want 1", len(repo.updated))
+	}
+}
+
+func TestFlowServiceSetActiveBypassesRequestHistory(t *testing.T) {
+	repo := newFakeFlowRepo()
+	seedFlow(repo, existingFlow())
+	repo.requestedFlows[flowKey("tenant-1", "flow-1")] = true
+	service := NewFlowService(repo, newFakeApproverValidator())
+
+	flow, err := service.SetActive(testContext(), "flow-1", false)
+	if err != nil {
+		t.Fatalf("SetActive() error = %v, want nil", err)
+	}
+	if flow.Active {
+		t.Fatal("SetActive() left flow active, want inactive")
+	}
+	if flow.UpdatedBy != "actor-1" {
+		t.Fatalf("UpdatedBy = %q, want actor-1", flow.UpdatedBy)
+	}
+	if repo.flows[flowKey("tenant-1", "flow-1")].Active {
+		t.Fatal("SetActive() was not persisted")
+	}
+}
+
+func TestFlowServiceSetActiveMissingFlow(t *testing.T) {
+	service := NewFlowService(newFakeFlowRepo(), newFakeApproverValidator())
+
+	_, err := service.SetActive(testContext(), "missing", false)
+	if !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("SetActive() error = %v, want ErrNotFound", err)
 	}
 }
 

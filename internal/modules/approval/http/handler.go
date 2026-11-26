@@ -41,11 +41,16 @@ func Register(
 	system.GET("/approval-flows/:id", authmw.RequirePermission("system.approval.read"), h.getFlow)
 	system.PUT("/approval-flows/:id", authmw.RequirePermission("system.approval.write"), h.updateFlow)
 	system.DELETE("/approval-flows/:id", authmw.RequirePermission("system.approval.write"), h.deleteFlow)
+	system.POST("/approval-flows/:id/active", authmw.RequirePermission("system.approval.write"), h.setFlowActive)
 
 	approvals := group.Group("/approvals")
 	approvals.GET("/pending", authmw.RequirePermission("system.approval.read"), h.listPending)
 	approvals.GET("/requests", authmw.RequirePermission("system.approval.read"), h.listRequests)
 	approvals.GET("/requests/:id", authmw.RequirePermission("system.approval.read"), h.getRequest)
+}
+
+type flowActiveRequest struct {
+	Active *bool `json:"active"`
 }
 
 type flowStepRequest struct {
@@ -238,6 +243,31 @@ func (h *Handler) deleteFlow(c *gin.Context) {
 	}
 	recordAudit(c, h.audit, "system.approval_flow.delete", "approval_flow", id, toFlowResponse(existing), nil)
 	httpx.OK(c, gin.H{"id": id, "deleted": true})
+}
+
+func (h *Handler) setFlowActive(c *gin.Context) {
+	var request flowActiveRequest
+	if err := c.ShouldBindJSON(&request); err != nil || request.Active == nil {
+		httpx.Error(c, http.StatusBadRequest, httpx.CodeBadRequest, "invalid request body")
+		return
+	}
+	id := c.Param("id")
+	existing, err := h.flows.Get(c.Request.Context(), id)
+	if err != nil {
+		h.handleError(c, err)
+		return
+	}
+	flow, err := h.flows.SetActive(c.Request.Context(), id, *request.Active)
+	if err != nil {
+		h.handleError(c, err)
+		return
+	}
+	action := "system.approval_flow.deactivate"
+	if flow.Active {
+		action = "system.approval_flow.activate"
+	}
+	recordAudit(c, h.audit, action, "approval_flow", id, toFlowResponse(existing), toFlowResponse(flow))
+	httpx.OK(c, toFlowResponse(flow))
 }
 
 func (h *Handler) listPending(c *gin.Context) {

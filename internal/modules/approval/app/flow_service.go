@@ -104,6 +104,18 @@ func (s *FlowService) Update(ctx context.Context, id string, input FlowInput) (*
 	return flow, nil
 }
 
+// SetActive enables or disables a flow. Unlike Update/Delete it is allowed even
+// when the flow has approval request history, so operators can retire a flow
+// and create a replacement.
+func (s *FlowService) SetActive(ctx context.Context, id string, active bool) (*domain.Flow, error) {
+	tenantID := currentTenantID(ctx)
+	userID := currentUserID(ctx)
+	if err := s.flows.SetActive(ctx, tenantID, id, active, userID); err != nil {
+		return nil, err
+	}
+	return s.flows.Get(ctx, tenantID, id)
+}
+
 func (s *FlowService) Delete(ctx context.Context, id string) error {
 	tenantID := currentTenantID(ctx)
 	if _, err := s.flows.Get(ctx, tenantID, id); err != nil {
