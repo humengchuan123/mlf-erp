@@ -2,10 +2,10 @@
 
 > 日期：2026-11-26
 > 分支：`stage-4b-approval-workflow`
-> 功能/测试 HEAD：`d4e6a83`（报告与最终审核提交前）
+> 功能/测试 HEAD：`56e3a12`（报告与最终审核提交前）
 > 设计：`docs/superpowers/specs/2026-11-26-stage-4b-approval-workflow-design.md`
 > 计划：`docs/superpowers/plans/2026-11-26-stage-4b-approval-workflow.md`
-> 状态：开发、19 个接口子测试、干净库 Stage 3B–4B 回归和静态检查完成；最终复审待回填
+> 状态：开发、19 个接口子测试、干净库 Stage 3B–4B 回归和静态检查完成；最终规格审核 **SPEC COMPLIANT**、质量审核 **APPROVED**
 
 ---
 
@@ -19,7 +19,7 @@ Stage 4B 首期覆盖**销售订单和采购订单**：
 - 条件：`always` / `amount_gte`；组织为空表示租户级，组织专属优先。
 - 顺序步骤，每步一个审批人（角色或指定用户）；一步一次动作。
 - 禁止自批：申请人不能审批自己的请求；用户步骤为申请人本人时自动跳过。
-- 超级管理员可越过步骤角色限制，但仍不能自批。
+- 超级管理员可越过步骤审批人限制（角色或指定用户），但仍不能自批。
 - 审批中的订单保持 `submitted`；最后一步通过后 `approved`；拒绝后回 `draft`；取消订单会取消 pending 请求。
 - 无匹配流程时保持原有直审行为（提交后由有权限用户直接审批）。
 - 审批请求/动作 append-only；待办、请求详情、订单审批历史、流程配置和启停可用。
@@ -55,6 +55,7 @@ Stage 4B 首期覆盖**销售订单和采购订单**：
 | skip 动作持久化（迁移 28） | `6bb29de` |
 | skip 动作 UI/OpenAPI | `513849b` |
 | 非最终审批 current_step 守卫 | `f5fdf52` |
+| 待办按钮权限 gating | `56e3a12` |
 | skip/超级管理员/路线图文档 | `e0f50db` |
 | skip 混合步骤测试 | `d4e6a83` |
 
@@ -84,7 +85,7 @@ Stage 4B 首期覆盖**销售订单和采购订单**：
 - 用户步骤：指定用户。
 - 申请人自批：服务层拒绝；创建/推进时跳过申请人的用户步骤，并为每个跳过步骤写入 `skip` 动作；全部跳过返回 `APPROVAL_NO_APPROVER`。
 - 请求创建在事务内 `FOR SHARE` 锁定 flow 并重新加载步骤，避免流程编辑与请求创建的 stale-step 竞态。
-- 超级管理员：可越过角色限制，但不能自批。
+- 超级管理员：可越过步骤审批人限制（角色或指定用户），但不能自批。
 - 并发：请求行 `FOR UPDATE` + actions 部分唯一索引，同一步只成功一次。
 
 ### 3.3 状态机
@@ -224,7 +225,7 @@ go test -tags=integration ./tests/api -run 'TestStage3|TestStage4' -count=1 -v
 - 无 `system.approval.read` 时订单详情隐藏审批历史。
 - 补流程匹配优先级/组织/停用、超级管理员兜底、非审批人 `NOT_APPROVER`、非最终响应测试。
 
-修复后规格复审结论待回填。
+最终规格复审：**SPEC COMPLIANT**。此前 ISSUES 全部修复；`PENDING_APPROVAL_EXISTS` 作为防御性内部竞态契约保留，无正常 API 触发路径。
 
 ### 6.2 质量审核
 
@@ -238,7 +239,22 @@ go test -tags=integration ./tests/api -run 'TestStage3|TestStage4' -count=1 -v
 - 前端/SDK/OpenAPI 识别 `skip`，显示“已跳过”。
 - 新增混合自批步骤测试；组织优先测试改为“组织专属低优先级仍胜出”。
 
-修复后质量复审结论待回填。
+修复后质量复审结论 **APPROVED**：skip 持久化阻塞已修复，无新增 Critical/Important。
+
+剩余 Medium/Low（不阻塞）：
+
+- 非最终审批后 `PendingRequest` 二次查询与审批事务分离，极端并发下响应可能 409/500，但动作已记录；后续可由审批事务直接返回下一步。
+- 请求创建在 `FOR SHARE` 锁后重新加载步骤，但未复验 flow 的 active/条件/组织；并发停用/更新可能让请求落在不再匹配的 flow 上。
+- 待办页批准/拒绝按钮已按 `.approve` 权限隐藏（`56e3a12`）。
+- 订单审批历史只展示最近一条请求，拒绝后重新提交/取消的历史被隐藏。
+- 审批路径/查询非法 UUID 可能返回 500；非法 document_type/status 过滤返回空。
+- 迁移 28 无历史 skip 回填；升级库的旧请求可能缺少跳过历史。
+- 测试 19 的 advance-time skip 断言不够独立（创建时已跳过的步骤也可能让断言通过）。
+- flow org/审批人生命周期校验有限；角色删除/用户禁用可能留下不可审批流程。
+- 请求列表 N+1；超级管理员待办未分页。
+- OpenAPI update 的 active 默认值与 handler 保留旧值不一致；active 409 实际不可达。
+- `approvals.Cancel` 后订单取消失败未日志/补偿。
+- 组织级待办正向可见性未 API 覆盖（已在上文限制说明）。
 
 ## 7. 已知限制
 
@@ -247,8 +263,8 @@ go test -tags=integration ./tests/api -run 'TestStage3|TestStage4' -count=1 -v
 - 不支持并行/会签/委托/升级/通知/复杂条件。
 - 流程无版本历史；有审批请求（含历史）时不能编辑/删除，只能停用后新建。
 - 角色步骤可能无人可批，需要管理员调整角色或流程。
-- 超级管理员可越过角色限制（不能自批）。
-- 组织级待办正向可见性未用 API 正向覆盖（用户 API 不能设置 data_scope/org membership）；当前用 self/company/demo_dept 边界和租户断言覆盖。
+- 超级管理员可越过步骤审批人限制（角色或指定用户，不能自批）。
+- 组织级待办正向可见性未用 API 正向覆盖（用户 API 不能设置 data_scope/org membership）；当前用 self-scope 审批人正向用例、demo_dept 缺少权限的 403 和租户断言覆盖，org/company 正向可见性未覆盖。
 - 订单审批历史通过请求列表加载 actions；列表为分页接口，默认只显示最近请求。
 
 ## 8. 验收清单
@@ -263,6 +279,7 @@ go test -tags=integration ./tests/api -run 'TestStage3|TestStage4' -count=1 -v
 - [x] 有审批请求（含历史）时流程禁止编辑/删除；可停用。
 - [x] Stage 3B–4A 回归和干净库 Stage 3B–4B 通过（`mlf_erp_stage4b_clean3`，迁移 28）。
 - [x] SDK/OpenAPI/前端/文档完整。
+- [x] 规格审核 **SPEC COMPLIANT**；质量审核 **APPROVED**，无 Critical/Important 遗留。
 - [ ] 用户审阅通过。
 
 ## 9. 后续
