@@ -60,7 +60,14 @@ assertFile('apps/web/src/router/index.ts', [
   'finance.report.read',
   "path: 'finance/exchange-rates'",
   'ExchangeRateListView.vue',
-  'finance.exchange_rate.read'
+  'finance.exchange_rate.read',
+  "path: 'system/approval-flows'",
+  'system-approval-flows',
+  'ApprovalFlowListView.vue',
+  "path: 'system/pending-approvals'",
+  'system-pending-approvals',
+  'PendingApprovalView.vue',
+  'system.approval.read'
 ])
 
 assertFile('apps/web/src/layouts/DefaultLayout.vue', [
@@ -87,7 +94,35 @@ assertFile('apps/web/src/layouts/DefaultLayout.vue', [
   '会计期间',
   '会计凭证',
   '财务报表',
-  '汇率管理'
+  '汇率管理',
+  '审批流程',
+  '待我审批',
+  'system.approval.read',
+  'index="/system/approval-flows"',
+  'index="/system/pending-approvals"'
+])
+
+assertFile('apps/web/src/views/system/ApprovalFlowListView.vue', [
+  'PageHeader',
+  'ApprovalFlowListView',
+  'approvalApi.flows',
+  'approvalApi.createFlow',
+  'approvalApi.updateFlow',
+  'approvalApi.removeFlow',
+  'FLOW_IN_USE',
+  '审批步骤'
+])
+
+assertFile('apps/web/src/views/system/PendingApprovalView.vue', [
+  'PageHeader',
+  'PendingApprovalView',
+  'approvalApi.pending',
+  'approvalApi.request(',
+  'salesApi.approve',
+  'purchaseApi.approve',
+  'salesApi.reject',
+  'purchaseApi.reject',
+  '审批动作'
 ])
 
 assertFile('apps/web/src/views/finance/ExchangeRateListView.vue', [
@@ -114,7 +149,9 @@ assertFile('apps/web/src/views/sales/OrderListView.vue', [
   'base_total_amount',
   'shipIdempotencyKey',
   'newIdempotencyKey',
-  '发货'
+  '发货',
+  'approvalApi.requests',
+  '审批历史'
 ])
 
 assertFile('apps/web/src/views/purchase/OrderListView.vue', [
@@ -129,7 +166,9 @@ assertFile('apps/web/src/views/purchase/OrderListView.vue', [
   'exchange_rate',
   'base_total_amount',
   'receiveIdempotencyKey',
-  'newIdempotencyKey'
+  'newIdempotencyKey',
+  'approvalApi.requests',
+  '审批历史'
 ])
 
 assertFile('apps/web/src/views/purchase/PurchaseReceiptListView.vue', [
@@ -261,10 +300,18 @@ assertFile('packages/sdk/src/index.ts', ["./sales", "./finance", "./gl", "./appr
 assertFile('packages/sdk/src/approval.ts', [
   'ApprovalFlow',
   'ApprovalRequest',
+  'ApprovalFlowStep',
+  'ApprovalAction',
   'approvalApi',
   '/system/approval-flows',
+  'createFlow',
+  'updateFlow',
+  'removeFlow',
   '/approvals/pending',
-  '/approvals/requests'
+  '/approvals/requests',
+  'pending(',
+  'requests(',
+  'request('
 ])
 
 assertFile('packages/sdk/src/client.ts', [

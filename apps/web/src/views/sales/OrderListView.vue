@@ -208,6 +208,74 @@
           <el-table-column prop="remaining_qty" label="未发" width="90" align="right" />
         </el-table>
 
+        <el-divider content-position="left">审批历史</el-divider>
+        <div v-loading="approvalHistoryLoading" class="approval-history">
+          <div v-if="approvalHistoryError" class="approval-history__hint">
+            {{ approvalHistoryError }}
+          </div>
+          <el-empty
+            v-else-if="approvalRequests.length === 0"
+            description="无需审批/未配置审批流程"
+            :image-size="60"
+          />
+          <template v-else-if="latestApproval">
+            <el-descriptions :column="3" border size="small">
+              <el-descriptions-item label="状态">
+                <el-tag :type="approvalStatusTagType(latestApproval.status)" size="small">
+                  {{ approvalStatusLabel(latestApproval.status) }}
+                </el-tag>
+              </el-descriptions-item>
+              <el-descriptions-item label="当前步骤">
+                {{ latestApproval.current_step }} / {{ latestApproval.steps.length || '-' }}
+              </el-descriptions-item>
+              <el-descriptions-item label="申请时间">
+                {{ formatApprovalTime(latestApproval.requested_at) }}
+              </el-descriptions-item>
+            </el-descriptions>
+            <el-table
+              :data="latestApproval.steps"
+              border
+              size="small"
+              class="approval-history__table"
+            >
+              <el-table-column prop="step_no" label="步骤" width="60" />
+              <el-table-column prop="name" label="步骤名称" min-width="130" />
+              <el-table-column label="审批人类型" width="100">
+                <template #default="{ row }">
+                  {{ approvalApproverTypeLabel(row.approver_type) }}
+                </template>
+              </el-table-column>
+              <el-table-column prop="approver_id" label="审批人 ID" min-width="180" />
+              <el-table-column label="状态" width="90">
+                <template #default="{ row }">
+                  {{ approvalStepState(latestApproval, row.step_no) }}
+                </template>
+              </el-table-column>
+            </el-table>
+            <el-table
+              :data="latestApproval.actions"
+              border
+              size="small"
+              class="approval-history__table"
+            >
+              <el-table-column prop="step_no" label="步骤" width="60" />
+              <el-table-column label="动作" width="80">
+                <template #default="{ row }">{{ approvalActionLabel(row.action) }}</template>
+              </el-table-column>
+              <el-table-column prop="actor_id" label="操作人" min-width="180" />
+              <el-table-column label="意见" min-width="160">
+                <template #default="{ row }">{{ row.comment || '-' }}</template>
+              </el-table-column>
+              <el-table-column label="时间" width="170">
+                <template #default="{ row }">{{ formatApprovalTime(row.created_at) }}</template>
+              </el-table-column>
+            </el-table>
+            <div v-if="latestApproval.actions.length === 0" class="approval-history__hint">
+              暂无审批动作
+            </div>
+          </template>
+        </div>
+
         <div class="drawer-actions">
           <el-button v-if="canWrite && detailOrder.status === 'draft'" type="primary" @click="submitOrder(detailOrder)">
             提交
@@ -270,9 +338,11 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { PageHeader } from '@mlf-erp/ui'
 import {
+  approvalApi,
   inventoryApi,
   masterDataApi,
   salesApi,
+  type ApprovalRequest,
   type Material,
   type Partner,
   type SalesOrder,
@@ -331,6 +401,10 @@ const form = reactive({
 
 const detailVisible = ref(false)
 const detailOrder = ref<SalesOrder | null>(null)
+const approvalRequests = ref<ApprovalRequest[]>([])
+const approvalHistoryLoading = ref(false)
+const approvalHistoryError = ref('')
+const latestApproval = computed(() => approvalRequests.value[0] ?? null)
 const shipVisible = ref(false)
 const shipIdempotencyKey = ref('')
 const shipOrderTarget = ref<SalesOrder | null>(null)
@@ -594,9 +668,78 @@ async function openDetail(order: SalesOrder) {
   try {
     detailOrder.value = await salesApi.get(order.id)
     detailVisible.value = true
+    await loadApprovalHistory(order.id)
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : '加载销售订单详情失败')
   }
+}
+
+async function loadApprovalHistory(orderID: string) {
+  approvalHistoryLoading.value = true
+  approvalHistoryError.value = ''
+  try {
+    const result = await approvalApi.requests({
+      document_type: 'sales_order',
+      document_id: orderID,
+      page_size: 20
+    })
+    approvalRequests.value = result.items
+  } catch {
+    approvalRequests.value = []
+    approvalHistoryError.value = '审批历史加载失败'
+  } finally {
+    approvalHistoryLoading.value = false
+  }
+}
+
+function approvalStatusLabel(status: string) {
+  if (status === 'pending') return '审批中'
+  if (status === 'approved') return '已通过'
+  if (status === 'rejected') return '已拒绝'
+  if (status === 'cancelled') return '已取消'
+  return status || '-'
+}
+
+function approvalStatusTagType(status: string) {
+  if (status === 'approved') return 'success'
+  if (status === 'rejected') return 'danger'
+  if (status === 'cancelled') return 'info'
+  return 'warning'
+}
+
+function approvalApproverTypeLabel(value: string) {
+  if (value === 'role') return '角色'
+  if (value === 'user') return '用户'
+  return value || '-'
+}
+
+function approvalActionLabel(value: string) {
+  if (value === 'approve') return '批准'
+  if (value === 'reject') return '拒绝'
+  if (value === 'cancel') return '取消'
+  return value || '-'
+}
+
+function approvalStepState(request: ApprovalRequest, stepNo: number) {
+  const action = request.actions.find((item) => item.step_no === stepNo)
+  if (action) {
+    if (action.action === 'approve') return '已通过'
+    if (action.action === 'reject') return '已拒绝'
+    return '已取消'
+  }
+  if (request.status === 'pending') {
+    if (stepNo === request.current_step) return '待审批'
+    if (stepNo < request.current_step) return '已处理'
+    return '未开始'
+  }
+  if (request.status === 'approved') return '已通过'
+  return '未开始'
+}
+
+function formatApprovalTime(value?: string) {
+  if (!value) return '-'
+  const date = new Date(value)
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleString()
 }
 
 async function submitOrder(order: SalesOrder) {
@@ -626,6 +769,7 @@ async function runAction(order: SalesOrder, label: string, action: () => Promise
     await loadOrders()
     if (detailVisible.value && detailOrder.value?.id === order.id) {
       detailOrder.value = await salesApi.get(order.id)
+      await loadApprovalHistory(order.id)
     }
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : `${label}失败`)
@@ -791,6 +935,20 @@ onMounted(async () => {
   display: flex;
   gap: 8px;
   margin-top: 16px;
+}
+
+.approval-history {
+  min-height: 40px;
+}
+
+.approval-history__table {
+  margin-top: 12px;
+}
+
+.approval-history__hint {
+  margin-top: 8px;
+  color: #64748b;
+  font-size: 12px;
 }
 
 .ship-hint {

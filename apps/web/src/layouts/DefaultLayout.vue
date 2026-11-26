@@ -125,6 +125,14 @@
             <el-icon><OfficeBuilding /></el-icon>
             <span>组织管理</span>
           </el-menu-item>
+          <el-menu-item v-if="authStore.hasPermission('system.approval.read')" index="/system/pending-approvals">
+            <el-icon><Bell /></el-icon>
+            <span>待我审批</span>
+          </el-menu-item>
+          <el-menu-item v-if="authStore.hasPermission('system.approval.read')" index="/system/approval-flows">
+            <el-icon><Connection /></el-icon>
+            <span>审批流程</span>
+          </el-menu-item>
           <el-menu-item v-if="authStore.hasPermission('system.audit.read')" index="/system/audit-logs">
             <el-icon><Memo /></el-icon>
             <span>审计日志</span>
@@ -170,10 +178,12 @@ import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
   ArrowDown,
+  Bell,
   Box,
   Calendar,
   Coin,
   Collection,
+  Connection,
   DataBoard,
   Discount,
   Document,
@@ -242,7 +252,8 @@ const canSystem = computed(
     authStore.hasPermission('system.role.read') ||
     authStore.hasPermission('system.org.read') ||
     authStore.hasPermission('system.audit.read') ||
-    authStore.hasPermission('system.code_rule.read')
+    authStore.hasPermission('system.code_rule.read') ||
+    authStore.hasPermission('system.approval.read')
 )
 
 async function handleCommand(command: string) {

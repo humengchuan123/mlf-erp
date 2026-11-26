@@ -190,6 +190,18 @@ const routes: RouteRecordRaw[] = [
         name: 'system-audit-logs',
         component: () => import('@/views/system/AuditLogView.vue'),
         meta: { title: '审计日志', permission: 'system.audit.read' }
+      },
+      {
+        path: 'system/approval-flows',
+        name: 'system-approval-flows',
+        component: () => import('@/views/system/ApprovalFlowListView.vue'),
+        meta: { title: '审批流程', permission: 'system.approval.read' }
+      },
+      {
+        path: 'system/pending-approvals',
+        name: 'system-pending-approvals',
+        component: () => import('@/views/system/PendingApprovalView.vue'),
+        meta: { title: '待我审批', permission: 'system.approval.read' }
       }
     ]
   }
