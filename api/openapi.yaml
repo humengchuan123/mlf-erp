@@ -1,14 +1,16 @@
 openapi: 3.1.0
 info:
   title: MLF ERP API
-  version: 1.2.0
+  version: 1.3.0
   description: |
-    MLF ERP Stage 1 + Stage 2 + Stage 3A/3B/3C/3D/3E/3F/3G/3H/3I/3J/3K API contract.
+    MLF ERP Stage 1 + Stage 2 + Stage 3A/3B/3C/3D/3E/3F/3G/3H/3I/3J/3K + Stage 4B API contract.
     Master data uses a generic CRUD surface under /masterdata/{entity}.
     Purchase, sales, inventory, receivables/payables, payments, general ledger and reports are included.
     Stage 3H adds sales returns and credit notes; Stage 3I adds purchase returns.
     Stage 3J adds credit note allocation and refund workflows.
     Stage 3K adds payment allocation reversals and FX settlement reversal postings.
+    Stage 4B adds configurable sales/purchase order approval flows, pending approval inbox,
+    approval history, and order approve/reject actions with approval comments and rejection reasons.
 servers:
   - url: /api/v1
 security:
@@ -142,6 +144,236 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/CodeRule'
+  /system/approval-flows:
+    get:
+      summary: List approval flows
+      description: Requires `system.approval.read`.
+      parameters:
+        - in: query
+          name: document_type
+          required: false
+          schema:
+            type: string
+            enum: [sales_order, purchase_order]
+        - in: query
+          name: active
+          required: false
+          schema:
+            type: boolean
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApprovalFlowListResponse'
+        '403':
+          description: FORBIDDEN when the caller lacks `system.approval.read`
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+    post:
+      summary: Create an approval flow
+      description: Requires `system.approval.write`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ApprovalFlowInput'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApprovalFlowResponse'
+        '400':
+          description: BAD_REQUEST for malformed payloads; INVALID_APPROVAL_FLOW for non-consecutive steps, invalid conditions, or unknown approvers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+        '403':
+          description: FORBIDDEN when the caller lacks `system.approval.write`
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+  /system/approval-flows/{id}:
+    parameters:
+      - $ref: '#/components/parameters/ID'
+    get:
+      summary: Get an approval flow
+      description: Requires `system.approval.read`.
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApprovalFlowResponse'
+        '403':
+          description: FORBIDDEN when the caller lacks `system.approval.read`
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+        '404':
+          description: NOT_FOUND when the approval flow does not exist
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+    put:
+      summary: Update an approval flow
+      description: Requires `system.approval.write`. Returns FLOW_IN_USE when any approval request (including historical) references the flow.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ApprovalFlowInput'
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApprovalFlowResponse'
+        '400':
+          description: BAD_REQUEST for malformed payloads; INVALID_APPROVAL_FLOW for non-consecutive steps, invalid conditions, or unknown approvers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+        '403':
+          description: FORBIDDEN when the caller lacks `system.approval.write`
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+        '404':
+          description: NOT_FOUND when the approval flow does not exist
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+        '409':
+          description: FLOW_IN_USE when the approval flow has approval requests, including historical ones
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+    delete:
+      summary: Delete an approval flow
+      description: Requires `system.approval.write`. Returns FLOW_IN_USE when any approval request (including historical) references the flow; disable the flow instead.
+      responses:
+        '200':
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+        '403':
+          description: FORBIDDEN when the caller lacks `system.approval.write`
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+        '404':
+          description: NOT_FOUND when the approval flow does not exist
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+        '409':
+          description: FLOW_IN_USE when the approval flow has approval requests, including historical ones
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+  /approvals/pending:
+    get:
+      summary: List approval requests pending the current user
+      description: Requires `system.approval.read`. Returns requests where the current user is the approver of the current step; super administrators may act as fallback approvers for role steps.
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApprovalPendingResponse'
+        '403':
+          description: FORBIDDEN when the caller lacks `system.approval.read`
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+  /approvals/requests:
+    get:
+      summary: List approval requests
+      description: Requires `system.approval.read`.
+      parameters:
+        - in: query
+          name: document_type
+          required: false
+          schema:
+            type: string
+            enum: [sales_order, purchase_order]
+        - in: query
+          name: document_id
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - in: query
+          name: status
+          required: false
+          schema:
+            type: string
+            enum: [pending, approved, rejected, cancelled]
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApprovalRequestListResponse'
+        '403':
+          description: FORBIDDEN when the caller lacks `system.approval.read`
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+  /approvals/requests/{id}:
+    parameters:
+      - $ref: '#/components/parameters/ID'
+    get:
+      summary: Get an approval request with steps and action history
+      description: Requires `system.approval.read`.
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApprovalRequestResponse'
+        '403':
+          description: FORBIDDEN when the caller lacks `system.approval.read`
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+        '404':
+          description: NOT_FOUND when the approval request does not exist
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
   /masterdata/{entity}:
     parameters:
       - $ref: '#/components/parameters/Entity'
@@ -314,6 +546,7 @@ paths:
       - $ref: '#/components/parameters/ID'
     post:
       summary: Submit a draft purchase order
+      description: Requires `purchase.order.write`. When an active approval flow matches, a pending approval request is created and the order remains submitted until the final step is approved.
       responses:
         '200':
           description: Submitted
@@ -321,18 +554,107 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ActionResponse'
+        '409':
+          description: PENDING_APPROVAL_EXISTS when the order already has a pending approval; APPROVAL_NO_APPROVER when every flow step is the requester (the order is rolled back to draft); INVALID_STATUS when the order is not draft
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
   /purchase/orders/{id}/approve:
     parameters:
       - $ref: '#/components/parameters/ID'
     post:
       summary: Approve a submitted purchase order
+      description: Requires `purchase.order.approve`. When a pending approval request exists, the caller must be the current step approver and cannot approve their own request.
+      requestBody:
+        required: false
+        description: Optional approval comment. An empty body is accepted.
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                comment:
+                  type: string
       responses:
         '200':
-          description: Approved
+          description: Approved, or advanced to the next approval step
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ActionResponse'
+        '400':
+          description: BAD_REQUEST when the approval payload is malformed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+        '403':
+          description: NOT_APPROVER when the caller is not the current step approver; SELF_APPROVAL when the caller requested the approval
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+        '404':
+          description: NOT_FOUND when the purchase order or pending approval request does not exist
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+        '409':
+          description: ALREADY_ACTED, APPROVAL_NO_APPROVER or INVALID_STATUS
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+  /purchase/orders/{id}/reject:
+    parameters:
+      - $ref: '#/components/parameters/ID'
+    post:
+      summary: Reject a purchase order pending approval
+      description: Requires `purchase.order.approve`. The caller must be the current step approver and cannot reject their own request. The order returns to draft after rejection.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [comment]
+              properties:
+                comment:
+                  type: string
+                  minLength: 1
+      responses:
+        '200':
+          description: Rejected
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActionResponse'
+        '400':
+          description: BAD_REQUEST when the payload is malformed; REASON_REQUIRED when the rejection comment is empty
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+        '403':
+          description: NOT_APPROVER when the caller is not the current step approver; SELF_APPROVAL when the caller requested the approval
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+        '404':
+          description: NOT_FOUND when the purchase order or pending approval request does not exist
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+        '409':
+          description: NO_PENDING_APPROVAL, ALREADY_ACTED, APPROVAL_NO_APPROVER or INVALID_STATUS
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
   /purchase/orders/{id}/cancel:
     parameters:
       - $ref: '#/components/parameters/ID'
@@ -592,6 +914,7 @@ paths:
       - $ref: '#/components/parameters/ID'
     post:
       summary: Submit a draft sales order
+      description: Requires `sales.order.write`. When an active approval flow matches, a pending approval request is created and the order remains submitted until the final step is approved.
       responses:
         '200':
           description: Submitted
@@ -599,18 +922,107 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ActionResponse'
+        '409':
+          description: PENDING_APPROVAL_EXISTS when the order already has a pending approval; APPROVAL_NO_APPROVER when every flow step is the requester (the order is rolled back to draft); INVALID_STATUS when the order is not draft
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
   /sales/orders/{id}/approve:
     parameters:
       - $ref: '#/components/parameters/ID'
     post:
       summary: Approve a submitted sales order
+      description: Requires `sales.order.approve`. When a pending approval request exists, the caller must be the current step approver and cannot approve their own request.
+      requestBody:
+        required: false
+        description: Optional approval comment. An empty body is accepted.
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                comment:
+                  type: string
       responses:
         '200':
-          description: Approved
+          description: Approved, or advanced to the next approval step
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ActionResponse'
+        '400':
+          description: BAD_REQUEST when the approval payload is malformed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+        '403':
+          description: NOT_APPROVER when the caller is not the current step approver; SELF_APPROVAL when the caller requested the approval
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+        '404':
+          description: NOT_FOUND when the sales order or pending approval request does not exist
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+        '409':
+          description: ALREADY_ACTED, APPROVAL_NO_APPROVER or INVALID_STATUS
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+  /sales/orders/{id}/reject:
+    parameters:
+      - $ref: '#/components/parameters/ID'
+    post:
+      summary: Reject a sales order pending approval
+      description: Requires `sales.order.approve`. The caller must be the current step approver and cannot reject their own request. The order returns to draft after rejection.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [comment]
+              properties:
+                comment:
+                  type: string
+                  minLength: 1
+      responses:
+        '200':
+          description: Rejected
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActionResponse'
+        '400':
+          description: BAD_REQUEST when the payload is malformed; REASON_REQUIRED when the rejection comment is empty
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+        '403':
+          description: NOT_APPROVER when the caller is not the current step approver; SELF_APPROVAL when the caller requested the approval
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+        '404':
+          description: NOT_FOUND when the sales order or pending approval request does not exist
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+        '409':
+          description: NO_PENDING_APPROVAL, ALREADY_ACTED, APPROVAL_NO_APPROVER or INVALID_STATUS
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
   /sales/orders/{id}/cancel:
     parameters:
       - $ref: '#/components/parameters/ID'
@@ -4193,3 +4605,232 @@ components:
           type: string
         total_net_payable:
           type: string
+    ApprovalFlowStep:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        step_no:
+          type: integer
+          minimum: 1
+        name:
+          type: string
+        approver_type:
+          type: string
+          enum: [role, user]
+        approver_id:
+          type: string
+          format: uuid
+        created_at:
+          type: string
+          format: date-time
+    ApprovalFlow:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        tenant_id:
+          type: string
+          format: uuid
+        org_id:
+          type: string
+          format: uuid
+          description: Empty for tenant-level flows; otherwise scoped to the organization.
+        name:
+          type: string
+        document_type:
+          type: string
+          enum: [sales_order, purchase_order]
+        condition_type:
+          type: string
+          enum: [always, amount_gte]
+        threshold_amount:
+          type: string
+          description: Base-currency (CNY) threshold used by amount_gte.
+        priority:
+          type: integer
+        active:
+          type: boolean
+        created_by:
+          type: string
+          format: uuid
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        steps:
+          type: array
+          items:
+            $ref: '#/components/schemas/ApprovalFlowStep'
+    ApprovalFlowStepInput:
+      type: object
+      required: [step_no, name, approver_type, approver_id]
+      properties:
+        step_no:
+          type: integer
+          minimum: 1
+        name:
+          type: string
+        approver_type:
+          type: string
+          enum: [role, user]
+        approver_id:
+          type: string
+          format: uuid
+    ApprovalFlowInput:
+      type: object
+      required: [name, document_type, condition_type, steps]
+      properties:
+        name:
+          type: string
+        document_type:
+          type: string
+          enum: [sales_order, purchase_order]
+        org_id:
+          type: string
+          description: Omit or leave empty for tenant-level; otherwise the organization scope.
+        condition_type:
+          type: string
+          enum: [always, amount_gte]
+        threshold_amount:
+          type: string
+          default: '0'
+          description: Base-currency (CNY) threshold used by amount_gte.
+        priority:
+          type: integer
+          default: 0
+        active:
+          type: boolean
+          default: true
+        steps:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/ApprovalFlowStepInput'
+    ApprovalAction:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        step_no:
+          type: integer
+        action:
+          type: string
+          enum: [approve, reject, cancel]
+        actor_id:
+          type: string
+          format: uuid
+        comment:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+    ApprovalRequest:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        tenant_id:
+          type: string
+          format: uuid
+        org_id:
+          type: string
+          format: uuid
+        document_type:
+          type: string
+          enum: [sales_order, purchase_order]
+        document_id:
+          type: string
+          format: uuid
+        document_code:
+          type: string
+        flow_id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [pending, approved, rejected, cancelled]
+        current_step:
+          type: integer
+        requested_by:
+          type: string
+          format: uuid
+        requested_at:
+          type: string
+          format: date-time
+        completed_at:
+          type: string
+          format: date-time
+          description: Null while the request is pending.
+        amount:
+          type: string
+        currency:
+          type: string
+        base_amount:
+          type: string
+        steps:
+          type: array
+          items:
+            $ref: '#/components/schemas/ApprovalFlowStep'
+        actions:
+          type: array
+          items:
+            $ref: '#/components/schemas/ApprovalAction'
+    ApprovalFlowResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiResponse'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/ApprovalFlow'
+    ApprovalFlowListResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiResponse'
+        - type: object
+          properties:
+            data:
+              type: object
+              properties:
+                items:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/ApprovalFlow'
+    ApprovalRequestResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiResponse'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/ApprovalRequest'
+    ApprovalPendingResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiResponse'
+        - type: object
+          properties:
+            data:
+              type: object
+              properties:
+                items:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/ApprovalRequest'
+    ApprovalRequestListResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiResponse'
+        - type: object
+          properties:
+            data:
+              type: object
+              properties:
+                items:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/ApprovalRequest'
+                total:
+                  type: integer

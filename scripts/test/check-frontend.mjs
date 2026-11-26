@@ -256,7 +256,16 @@ assertFile('apps/web/src/views/finance/PaymentListView.vue', [
   'newIdempotencyKey'
 ])
 
-assertFile('packages/sdk/src/index.ts', ["./sales", "./finance", "./gl"])
+assertFile('packages/sdk/src/index.ts', ["./sales", "./finance", "./gl", "./approval"])
+
+assertFile('packages/sdk/src/approval.ts', [
+  'ApprovalFlow',
+  'ApprovalRequest',
+  'approvalApi',
+  '/system/approval-flows',
+  '/approvals/pending',
+  '/approvals/requests'
+])
 
 assertFile('packages/sdk/src/client.ts', [
   'RequestOptions',
@@ -333,6 +342,8 @@ assertFile('packages/sdk/src/sales.ts', [
   'update(',
   'submit(',
   'approve(',
+  'reject(',
+  '/reject',
   'cancel(',
   'ship(',
   'shipments(',
@@ -392,6 +403,8 @@ assertFile('packages/sdk/src/finance.ts', [
 
 assertFile('packages/sdk/src/purchase.ts', [
   'purchaseApi',
+  'reject(',
+  '/reject',
   'returns',
   '/purchase/returns',
   '/purchase/receipts/${receiptID}/returns',
@@ -407,6 +420,12 @@ assertFile('packages/sdk/src/purchase.ts', [
 ])
 
 assertFile('api/openapi.yaml', [
+  '/system/approval-flows:',
+  '/approvals/pending:',
+  '/approvals/requests:',
+  'ApprovalFlow:',
+  'ApprovalRequest:',
+  'ApprovalFlowInput:',
   '/purchase/receipts/{id}/returns:',
   '/purchase/returns:',
   '/purchase/returns/{id}:',

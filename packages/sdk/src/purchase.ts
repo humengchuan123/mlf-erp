@@ -218,8 +218,11 @@ export const purchaseApi = {
   submit(id: string): Promise<unknown> {
     return api.post(`/purchase/orders/${id}/submit`)
   },
-  approve(id: string): Promise<unknown> {
-    return api.post(`/purchase/orders/${id}/approve`)
+  approve(id: string, input?: { comment?: string }): Promise<unknown> {
+    return api.post(`/purchase/orders/${id}/approve`, input)
+  },
+  reject(id: string, input: { comment: string }): Promise<unknown> {
+    return api.post(`/purchase/orders/${id}/reject`, input)
   },
   cancel(id: string): Promise<unknown> {
     return api.post(`/purchase/orders/${id}/cancel`)
