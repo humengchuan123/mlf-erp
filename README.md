@@ -2,7 +2,7 @@
 
 企业级 ERP Monorepo 骨架，支持 **SaaS 订阅** 与 **私有化安装** 两种交付形态。
 
-> 当前状态：Stage 1 平台底座 + Stage 2 主数据/编码规则/数据权限 + Stage 3A 采购/库存 + Stage 3B 销售/应收应付 + Stage 3C 总账/自动凭证/基础报表 + Stage 3D 期末结转/辅助核算 + Stage 3E 税务/发票/价税分离 + Stage 3F 多币种/汇率/汇兑损益 + Stage 3G 现金流量表 + Stage 3H 销售退货/贷项单 + Stage 3I 采购退货/应付贷项单 + Stage 3J 贷项抵用/退款 + Stage 3K 收付款反核销 + Stage 4A 资金操作幂等。
+> 当前状态：Stage 1 平台底座 + Stage 2 主数据/编码规则/数据权限 + Stage 3A 采购/库存 + Stage 3B 销售/应收应付 + Stage 3C 总账/自动凭证/基础报表 + Stage 3D 期末结转/辅助核算 + Stage 3E 税务/发票/价税分离 + Stage 3F 多币种/汇率/汇兑损益 + Stage 3G 现金流量表 + Stage 3H 销售退货/贷项单 + Stage 3I 采购退货/应付贷项单 + Stage 3J 贷项抵用/退款 + Stage 3K 收付款反核销 + Stage 4A 资金操作幂等 + Stage 4B 审批流与职责分离。
 > 设计参考：工作区根目录的《企业ERP应用开发指南》。
 
 ## 技术栈
@@ -299,6 +299,10 @@ pnpm test:api:stage3k
 # Writes to the local dev database; use a clean database for full regression.
 pnpm test:api:stage4a
 
+# Stage 4B API integration test (approval workflow and separation of duties)
+# Resets its dedicated mlf_erp_stage4b_test database; full clean regression uses a separate clean database.
+pnpm test:api:stage4b
+
 # Docker
 docker build -f deploy/docker/api.Dockerfile -t mlf-erp/api:dev .
 docker build -f deploy/docker/worker.Dockerfile -t mlf-erp/worker:dev .
@@ -476,12 +480,29 @@ docker build -f deploy/docker/web.Dockerfile -t mlf-erp/web:dev .
 - API 测试命令：`pnpm test:api:stage4a`（写入本地开发库，完整回归请使用干净数据库）。
 - 已知限制：key 默认可选；幂等记录明文保存响应体并保留 24 小时；超过 4 MB 的响应无法回放；清理任务运行在 API 进程内；不覆盖消息队列/Outbox 重试、GET 查询和客户端自动重试 UI。
 
+### Stage 4B 审批流与职责分离
+
+- 首期覆盖销售订单和采购订单：按单据类型、组织、金额阈值（本位币）和优先级匹配审批流程，支持 `always` / `amount_gte` 条件。
+- 流程包含顺序步骤，每步指定角色或用户审批人；审批动作 append-only，记录步骤、审批人、意见和时间。
+- 提交时匹配流程则创建 `pending` 请求，订单保持 `submitted`；最后一步通过后订单进入 `approved`；拒绝后订单回到 `draft`；取消订单会同时取消 pending 请求。
+- 无匹配流程时保持原有直审行为：提交后由有权限用户直接审批，不受审批流影响。
+- 禁止自批：申请人的用户步骤在创建请求时跳过，审批时服务端再次校验；若所有步骤均为申请人本人，提交返回 409 `APPROVAL_NO_APPROVER` 并将订单补偿回 `draft`。超级管理员可越过步骤角色限制，但仍不能审批自己的申请。
+- 角色步骤按 `erp.user_roles` 校验；角色下无其他可用用户时请求可能无人可批，需要管理员调整角色或流程。
+- 新增权限：`system.approval.read`（流程/待办/历史）、`system.approval.write`（流程配置）、`system.approval.act`（预留）。订单审批仍要求 `sales.order.approve` / `purchase.order.approve`。
+- 端点：
+  - `GET/POST /api/v1/system/approval-flows`、`GET/PUT/DELETE /api/v1/system/approval-flows/:id`
+  - `GET /api/v1/approvals/pending`、`GET /api/v1/approvals/requests`、`GET /api/v1/approvals/requests/:id`
+  - `POST /api/v1/sales/orders/:id/approve|reject`、`POST /api/v1/purchase/orders/:id/approve|reject`
+- 流程已有审批请求（含历史）时禁止编辑/删除，返回 409 `FLOW_IN_USE`；需要调整时新建流程替代。待办只返回当前步骤匹配当前用户/角色或超级管理员的请求，并排除申请人本人。
+- API 测试命令：`pnpm test:api:stage4b`。脚本会先 DROP/CREATE 专用库 `mlf_erp_stage4b_test` 并执行 migrate/seed/demo，因此可重复运行；不要与开发库混用，完整干净库回归请使用独立的干净数据库。
+- 已知限制：首期仅订单；跨模块提交/审批/拒绝不是单事务，使用补偿和错误日志，极端情况需人工核对；不支持并行/会签/委托/升级/通知/流程版本；角色步骤可能无人可批；无审批 SLA。
+
 ### 工程与交付
 
 - Monorepo 工作区与共享包。
 - PostgreSQL 迁移、seed、Docker Compose。
 - Dockerfile、GitHub Actions CI、SaaS/私有化发布模板。
-- CI 包含单元测试、构建、Stage 3B/3C/3D/3E/3F/3G/3H/3I/3J/3K/4A 真实 PostgreSQL API 集成测试。
+- CI 包含单元测试、构建、Stage 3B/3C/3D/3E/3F/3G/3H/3I/3J/3K/4A/4B 真实 PostgreSQL API 集成测试。
 - OpenAPI 契约与模块文档。
 
 ## 下一步
@@ -489,7 +510,7 @@ docker build -f deploy/docker/web.Dockerfile -t mlf-erp/web:dev .
 - 银行/现金外币重估、跨币种核销、多本位币/合并报表折算。
 - 价格协议、客户信用。
 - 反核销的反向恢复、红字发票、账龄分析。
-- 审批流引擎、导入导出、附件。
+- 审批流扩展（并行审批、会签/或签、委托、超时提醒）、导入导出、附件。
 - 数据范围管理 API/UI。
 - 登录限流、token version、httpOnly Cookie 评估。
 - Redis、MinIO、RabbitMQ 适配器。
